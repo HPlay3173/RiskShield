@@ -574,61 +574,52 @@ export function RiskShieldWorkbench() {
 
   return (
     <div className="appShell appleShell">
-      <header className="siteHeader">
-        <nav className="globalNav" aria-label="RiskShield 글로벌 메뉴">
-          <div className="globalNavInner">
-            <button type="button" className="globalBrand" onClick={() => setActiveView("builder")}>
-              <span aria-hidden="true">R</span>
-              <span className="visuallyHidden">RiskShield 홈</span>
-            </button>
-            <div className="globalNavLinks">
-              <button type="button" onClick={() => setActiveView("builder")}>RiskShield</button>
-              <button type="button" onClick={() => setActiveView("library")}>스킬</button>
-              <button type="button" onClick={() => setActiveView("analyzer")}>Analyzer</button>
-              <button type="button" onClick={() => setActiveView("export")}>전달 파일</button>
-            </div>
-            <div className="globalNavStatus" aria-label="현재 시스템 상태">
+      <a className="skipLink" href="#main-content">본문으로 건너뛰기</a>
+      <header className="appHeader">
+        <div className="appHeaderInner">
+          <button type="button" className="appBrand" onClick={() => setActiveView("builder")} aria-label="RiskShield Studio 홈">
+            <span className="appBrandMark" aria-hidden="true">R</span>
+            <strong>RiskShield Studio</strong>
+          </button>
+
+          <nav className="appNav" aria-label="RiskShield Studio 작업 메뉴">
+            {NAV_ITEMS.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={cx("navItem", "appNavItem", activeView === item.id && "navItemActive", activeView === item.id && "appNavItemActive")}
+                aria-current={activeView === item.id ? "page" : undefined}
+                onClick={() => setActiveView(item.id)}
+                data-view={item.id}
+              >
+                <span className="navIndex" aria-hidden="true">{item.short}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="appHeaderActions">
+            <div className="appSystemStatus" aria-label="현재 시스템 상태">
               <span>Mock 해석기</span>
               <span>{storageLabel}</span>
             </div>
+            {(activeView === "builder" || activeView === "library") && (
+              <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button">
+                {activeView === "library" ? "새 스킬 만들기" : "새 스킬"}
+              </button>
+            )}
           </div>
-        </nav>
-
-        <nav className="productNav" aria-label="RiskShield Studio 작업 메뉴">
-          <div className="productNavInner">
-            <button type="button" className="productName" onClick={() => setActiveView("builder")}>
-              <strong>RiskShield Studio</strong>
-              <span>Skill Builder</span>
-            </button>
-            <div className="productNavLinks">
-              {NAV_ITEMS.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  className={cx("navItem", activeView === item.id && "navItemActive")}
-                  aria-current={activeView === item.id ? "page" : undefined}
-                  onClick={() => setActiveView(item.id)}
-                  data-view={item.id}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button">
-              새 스킬
-            </button>
-          </div>
-        </nav>
+        </div>
       </header>
 
-      <main className="mainArea appleMain">
+      <main id="main-content" className="mainArea appleMain" tabIndex={-1}>
         {activeView === "builder" && (
           <div className="builderLayout appleBuilder">
             <section className="builderMain" aria-labelledby="builder-title">
               <section className="pageHeading editorialHero productTileLight">
                 <div>
                   <span className="editorialEyebrow">RISKSHIELD SKILL BUILDER</span>
-                  <h1 id="builder-title">위험한 단어가 아닌,<br />위험해지는 맥락을 만듭니다.</h1>
+                  <h1 id="builder-title">위험 패턴 스킬 만들기</h1>
                   <p>실제 사례를 조합형 위험 패턴으로 바꾸고, 사람이 검토한 결과만 Analyzer에 전달하세요.</p>
                   <div className="breadcrumb"><span>현재 스킬</span><b>/</b><span>{activeSkill.id}</span></div>
                 </div>
@@ -643,10 +634,10 @@ export function RiskShieldWorkbench() {
               <ol className="stepper workflowStrip" aria-label="스킬 제작 단계">
                 {BUILDER_STEPS.map((step, index) => (
                   <li key={step} className={cx(index + 1 <= builderStep && "stepDone", index + 1 === builderStep && "stepActive")}>
-                    <button type="button" onClick={() => setBuilderStep(index + 1)}>
+                    <div className="stepIndicator" aria-current={index + 1 === builderStep ? "step" : undefined}>
                       <span>{index + 1}</span>
                       <b>{step}</b>
-                    </button>
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -672,6 +663,7 @@ export function RiskShieldWorkbench() {
                     onChange={(event) => patchCase("text", event.target.value)}
                     placeholder="예: 기각 시 100% 환불"
                     data-testid="builder-case-input"
+                    required
                   />
                 </div>
                 <div className="fieldGrid">
@@ -726,7 +718,7 @@ export function RiskShieldWorkbench() {
                 </div>
               </section>
 
-              <section className="workspaceCard reviewCard productTileDark featureSection" aria-labelledby="review-title">
+              <section className="workspaceCard reviewCard featureSection" aria-labelledby="review-title">
                 <div className="cardHeading">
                   <div>
                     <span className="sectionNumber">02 · HUMAN REVIEW</span>
@@ -859,8 +851,8 @@ export function RiskShieldWorkbench() {
             </section>
 
             <aside className="inspector productTileLight analyzerPreviewTile" aria-label="스킬 검증 패널">
-              <div className="inspectorTabs" role="tablist" aria-label="검증 패널 보기">
-                <button type="button" role="tab" aria-selected="true">Analyzer 미리보기</button>
+              <div className="inspectorTabs">
+                <strong>Analyzer 미리보기</strong>
                 <span>현재 초안 포함</span>
               </div>
               <div className="inspectorInput">
@@ -887,14 +879,14 @@ export function RiskShieldWorkbench() {
             <section className="pageHeading editorialHero productTileLight">
               <div>
                 <span className="editorialEyebrow">DATA INTAKE</span>
-                <h1 id="import-title">많은 단어보다,<br />검토할 수 있는 근거.</h1>
+                <h1 id="import-title">CSV 데이터 가져오기</h1>
                 <p>대량 자료를 바로 승인하지 않고 구조와 출처를 점검한 뒤 사람의 검토 큐로 보냅니다.</p>
                 <div className="breadcrumb"><span>가져오기</span><b>/</b><span>CSV</span></div>
               </div>
               <span className="safetyBadge">민감 원문 보호</span>
             </section>
 
-            <div className="importGrid productTileDark featureSection">
+            <div className="importGrid featureSection">
               <section
                 className={cx("uploadZone", csvSummary && "uploadZoneComplete")}
                 onDragOver={(event) => event.preventDefault()}
@@ -993,11 +985,10 @@ export function RiskShieldWorkbench() {
             <section className="pageHeading editorialHero productTileParchment">
               <div>
                 <span className="editorialEyebrow">SKILL LIBRARY</span>
-                <h1 id="library-title">판단의 기준을<br />한곳에서 관리하세요.</h1>
+                <h1 id="library-title">스킬 라이브러리</h1>
                 <p>조합 패턴, 출처, 검토 상태를 하나의 라이브러리에서 확인하고 Analyzer에 반영할 스킬을 선택합니다.</p>
                 <div className="breadcrumb"><span>라이브러리</span><b>/</b><span>{skills.length} skills</span></div>
               </div>
-              <button type="button" className="primaryButton" onClick={beginNewSkill}>새 스킬 만들기</button>
             </section>
             <div className="librarySummary utilityGrid">
               <div><span>전체 스킬</span><strong>{skills.length}</strong></div>
@@ -1031,15 +1022,16 @@ export function RiskShieldWorkbench() {
               {filteredSkills.length ? (
                 <div className="tableScroll">
                   <table className="skillTable">
+                    <caption className="visuallyHidden">RiskShield 스킬 목록</caption>
                     <thead>
                       <tr>
-                        <th>상태</th>
-                        <th>스킬 / 조합 패턴</th>
-                        <th>카테고리</th>
-                        <th>최소 점수</th>
-                        <th>Dominant</th>
-                        <th>신뢰도</th>
-                        <th><span className="visuallyHidden">작업</span></th>
+                        <th scope="col">상태</th>
+                        <th scope="col">스킬 / 조합 패턴</th>
+                        <th scope="col">카테고리</th>
+                        <th scope="col">최소 점수</th>
+                        <th scope="col">Dominant</th>
+                        <th scope="col">신뢰도</th>
+                        <th scope="col"><span className="visuallyHidden">작업</span></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1070,10 +1062,10 @@ export function RiskShieldWorkbench() {
 
         {activeView === "analyzer" && (
           <section className="pageView appleView" aria-labelledby="analyzer-title">
-            <section className="pageHeading editorialHero productTileDark">
+            <section className="pageHeading editorialHero">
               <div>
                 <span className="editorialEyebrow">ANALYZER V4</span>
-                <h1 id="analyzer-title">평균에 가려진 위험까지,<br />분명하게.</h1>
+                <h1 id="analyzer-title">광고 문구 분석</h1>
                 <p>단어 하나가 아닌 표현의 조합과 사용 맥락을 읽고, 가장 지배적인 위험을 중심으로 판단합니다.</p>
                 <div className="breadcrumb"><span>Analyzer v4</span><b>/</b><span>Live test</span></div>
               </div>
@@ -1126,13 +1118,13 @@ export function RiskShieldWorkbench() {
             <section className="pageHeading editorialHero productTileLight">
               <div>
                 <span className="editorialEyebrow">DELIVERY</span>
-                <h1 id="export-title">검토된 판단만,<br />Analyzer로.</h1>
+                <h1 id="export-title">Analyzer 파일 내보내기</h1>
                 <p>사람의 검토를 마친 스킬만 일관된 JSONL·JSON 파일로 만들고, 출처와 상태를 함께 보존합니다.</p>
                 <div className="breadcrumb"><span>Delivery</span><b>/</b><span>Analyzer files</span></div>
               </div>
               <span className="completionBadge completionBadgeComplete">5개 파일 준비</span>
             </section>
-            <div className="exportHero productTileDark featureSection">
+            <div className="workspaceCard exportHero featureSection">
               <div>
                 <span className="sectionNumber">PREFLIGHT COMPLETE</span>
                 <h2>{reviewedCount}개 검토 완료 스킬이 준비되었습니다.</h2>
@@ -1173,49 +1165,13 @@ export function RiskShieldWorkbench() {
         )}
       </main>
 
-      <footer className="siteFooter">
+      <footer className="siteFooter compactFooter">
         <div className="siteFooterInner">
-          <p className="footerStatement">
-            <strong>판단을 자동화하지 않습니다.</strong>
-            RiskShield는 담당자가 더 빠르고 일관되게 검토할 수 있도록 근거를 정리합니다.
-          </p>
-          <div className="footerNavigation" aria-label="RiskShield 바로가기">
-            <div>
-              <strong>만들기</strong>
-              <button type="button" onClick={() => setActiveView("builder")}>Skill Builder</button>
-              <button type="button" onClick={() => setActiveView("import")}>CSV 가져오기</button>
-            </div>
-            <div>
-              <strong>검증하기</strong>
-              <button type="button" onClick={() => setActiveView("library")}>스킬 라이브러리</button>
-              <button type="button" onClick={() => setActiveView("analyzer")}>Analyzer v4</button>
-            </div>
-            <div>
-              <strong>전달하기</strong>
-              <button type="button" onClick={() => setActiveView("export")}>Analyzer 파일</button>
-              <span>검토 완료 스킬만 포함</span>
-            </div>
-          </div>
           <div className="footerLegal">
-            <span>RiskShield Studio</span>
-          <span>Human in the loop · risk intelligence</span>
+            <span><strong>RiskShield Studio</strong> · Human in the loop · 판단을 자동화하지 않고 담당자의 최종 검토를 돕습니다.</span>
           </div>
         </div>
       </footer>
-
-      <nav className="mobileNav" aria-label="모바일 RiskShield 작업 메뉴">
-        {NAV_ITEMS.map((item) => (
-          <button
-            type="button"
-            key={item.id}
-            className={activeView === item.id ? "mobileNavActive" : undefined}
-            aria-current={activeView === item.id ? "page" : undefined}
-            onClick={() => setActiveView(item.id)}
-          >
-            <span>{item.short}</span>{item.label.replace("스킬 ", "")}
-          </button>
-        ))}
-      </nav>
 
       <div className={cx("toast", notice && "toastVisible")} role="status" aria-live="polite">
         {notice}
