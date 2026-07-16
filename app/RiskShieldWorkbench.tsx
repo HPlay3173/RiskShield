@@ -140,18 +140,28 @@ function ChipEditor({
       <label>{label}</label>
       <div className={cx("chipEditor", "chipEditor-" + tone)}>
         <div className="chipList" aria-label={label + " 목록"}>
-          {values.map((value, index) => (
-            <span className="editableChip" key={value + index}>
-              <span>{value.replace(/^re:/, "정규식 · ")}</span>
-              <button
-                type="button"
-                aria-label={value + " 삭제"}
-                onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
+          {values.map((value, index) => {
+            const isRegex = value.startsWith("re:");
+            const displayValue = isRegex ? value.slice(3) : value;
+
+            return (
+              <span className={cx("editableChip", isRegex && "editableChipRegex")} key={value + index}>
+                {isRegex && <span className="chipKind">정규식</span>}
+                {isRegex ? (
+                  <code className="editableChipValue" title={displayValue}>{displayValue}</code>
+                ) : (
+                  <span className="editableChipValue">{displayValue}</span>
+                )}
+                <button
+                  type="button"
+                  aria-label={value + " 삭제"}
+                  onClick={() => onChange(values.filter((_, itemIndex) => itemIndex !== index))}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
         </div>
         <div className="chipInputRow">
           <input
@@ -800,7 +810,7 @@ export function RiskShieldWorkbench() {
                     onChange={(values) => patchSkill({ triggerPatterns: values })}
                     tone="risk"
                   />
-                  <div className="pairPlus" aria-hidden="true">＋</div>
+                  <div className="pairPlus" aria-hidden="true">AND</div>
                   <ChipEditor
                     label="맥락 패턴"
                     values={activeSkill.contextPatterns}
