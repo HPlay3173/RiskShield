@@ -1,0 +1,113 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "9c00dce3-1c66-426f-9909-afa0898b178b",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "risk_skills": {
+      "name": "risk_skills",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "review_status": {
+          "name": "review_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "severity_floor": {
+          "name": "severity_floor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dominant_risk": {
+          "name": "dominant_risk",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "risk_skills_updated_idx": {
+          "name": "risk_skills_updated_idx",
+          "columns": [
+            "updated_at"
+          ],
+          "isUnique": false
+        },
+        "risk_skills_status_idx": {
+          "name": "risk_skills_status_idx",
+          "columns": [
+            "review_status",
+            "category"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "risk_skills_review_status_check": {
+          "name": "risk_skills_review_status_check",
+          "value": "\"risk_skills\".\"review_status\" IN ('draft', 'reviewed')"
+        },
+        "risk_skills_severity_floor_check": {
+          "name": "risk_skills_severity_floor_check",
+          "value": "\"risk_skills\".\"severity_floor\" BETWEEN 0 AND 100"
+        },
+        "risk_skills_dominant_risk_check": {
+          "name": "risk_skills_dominant_risk_check",
+          "value": "\"risk_skills\".\"dominant_risk\" IN (0, 1)"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
