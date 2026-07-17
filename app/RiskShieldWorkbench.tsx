@@ -8,6 +8,7 @@ import {
   createMockSkillDraft,
   parseCsv,
   parseBundleFiles,
+  previewSkillImport,
   starterSkills,
   summarizeCsv,
   validateSkill,
@@ -18,6 +19,8 @@ import {
   type HighlightSegment,
   type RiskSkill,
   type SeverityRules,
+  type SkillImportPreview,
+  type SkillImportMode,
 } from "@/lib/riskshield";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -83,6 +86,9 @@ type BundleImportReport = {
   skillCount: number;
   issues: string[];
   applied: boolean;
+  parsedSkills: RiskSkill[];
+  parsedSeverityRules: SeverityRules;
+  preview: SkillImportPreview | null;
 };
 
 const EMPTY_CASE: CaseInput = {
@@ -139,12 +145,6 @@ function reviewStatusLabel(status: RiskSkill["reviewStatus"]) {
   if (status === "reviewed") return "검토 완료";
   if (status === "rejected") return "반려";
   return "초안";
-}
-
-function reviewStatusTone(status: RiskSkill["reviewStatus"]) {
-  if (status === "reviewed") return "statusBadge-safe";
-  if (status === "rejected") return "statusBadge-critical";
-  return "statusBadge-neutral";
 }
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -386,7 +386,7 @@ function AnalysisPanel({
 
 export function RiskShieldWorkbench() {
   const [activeView, setActiveView] = useState<ViewId>("builder");
-  const [skills, setSkills] = useState<RiskSkill[]>(starterSkills);
+  const [skills, setSkills] = useState<RiskSkill[]>([]);
   const [activeSkill, setActiveSkill] = useState<RiskSkill>(starterSkills[0]);
   const [caseInput, setCaseInput] = useState<CaseInput>({
     text: "15초만에 형량 분석",
@@ -399,15 +399,10 @@ export function RiskShieldWorkbench() {
   const [builderStep, setBuilderStep] = useState(1);
   const [severityRules, setSeverityRules] = useState<SeverityRules>(DEFAULT_SEVERITY_RULES);
   const [analysisInput, setAnalysisInput] = useState("15초만에 형량 분석");
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(() =>
-    analyzeText("15초만에 형량 분석", starterSkills, {
-      includeDrafts: true,
-      severityRules: DEFAULT_SEVERITY_RULES,
-    }),
-  );
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState("");
   const [showReviewErrors, setShowReviewErrors] = useState(false);
-  const [storageLabel, setStorageLabel] = useState("샘플 불러오는 중");
+  const [storageLabel, setStorageLabel] = useState("저장소 연결 확인 중");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [csvSummary, setCsvSummary] = useState<CsvSummary | null>(null);
@@ -415,15 +410,24 @@ export function RiskShieldWorkbench() {
   const [csvName, setCsvName] = useState("");
   const [maskSensitive, setMaskSensitive] = useState(true);
   const [bundleImportReport, setBundleImportReport] = useState<BundleImportReport | null>(null);
+  const [importKind, setImportKind] = useState<"csv" | "bundle">("csv");
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const [applyingImport, setApplyingImport] = useState(false);
+  const [storageError, setStorageError] = useState("");
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryStatus, setLibraryStatus] = useState<"all" | RiskSkill["reviewStatus"]>("all");
   const [libraryCategory, setLibraryCategory] = useState("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
   const builderStageRef = useRef<HTMLDivElement>(null);
+  const hasMountedRef = useRef(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
     if (activeView === "builder") builderStageRef.current?.focus({ preventScroll: true });
   }, [activeView, builderStep]);
 
@@ -432,15 +436,23 @@ export function RiskShieldWorkbench() {
     fetch("/api/skills")
       .then(async (response) => {
         if (!response.ok) throw new Error("storage unavailable");
-        return (await response.json()) as { skills?: RiskSkill[] };
+        return (await response.json()) as { skills?: RiskSkill[]; severityRules?: SeverityRules };
       })
       .then((payload) => {
-        if (cancelled || !payload.skills?.length) return;
-        setSkills(payload.skills);
+        if (cancelled) return;
+        const loadedSkills = payload.skills ?? [];
+        setSkills(loadedSkills);
+        if (loadedSkills[0]) setActiveSkill(loadedSkills[0]);
+        if (payload.severityRules) setSeverityRules(payload.severityRules);
+        setStorageError("");
         setStorageLabel("스킬 저장소 연결됨");
       })
       .catch(() => {
-        if (!cancelled) setStorageLabel("제공 샘플 · 로컬 세션");
+        if (!cancelled) {
+          setSkills([]);
+          setStorageError("스킬 저장소에 연결하지 못했습니다. 새로고침 후 다시 시도해 주세요.");
+          setStorageLabel("스킬 저장소 연결 실패");
+        }
       });
     return () => {
       cancelled = true;
@@ -500,6 +512,15 @@ export function RiskShieldWorkbench() {
     (skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0,
   ).length;
   const currentBuilderStep = BUILDER_STEPS[builderStep - 1] ?? BUILDER_STEPS[0];
+  const displayedBundlePreview = useMemo(() => {
+    if (!bundleImportReport?.preview) return null;
+    return previewSkillImport(
+      skills,
+      bundleImportReport.parsedSkills,
+      confirmReplace ? "replace" : "merge",
+      bundleImportReport.issues.length,
+    );
+  }, [bundleImportReport, confirmReplace, skills]);
 
   function patchCase<K extends keyof CaseInput>(key: K, value: CaseInput[K]) {
     setCaseInput((current) => ({ ...current, [key]: value }));
@@ -601,9 +622,7 @@ export function RiskShieldWorkbench() {
             : "초안을 저장했습니다.",
       );
     } catch {
-      setActiveSkill(nextSkill);
-      setSkills((current) => [nextSkill, ...current.filter((skill) => skill.id !== nextSkill.id)]);
-      setNotice("저장소에 연결되지 않아 현재 세션에만 유지됩니다.");
+      setNotice("저장하지 못했습니다. 화면의 편집 내용은 저장 완료 상태로 반영되지 않았습니다.");
     } finally {
       setSaving(false);
     }
@@ -660,36 +679,24 @@ export function RiskShieldWorkbench() {
       allIssues.push("risk_skills.jsonl에 불러올 수 있는 스킬이 없습니다.");
     }
 
-    if (riskSkillsValid) {
-      const firstSkill = parsed.skills[0];
-      setSkills(parsed.skills);
-      setSeverityRules(parsed.severityRules);
-      setActiveSkill(firstSkill);
-      setCaseInput({
-        text: firstSkill.surfaceMeaning,
-        description: firstSkill.source.title,
-        domain: firstSkill.riskDomain,
-        occurredAt: firstSkill.source.date,
-        sourceUrl: firstSkill.source.url,
-        memo: firstSkill.notes,
-      });
-      setAnalysisResult(null);
-      setAnalysisError("");
-      setLibraryStatus("all");
-      setNotice(`${parsed.skills.length}개 스킬과 점수 정책을 불러왔습니다.`);
-    }
-
     setBundleImportReport({
       selectedNames: selected.map((file) => file.name),
       loadedNames: parsed.filesLoaded,
       skillCount: parsed.skills.length,
       issues: allIssues,
-      applied: riskSkillsValid,
+      applied: false,
+      parsedSkills: parsed.skills,
+      parsedSeverityRules: parsed.severityRules,
+      preview: riskSkillsValid
+        ? previewSkillImport(skills, parsed.skills, "merge", allIssues.length)
+        : null,
     });
+    setConfirmReplace(false);
+    setNotice(riskSkillsValid ? "번들을 확인했습니다. 미리보기를 검토한 뒤 적용해 주세요." : "번들을 적용할 수 없습니다.");
     if (bundleInputRef.current) bundleInputRef.current.value = "";
   }
 
-  function stageCsvRows() {
+  async function stageCsvRows() {
     if (!csvText || !csvSummary) return;
     const rows = parseCsv(csvText.replace(/^\uFEFF/, ""));
     const headers = rows[0] ?? [];
@@ -717,10 +724,58 @@ export function RiskShieldWorkbench() {
           new Date(now + index * 1000),
         ),
       );
-    setSkills((current) => [...drafts, ...current]);
-    setNotice(drafts.length + "건을 현재 세션의 검토 큐에 추가했습니다.");
-    setLibraryStatus("draft");
-    setActiveView("library");
+    try {
+      const response = await fetch("/api/skills", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "merge", skills: drafts, severityRules }),
+      });
+      const payload = (await response.json()) as { skills?: RiskSkill[]; error?: string };
+      if (!response.ok || !payload.skills) throw new Error(payload.error || "저장 실패");
+      setSkills(payload.skills);
+      setNotice(drafts.length + "건을 D1 검토 큐에 저장했습니다.");
+      setLibraryStatus("draft");
+      setActiveView("library");
+    } catch {
+      setNotice("CSV 후보를 저장하지 못했습니다. 기존 저장 데이터는 변경되지 않았습니다.");
+    }
+  }
+
+  async function applyBundle(mode: SkillImportMode) {
+    if (!bundleImportReport?.preview || bundleImportReport.issues.length) return;
+    if (mode === "replace" && !confirmReplace) {
+      setNotice("전체 교체 확인란을 먼저 선택해 주세요.");
+      return;
+    }
+    setApplyingImport(true);
+    try {
+      const response = await fetch("/api/skills", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          confirmReplace: mode === "replace" ? confirmReplace : undefined,
+          skills: bundleImportReport.parsedSkills,
+          severityRules: bundleImportReport.parsedSeverityRules,
+        }),
+      });
+      const payload = (await response.json()) as {
+        skills?: RiskSkill[];
+        severityRules?: SeverityRules;
+        error?: string;
+      };
+      if (!response.ok || !payload.skills) throw new Error(payload.error || "가져오기 실패");
+      setSkills(payload.skills);
+      setSeverityRules(payload.severityRules ?? bundleImportReport.parsedSeverityRules);
+      if (payload.skills[0]) setActiveSkill(payload.skills[0]);
+      setBundleImportReport((current) => current ? { ...current, applied: true } : current);
+      setStorageLabel("스킬 저장소 연결됨");
+      setNotice(mode === "replace" ? "전체 교체를 D1에 저장했습니다." : "병합 결과를 D1에 저장했습니다.");
+    } catch {
+      setNotice("번들을 저장하지 못했습니다. 기존 저장 데이터는 변경되지 않았습니다.");
+    } finally {
+      setApplyingImport(false);
+    }
   }
 
   function openSkill(skill: RiskSkill) {
@@ -807,6 +862,16 @@ export function RiskShieldWorkbench() {
               </button>
             ))}
           </nav>
+          <label className="mobileNavSelect">
+            <span>화면 선택</span>
+            <select
+              value={activeView}
+              onChange={(event) => changeView(event.target.value as ViewId)}
+              aria-label="RiskShield Studio 화면 선택"
+            >
+              {NAV_ITEMS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
 
           <div className="appHeaderActions">
             <span className="visuallyHidden" aria-live="polite">{storageLabel}</span>
@@ -820,6 +885,7 @@ export function RiskShieldWorkbench() {
       </header>
 
       <main id="main-content" className="mainArea appleMain" tabIndex={-1}>
+        {storageError && <p className="storageErrorBanner" role="alert">{storageError}</p>}
         {activeView === "builder" && (
           <div className="builderLayout appleBuilder wizardBuilder">
             <section className="builderMain" aria-labelledby="builder-title">
@@ -1275,7 +1341,26 @@ export function RiskShieldWorkbench() {
               <span className="safetyBadge">민감 원문 보호</span>
             </section>
 
-            <div className="importGrid featureSection">
+            <div className="importModeSwitch" role="group" aria-label="가져올 데이터 종류">
+              <button
+                type="button"
+                className={cx("secondaryButton", importKind === "csv" && "importModeActive")}
+                aria-pressed={importKind === "csv"}
+                onClick={() => setImportKind("csv")}
+              >
+                CSV 후보
+              </button>
+              <button
+                type="button"
+                className={cx("secondaryButton", importKind === "bundle" && "importModeActive")}
+                aria-pressed={importKind === "bundle"}
+                onClick={() => setImportKind("bundle")}
+              >
+                스킬 번들
+              </button>
+            </div>
+
+            {importKind === "csv" && <div className="importGrid featureSection">
               <section
                 className={cx("uploadZone", csvSummary && "uploadZoneComplete")}
                 onDragOver={(event) => event.preventDefault()}
@@ -1326,9 +1411,9 @@ export function RiskShieldWorkbench() {
                   </button>
                 </div>
               </section>
-            </div>
+            </div>}
 
-            <section className="workspaceCard bundleImportCard featureSection" aria-labelledby="bundle-import-title">
+            {importKind === "bundle" && <section className="workspaceCard bundleImportCard featureSection" aria-labelledby="bundle-import-title">
               <div className="cardHeading">
                 <div>
                   <span className="sectionNumber">SKILL BUNDLE</span>
@@ -1360,35 +1445,63 @@ export function RiskShieldWorkbench() {
                 <div
                   className={cx(
                     "bundleReport",
-                    bundleImportReport.applied && bundleImportReport.issues.length === 0 && "bundleReportSuccess",
-                    bundleImportReport.applied && bundleImportReport.issues.length > 0 && "bundleReportWarning",
-                    !bundleImportReport.applied && "bundleReportError",
+                    bundleImportReport.applied && "bundleReportSuccess",
+                    !bundleImportReport.applied && bundleImportReport.issues.length > 0 && "bundleReportError",
+                    !bundleImportReport.applied && bundleImportReport.issues.length === 0 && "bundleReportWarning",
                   )}
                   role="status"
                   aria-live="polite"
                 >
                   <strong>
                     {bundleImportReport.applied
-                      ? `${bundleImportReport.skillCount}개 스킬을 작업 공간에 반영했습니다.`
-                      : "번들을 반영하지 않았습니다."}
+                      ? `${displayedBundlePreview?.finalCount ?? bundleImportReport.skillCount}개 스킬을 D1에 저장했습니다.`
+                      : bundleImportReport.issues.length
+                        ? "수정이 필요한 번들입니다."
+                        : "2단계 · 적용 전 미리보기"}
                   </strong>
                   <dl>
                     <div><dt>선택 파일</dt><dd>{bundleImportReport.selectedNames.join(", ") || "없음"}</dd></div>
                     <div><dt>인식 파일</dt><dd>{bundleImportReport.loadedNames.join(", ") || "없음"}</dd></div>
                     <div><dt>유효 스킬</dt><dd>{bundleImportReport.skillCount.toLocaleString("ko-KR")}개</dd></div>
+                    {displayedBundlePreview && <>
+                      <div><dt>적용 방식</dt><dd>{displayedBundlePreview.mode === "replace" ? "전체 교체" : "병합"}</dd></div>
+                      <div><dt>신규</dt><dd>{displayedBundlePreview.newCount}개</dd></div>
+                      <div><dt>업데이트</dt><dd>{displayedBundlePreview.updateCount}개</dd></div>
+                      <div><dt>동일</dt><dd>{displayedBundlePreview.sameCount}개</dd></div>
+                      <div><dt>충돌</dt><dd>{displayedBundlePreview.conflictCount}개</dd></div>
+                      <div><dt>건너뜀</dt><dd>{displayedBundlePreview.skippedCount}개</dd></div>
+                      <div><dt>오류</dt><dd>{displayedBundlePreview.errorCount}개</dd></div>
+                      <div><dt>적용 후</dt><dd>{displayedBundlePreview.finalCount}개</dd></div>
+                    </>}
                   </dl>
                   {bundleImportReport.issues.length > 0 ? (
                     <ul className="bundleIssueList">
                       {bundleImportReport.issues.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}
                     </ul>
                   ) : (
-                    <p className="bundleNoIssues">구조 검사에서 문제가 발견되지 않았습니다.</p>
+                    <>
+                      <p className="bundleNoIssues">구조 검사에서 문제가 발견되지 않았습니다.</p>
+                      {!bundleImportReport.applied && displayedBundlePreview && (
+                        <div className="bundleApplyActions">
+                          <button type="button" className="primaryButton" disabled={applyingImport} onClick={() => void applyBundle("merge")}>
+                            {applyingImport ? "저장 중…" : "병합하여 저장"}
+                          </button>
+                          <label className="replaceConfirm">
+                            <input type="checkbox" checked={confirmReplace} onChange={(event) => setConfirmReplace(event.target.checked)} />
+                            기존 스킬 전체 교체를 이해했습니다
+                          </label>
+                          <button type="button" className="dangerButton" disabled={applyingImport || !confirmReplace} onClick={() => void applyBundle("replace")}>
+                            전체 교체
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
-            </section>
+            </section>}
 
-            {csvSummary ? (
+            {importKind === "csv" && (csvSummary ? (
               <section className="workspaceCard csvResults productTileParchment featureSection" aria-labelledby="csv-results-title">
                 <div className="cardHeading">
                   <div>
@@ -1416,7 +1529,7 @@ export function RiskShieldWorkbench() {
                 </div>
                 <div className="cardFooter">
                   <p>안전을 위해 최대 50개 후보만 먼저 생성합니다. 원문은 {maskSensitive ? "가림 상태로" : "표시 상태로"} 유지됩니다.</p>
-                  <button type="button" className="primaryButton" onClick={stageCsvRows} data-testid="csv-stage-button">
+                  <button type="button" className="primaryButton" onClick={() => void stageCsvRows()} data-testid="csv-stage-button">
                     검토 큐에 추가
                   </button>
                 </div>
@@ -1425,7 +1538,7 @@ export function RiskShieldWorkbench() {
               <div className="emptyStateLine">
                 <span>1</span><p><b>파일 선택</b> → 열 연결 → 데이터 점검 → 검토 큐 추가</p>
               </div>
-            )}
+            ))}
           </section>
         )}
 

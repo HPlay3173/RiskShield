@@ -154,6 +154,24 @@ export interface ParsedBundle {
   issues: string[];
 }
 
+export type SkillImportMode = "merge" | "replace";
+
+export interface SkillImportPreview {
+  mode: SkillImportMode;
+  newCount: number;
+  updateCount: number;
+  sameCount: number;
+  conflictCount: number;
+  skippedCount: number;
+  errorCount: number;
+  finalCount: number;
+  newIds: string[];
+  updateIds: string[];
+  sameIds: string[];
+  conflictIds: string[];
+  finalSkills: RiskSkill[];
+}
+
 export const DEFAULT_SEVERITY_RULES: SeverityRules = {
   schemaVersion: "1.0.0",
   scoringStrategy: "dominant_risk",
@@ -167,8 +185,8 @@ export const DEFAULT_SEVERITY_RULES: SeverityRules = {
     { grade: "미탐지", min: 0, max: 0 },
     { grade: "낮음", min: 1, max: 44 },
     { grade: "유의", min: 45, max: 69 },
-    { grade: "주의", min: 70, max: 84 },
-    { grade: "높음", min: 85, max: 100 },
+    { grade: "주의", min: 70, max: 79 },
+    { grade: "높음", min: 80, max: 100 },
   ],
 };
 
@@ -252,16 +270,21 @@ export const starterSkills: RiskSkill[] = [
   }),
   seedSkill({
     id: "risk_legal_000002",
+    revision: 2,
     category: "고위험 전문서비스 광고",
     subcategory: "법률 결과·환불 보장",
     patternType: "legal_outcome + refund_guarantee",
-    triggerPatterns: ["기각", "각하", "승소", "무죄", "불기소", "감형", "집행유예"],
+    triggerPatterns: [
+      "기각", "각하", "승소", "무죄", "불기소", "감형", "집행유예",
+      "re:실패(?:하|했|할|면|시)?", "re:결과(?:가|는)?\\s*(?:안\\s*나오|없)", "re:효과(?:가|는)?\\s*(?:없|미흡)",
+    ],
     contextPatterns: [
-      "re:(?:100\\s*%|전액)?\\s*환불",
+      "re:(?:100\\s*%|전액|전부)?\\s*(?:환불|돌려\\s*드(?:림|립니다|려요))",
       "환불 보장",
       "결과 보장",
       "승소 보장",
     ],
+    exclusionPatterns: ["배송", "배달", "시스템 장애", "결제 오류", "품절"],
     surfaceMeaning: "특정 법률 결과와 환불 또는 보장을 직접 연결합니다.",
     riskSummary: "환불 조건이 법률 결과 보장처럼 인식될 수 있습니다.",
     socialContext: "전문서비스에서 성과 보장 문구는 소비자 오인 위험이 큽니다.",
@@ -274,6 +297,8 @@ export const starterSkills: RiskSkill[] = [
     recentContextTags: ["전문직 광고", "성과 보장", "환불 조건"],
     safeRewrite: ["사건 진행 조건과 서비스 범위에 따른 환불 기준을 명확히 안내합니다."],
     falsePositiveNote: "법률 결과와 무관한 배송·시스템 장애 환불은 별도로 검토합니다.",
+    conditionScope: "paragraph",
+    maxDistance: 120,
   }),
   seedSkill({
     id: "risk_history_000001",
@@ -325,12 +350,19 @@ export const starterSkills: RiskSkill[] = [
   }),
   seedSkill({
     id: "risk_education_000001",
+    revision: 2,
     category: "교육·입시 광고",
     subcategory: "교육 결과 보장",
     patternType: "education_outcome + guarantee",
-    triggerPatterns: ["합격", "전교 1등", "성적 향상", "등급 상승", "명문대 진학"],
-    contextPatterns: ["보장", "확정", "무조건", "반드시", "re:100\\s*%"],
-    exclusionPatterns: ["합격자 발표", "최종 합격 통지"],
+    triggerPatterns: [
+      "re:합\\s*격", "전교 1등", "성적 향상", "등급 상승", "명문대 진학",
+    ],
+    contextPatterns: [
+      "re:보\\s*장", "확정", "무조건", "반드시", "누구나",
+      "re:(?:결과|합격)(?:는|을|를)?[^.!?\\n]{0,18}(?:책임|약속)",
+      "re:1\\s*0\\s*0\\s*%",
+    ],
+    exclusionPatterns: ["합격자 발표", "최종 합격 통지", "지원할 수", "심사로 결정", "선발 절차"],
     surfaceMeaning: "합격이나 성적과 같은 교육 결과를 보장합니다.",
     riskSummary: "통제할 수 없는 입시 결과를 확정적으로 약속해 학부모와 학생을 오인시킬 수 있습니다.",
     socialContext: "입시 불안을 자극하는 성과 보장형 마케팅은 취약한 소비자에게 큰 영향을 줍니다.",
@@ -343,14 +375,23 @@ export const starterSkills: RiskSkill[] = [
     recentContextTags: ["입시 불안", "교육 성과", "결과 보장"],
     safeRewrite: ["학습 목표 달성을 위한 맞춤형 관리 프로그램을 제공합니다."],
     falsePositiveNote: "학습 목표 또는 실제 합격자 발표는 결과 보장과 구분합니다.",
+    conditionScope: "paragraph",
+    maxDistance: 140,
   }),
   seedSkill({
     id: "risk_medical_000001",
+    revision: 2,
     category: "의료 광고",
     subcategory: "의료 효과 절대 보장",
     patternType: "medical_effect + absolute_guarantee",
-    triggerPatterns: ["완치", "치료 효과", "질환 개선", "통증 제거", "재발 방지"],
-    contextPatterns: ["re:100\\s*%", "완벽하게", "반드시", "영구적으로", "무조건"],
+    triggerPatterns: [
+      "완치", "치료 효과", "질환 개선", "통증 제거", "재발 방지",
+      "re:(?:치료|시술|제품|서비스)?\\s*효과",
+    ],
+    contextPatterns: [
+      "re:1\\s*0\\s*0\\s*%", "백퍼", "완벽하게", "반드시", "영구적으로", "무조건",
+      "re:성공률(?:은|이)?\\s*1\\s*0\\s*0\\s*%",
+    ],
     surfaceMeaning: "의료적 효과를 절대적으로 보장합니다.",
     riskSummary: "개인차와 의학적 불확실성을 숨긴 고위험 효능 표현입니다.",
     socialContext: "건강 관련 의사결정에 직접 영향을 주므로 일반 상품 광고보다 높은 주의가 필요합니다.",
@@ -363,14 +404,26 @@ export const starterSkills: RiskSkill[] = [
     recentContextTags: ["의료 효능", "절대 표현", "소비자 건강"],
     safeRewrite: ["개인 상태에 따라 적절한 상담과 치료 방향을 안내합니다."],
     falsePositiveNote: "치료비 지원률이나 재료 함량처럼 의료 효과가 아닌 100% 수치는 구분합니다.",
+    conditionScope: "paragraph",
+    maxDistance: 140,
   }),
   seedSkill({
     id: "risk_finance_000001",
+    revision: 2,
     category: "금융·투자 광고",
     subcategory: "투자 수익 보장",
     patternType: "financial_profit + guarantee",
-    triggerPatterns: ["월 수익", "연 수익", "투자 수익", "수익률", "배당 수익", "원금"],
-    contextPatterns: ["보장", "확정", "무조건", "원금 보전", "손실 없음"],
+    triggerPatterns: [
+      "월 수익", "연 수익", "투자 수익", "수익률", "배당 수익", "원금",
+      "수익", "re:돈", "이익", "손실 가능성", "손실", "손해",
+      "re:월\\s*\\d{1,5}\\s*(?:만\\s*)?원",
+    ],
+    contextPatterns: [
+      "보장", "확정", "무조건", "반드시", "누구나", "원금 보전", "손실 없음",
+      "re:(?:벌|얻|남길)\\s*수\\s*(?:있|있습니다)",
+      "re:(?:전혀|절[.\\s]*대(?:로)?[.\\s]*|조금도)[^.!?\\n]{0,22}(?:없|않)",
+      "re:(?:손실|손해)[^.!?\\n]{0,16}(?:없|제로)",
+    ],
     surfaceMeaning: "투자 수익이나 원금을 확정적으로 보장합니다.",
     riskSummary: "손실 가능성을 숨기고 투자 결과를 확정적으로 인식시킬 수 있습니다.",
     socialContext: "불확실성이 본질인 금융상품에서 수익 보장 표현은 소비자 피해로 이어질 가능성이 큽니다.",
@@ -383,15 +436,23 @@ export const starterSkills: RiskSkill[] = [
     recentContextTags: ["투자자 보호", "수익 보장", "위험 고지"],
     safeRewrite: ["수익 가능성과 위험 요인을 함께 안내합니다."],
     falsePositiveNote: "과거 실적 공개 또는 수익 비보장 고지는 보장 주장과 구분합니다.",
+    conditionScope: "sentence",
+    maxDistance: 100,
   }),
   seedSkill({
     id: "risk_privacy_000001",
+    revision: 2,
     category: "개인정보·사생활 침해 위험",
     subcategory: "동의 없는 위치정보 추적",
     patternType: "privacy_tracking + lack_of_consent",
-    triggerPatterns: ["몰래", "동의 없이", "무단으로", "사용자 모르게", "비밀리에"],
+    triggerPatterns: [
+      "몰래", "동의 없이", "무단으로", "사용자 모르게", "비밀리에",
+      "re:(?:상대방|이용자|사용자|본인)(?:에게|한테)?[^.!?\\n]{0,18}알릴\\s*필요(?:는|가)?\\s*없",
+    ],
     contextPatterns: [
       "re:(?:위치\\s*정보|위치|동선|gps)(?:을|를)?\\s*(?:분석|추적|수집)",
+      "개인정보",
+      "re:(?:개인\\s*정보|행동\\s*정보|접속\\s*기록)(?:를|을|은|는)?\\s*(?:분석|추적|수집|활용)",
     ],
     surfaceMeaning: "당사자의 동의 없이 위치나 동선을 분석한다고 표현합니다.",
     riskSummary: "수집 목적과 동의가 불명확해 사생활 침해를 조장할 수 있습니다.",
@@ -405,6 +466,35 @@ export const starterSkills: RiskSkill[] = [
     recentContextTags: ["위치정보", "정보주체 동의", "사생활"],
     safeRewrite: ["동의받은 위치 정보를 바탕으로 맞춤 정보를 제공합니다."],
     falsePositiveNote: "몰래카메라라는 합성어 또는 비동의 수집을 하지 않는다는 고지는 제외합니다.",
+    conditionScope: "paragraph",
+    maxDistance: 160,
+  }),
+  seedSkill({
+    id: "risk_finance_000002",
+    category: "금융·투자 광고",
+    subcategory: "투자 손실 가능성 부정",
+    patternType: "financial_risk + loss_absence",
+    triggerPatterns: ["수익", "투자", "손실", "손해", "원금"],
+    contextPatterns: [
+      "re:(?:전혀|절[.\\s]*대(?:로)?[.\\s]*|조금도)[^.!?\\n]{0,26}(?:없|않)",
+      "손실 없음",
+      "손해 없음",
+      "원금 보전",
+    ],
+    surfaceMeaning: "투자 또는 수익 설명과 함께 손실 가능성이 없다고 주장합니다.",
+    riskSummary: "투자 손실 가능성을 숨겨 결과를 확정적으로 인식시킬 수 있습니다.",
+    socialContext: "금융상품은 원금 손실 가능성을 포함하므로 위험을 배제하는 광고에 높은 주의가 필요합니다.",
+    legalOrEthicIssue: "손실 위험을 부정하면 금융소비자의 합리적 판단을 오도할 수 있습니다.",
+    riskReason: "투자·수익 맥락과 손실 가능성의 절대적 부정이 같은 문단에 결합합니다.",
+    severityFloor: 85,
+    dominantRisk: true,
+    confidence: 0.94,
+    riskDomain: "금융·투자 광고",
+    recentContextTags: ["투자자 보호", "손실 위험", "위험 고지"],
+    safeRewrite: ["예상 수익과 함께 원금 손실 가능성 및 주요 위험을 안내합니다."],
+    falsePositiveNote: "손실 가능성이 있다고 알리는 위험 고지나 보장 주장을 비판하는 문맥은 제외합니다.",
+    conditionScope: "paragraph",
+    maxDistance: 160,
   }),
   seedSkill({
     id: "risk_disaster_000001",
@@ -760,10 +850,19 @@ function gapBetween(left: InternalHit, right: InternalHit) {
 function isExplicitlyDenied(sentence: string) {
   const denialPatterns = [
     /(?:보장|확정|완치|분석|예측|추적|수집|환불)(?:을|를|은|는|이|가)?\s*(?:하지\s*않|할\s*수\s*없|되지\s*않|아니(?:다|며|고|므로|습니다)|불가)/u,
+    /(?:보장|확정|완치|분석|예측|추적|수집|환불)하지(?:는|도|를)?\s*않/u,
     /(?:100\s*%|전액)(?:가|은|는)?\s*아니/u,
     /(?:표현|문구|주장|사례)(?:은|는|을|를|이|가)?[^.!?\n]{0,24}(?:금지|사용하지|피해야|과장)/u,
+    /(?:없(?:다|습니다)?|보장(?:한다|합니다)?)(?:고|라고)[^.!?\n]{0,30}(?:말|주장|표현)(?:할|해서는)?\s*수?\s*없/u,
   ];
   return denialPatterns.some((pattern) => pattern.test(sentence));
+}
+
+function isMetalinguisticContext(scopeText: string) {
+  const hasQuotation = /["'“”‘’「」『』]/u.test(scopeText);
+  const hasQuotedRiskDiscussion = hasQuotation && /(?:문구|표현|주장|기사|보도|제목|사례|인용|문제|위험|비판|분석|검토|교육)/u.test(scopeText);
+  const hasExplicitDiscussionFrame = /(?:문구|표현|주장|사례|광고|기사|제목)(?:의|에서|에는|은|는|을|를|이|가)?[^.!?\n]{0,40}(?:문제점|위험|비판|분석|검토|금지|사용되|인용|교육)/u.test(scopeText);
+  return hasQuotedRiskDiscussion || hasExplicitDiscussionFrame;
 }
 
 function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
@@ -805,7 +904,7 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
       "context",
     );
     const scopedText = normalized.text.slice(range.start, range.end);
-    if (exclusionHits.length || isExplicitlyDenied(scopedText)) continue;
+    if (exclusionHits.length || isExplicitlyDenied(scopedText) || isMetalinguisticContext(scopedText)) continue;
 
     for (const trigger of triggerHits) {
       for (const context of contextHits) {
@@ -1031,6 +1130,16 @@ export function validateSkill(skill: RiskSkill) {
   }
   if (!Number.isFinite(skill.confidence) || skill.confidence < 0 || skill.confidence > 1) {
     errors.push("신뢰도는 0에서 1 사이여야 합니다.");
+  }
+  if (skill.source.url.trim()) {
+    try {
+      const sourceUrl = new URL(skill.source.url);
+      if (sourceUrl.protocol !== "http:" && sourceUrl.protocol !== "https:") {
+        errors.push("출처 URL은 http 또는 https 주소여야 합니다.");
+      }
+    } catch {
+      errors.push("출처 URL은 올바른 http 또는 https 주소여야 합니다.");
+    }
   }
 
   if (skill.reviewStatus === "reviewed") {
@@ -1273,6 +1382,17 @@ export function migrateRiskSkill(
 ): { skill?: RiskSkill; issues: string[] } {
   if (!isRecord(value)) return { issues: ["스킬 레코드는 객체여야 합니다."] };
 
+  const declaredSchemaVersion = readString(value, ["schema_version", "schemaVersion"]);
+  if (
+    declaredSchemaVersion
+    && declaredSchemaVersion !== RISK_SKILL_SCHEMA_VERSION
+    && declaredSchemaVersion !== "1.0.0"
+  ) {
+    return {
+      issues: [`지원하지 않는 스키마 버전 ${declaredSchemaVersion}입니다.`],
+    };
+  }
+
   const id = readString(value, ["id"]);
   const conditions = isRecord(value.conditions) ? value.conditions : {};
   const allOf = Array.isArray(conditions.all_of)
@@ -1486,6 +1606,61 @@ export function parseBundleFiles(files: Partial<BundleFiles>): ParsedBundle {
     severityRules: severity.rules,
     filesLoaded: Object.keys(files).filter((name) => Boolean(files[name as keyof BundleFiles])).sort(compareText),
     issues,
+  };
+}
+
+function skillFingerprint(skill: RiskSkill) {
+  return JSON.stringify(skill);
+}
+
+export function previewSkillImport(
+  currentSkills: RiskSkill[],
+  incomingSkills: RiskSkill[],
+  mode: SkillImportMode = "merge",
+  errorCount = 0,
+): SkillImportPreview {
+  const currentById = new Map(currentSkills.map((skill) => [skill.id, skill]));
+  const incomingById = new Map(incomingSkills.map((skill) => [skill.id, skill]));
+  const newIds: string[] = [];
+  const updateIds: string[] = [];
+  const sameIds: string[] = [];
+  const conflictIds: string[] = [];
+
+  for (const incoming of incomingSkills) {
+    const current = currentById.get(incoming.id);
+    if (!current) {
+      newIds.push(incoming.id);
+    } else if (skillFingerprint(current) === skillFingerprint(incoming)) {
+      sameIds.push(incoming.id);
+    } else if (incoming.revision > current.revision) {
+      updateIds.push(incoming.id);
+    } else {
+      conflictIds.push(incoming.id);
+    }
+  }
+
+  const finalSkills = mode === "replace"
+    ? [...incomingById.values()]
+    : [
+        ...currentSkills.filter((skill) => !updateIds.includes(skill.id)),
+        ...incomingSkills.filter((skill) => newIds.includes(skill.id) || updateIds.includes(skill.id)),
+      ];
+  finalSkills.sort((left, right) => compareText(left.id, right.id));
+
+  return {
+    mode,
+    newCount: newIds.length,
+    updateCount: updateIds.length,
+    sameCount: sameIds.length,
+    conflictCount: conflictIds.length,
+    skippedCount: mode === "merge" ? conflictIds.length + errorCount : errorCount,
+    errorCount,
+    finalCount: finalSkills.length,
+    newIds: newIds.sort(compareText),
+    updateIds: updateIds.sort(compareText),
+    sameIds: sameIds.sort(compareText),
+    conflictIds: conflictIds.sort(compareText),
+    finalSkills,
   };
 }
 

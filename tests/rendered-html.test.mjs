@@ -79,3 +79,11 @@ test("removes the disposable starter preview and unused starter assets", async (
   await assert.rejects(access(new URL("../public/favicon.svg", import.meta.url)));
   await access(new URL("../public/og.png", import.meta.url));
 });
+
+test("mobile navigation and skip-link accessibility styles remain present", async () => {
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.skipLink\s*\{[^}]*translateY\(-72px\)/s);
+  assert.match(css, /\.skipLink:focus\s*\{[^}]*translateY\(0\)/s);
+  assert.match(css, /@media \(max-width: 767px\)[\s\S]*\.appNav\s*\{[^}]*display:\s*none/s);
+  assert.match(css, /@media \(max-width: 767px\)[\s\S]*\.mobileNavSelect\s*\{[^}]*display:\s*grid/s);
+});

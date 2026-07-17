@@ -2,9 +2,14 @@ import { desc, eq } from "drizzle-orm";
 import { riskSkills } from "../../../db/schema";
 import {
   RISK_SKILL_SCHEMA_VERSION,
+  DEFAULT_SEVERITY_RULES,
+  parseSeverityRules,
+  previewSkillImport,
   starterSkills,
   validateSkill,
   type RiskSkill,
+  type SeverityRules,
+  type SkillImportMode,
 } from "../../../lib/riskshield";
 
 const MAX_REQUEST_BYTES = 128 * 1024;
@@ -18,16 +23,57 @@ async function getDatabase() {
   return getDb();
 }
 
+async function getD1() {
+  const { env } = await import("cloudflare:workers");
+  if (!env.DB) throw new Error("RiskShield 저장소가 연결되지 않았습니다.");
+  return env.DB;
+}
+
 function ensureSchema() {
   schemaPromise ??= import("cloudflare:workers")
-    .then(({ env }) => {
+    .then(async ({ env }) => {
       if (!env.DB) throw new Error("RiskShield 저장소가 연결되지 않았습니다.");
-      return env.DB.batch([
+      const table = await env.DB.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'risk_skills'",
+      ).first<{ sql?: string }>();
+      if (table?.sql && !table.sql.includes("'rejected'")) {
+        await env.DB.batch([
+          env.DB.prepare("DROP INDEX IF EXISTS risk_skills_updated_idx"),
+          env.DB.prepare("DROP INDEX IF EXISTS risk_skills_status_idx"),
+          env.DB.prepare("ALTER TABLE risk_skills RENAME TO risk_skills_legacy"),
+          env.DB.prepare(`
+            CREATE TABLE risk_skills (
+              id TEXT PRIMARY KEY NOT NULL,
+              category TEXT NOT NULL,
+              review_status TEXT NOT NULL CHECK (review_status IN ('draft', 'reviewed', 'rejected')),
+              severity_floor INTEGER NOT NULL CHECK (severity_floor BETWEEN 0 AND 100),
+              dominant_risk INTEGER NOT NULL CHECK (dominant_risk IN (0, 1)),
+              payload TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          `),
+          env.DB.prepare(`
+            INSERT INTO risk_skills
+              (id, category, review_status, severity_floor, dominant_risk, payload, created_at, updated_at)
+            SELECT id, category,
+              CASE json_extract(payload, '$.reviewStatus')
+                WHEN 'reviewed' THEN 'reviewed'
+                WHEN 'rejected' THEN 'rejected'
+                ELSE 'draft'
+              END,
+              severity_floor, dominant_risk, payload, created_at, updated_at
+            FROM risk_skills_legacy
+          `),
+          env.DB.prepare("DROP TABLE risk_skills_legacy"),
+        ]);
+      }
+      await env.DB.batch([
         env.DB.prepare(`
           CREATE TABLE IF NOT EXISTS risk_skills (
             id TEXT PRIMARY KEY NOT NULL,
             category TEXT NOT NULL,
-            review_status TEXT NOT NULL CHECK (review_status IN ('draft', 'reviewed')),
+            review_status TEXT NOT NULL CHECK (review_status IN ('draft', 'reviewed', 'rejected')),
             severity_floor INTEGER NOT NULL CHECK (severity_floor BETWEEN 0 AND 100),
             dominant_risk INTEGER NOT NULL CHECK (dominant_risk IN (0, 1)),
             payload TEXT NOT NULL,
@@ -41,6 +87,13 @@ function ensureSchema() {
         env.DB.prepare(
           "CREATE INDEX IF NOT EXISTS risk_skills_status_idx ON risk_skills(review_status, category)",
         ),
+        env.DB.prepare(`
+          CREATE TABLE IF NOT EXISTS riskshield_settings (
+            key TEXT PRIMARY KEY NOT NULL,
+            payload TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          )
+        `),
       ]);
     })
     .then(() => undefined)
@@ -226,7 +279,7 @@ function rowForSkill(skill: RiskSkill) {
   return {
     id: skill.id,
     category: skill.category,
-    reviewStatus: skill.reviewStatus === "rejected" ? "draft" : skill.reviewStatus,
+    reviewStatus: skill.reviewStatus,
     severityFloor: skill.severityFloor,
     dominantRisk: skill.dominantRisk,
     payload: JSON.stringify(skill),
@@ -253,6 +306,51 @@ async function seedIfEmpty() {
   await db.insert(riskSkills).values(starterSkills.map(rowForSkill)).onConflictDoNothing();
 }
 
+async function upgradeUnmodifiedBundledRules() {
+  const db = await getDatabase();
+  const rows = await db.select({ payload: riskSkills.payload }).from(riskSkills);
+  const currentSkills = parseRows(rows);
+  const currentById = new Map(currentSkills.map((skill) => [skill.id, skill]));
+  const hasUntouchedBundle = currentSkills.some((skill) =>
+    skill.source.sourceId === "handoff_expected_behavior"
+    && skill.createdAt === "2026-07-17T00:00:00.000Z"
+    && skill.updatedAt === "2026-07-17T00:00:00.000Z");
+  if (!hasUntouchedBundle) return;
+
+  const candidates = starterSkills.filter((bundled) => {
+    const current = currentById.get(bundled.id);
+    if (!current) return true;
+    return current.source.sourceId === "handoff_expected_behavior"
+      && current.createdAt === "2026-07-17T00:00:00.000Z"
+      && current.updatedAt === "2026-07-17T00:00:00.000Z"
+      && current.revision < bundled.revision;
+  });
+  for (const bundled of candidates) {
+    const row = rowForSkill(bundled);
+    await db.insert(riskSkills).values(row).onConflictDoUpdate({
+      target: riskSkills.id,
+      set: {
+        category: row.category,
+        reviewStatus: row.reviewStatus,
+        severityFloor: row.severityFloor,
+        dominantRisk: row.dominantRisk,
+        payload: row.payload,
+        updatedAt: row.updatedAt,
+      },
+    });
+  }
+}
+
+async function readSeverityRules(): Promise<SeverityRules> {
+  const d1 = await getD1();
+  const row = await d1.prepare(
+    "SELECT payload FROM riskshield_settings WHERE key = 'severity_rules'",
+  ).first<{ payload?: string }>();
+  if (!row?.payload) return DEFAULT_SEVERITY_RULES;
+  const parsed = parseSeverityRules(row.payload);
+  return parsed.issues.length ? DEFAULT_SEVERITY_RULES : parsed.rules;
+}
+
 function serverError(scope: string, error: unknown, userMessage: string) {
   console.error(`[RiskShield skills API] ${scope}`, error);
   return Response.json({ error: userMessage }, { status: 500 });
@@ -262,13 +360,130 @@ export async function GET() {
   try {
     await ensureSchema();
     await seedIfEmpty();
+    await upgradeUnmodifiedBundledRules();
     const rows = await (await getDatabase())
       .select({ payload: riskSkills.payload })
       .from(riskSkills)
       .orderBy(desc(riskSkills.updatedAt));
-    return Response.json({ skills: parseRows(rows), storage: "d1" });
+    return Response.json({
+      skills: parseRows(rows),
+      severityRules: await readSeverityRules(),
+      storage: "d1",
+    });
   } catch (error) {
     return serverError("GET", error, "스킬을 불러오지 못했습니다.");
+  }
+}
+
+export async function PUT(request: Request) {
+  let body: unknown;
+  try {
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > MAX_REQUEST_BYTES) {
+      return Response.json({ error: "요청 크기가 너무 큽니다." }, { status: 413 });
+    }
+    body = JSON.parse(rawBody) as unknown;
+  } catch {
+    return Response.json({ error: "올바른 JSON 요청이 필요합니다." }, { status: 400 });
+  }
+  if (!isRecord(body) || !Array.isArray(body.skills)) {
+    return Response.json({ error: "skills 배열이 필요합니다." }, { status: 400 });
+  }
+  const mode: SkillImportMode = body.mode === "replace" ? "replace" : "merge";
+  if (mode === "replace" && body.confirmReplace !== true) {
+    return Response.json({ error: "전체 교체 확인이 필요합니다." }, { status: 400 });
+  }
+
+  const incoming: RiskSkill[] = [];
+  const issues: string[] = [];
+  const ids = new Set<string>();
+  body.skills.forEach((value, index) => {
+    const parsed = parseRiskSkill(value);
+    if (!parsed.skill) {
+      issues.push(`${index + 1}번 스킬: ${parsed.issues.join(" ")}`);
+      return;
+    }
+    const validationIssues = validateSkill(parsed.skill);
+    if (validationIssues.length) {
+      issues.push(`${parsed.skill.id}: ${validationIssues.join(" ")}`);
+      return;
+    }
+    if (ids.has(parsed.skill.id)) {
+      issues.push(`${parsed.skill.id}: 중복 ID입니다.`);
+      return;
+    }
+    ids.add(parsed.skill.id);
+    incoming.push(parsed.skill);
+  });
+  const severity = body.severityRules === undefined
+    ? { rules: DEFAULT_SEVERITY_RULES, issues: [] as string[] }
+    : parseSeverityRules(body.severityRules);
+  issues.push(...severity.issues);
+  if (issues.length) {
+    return Response.json({ error: "가져오기 데이터가 올바르지 않습니다.", issues }, { status: 400 });
+  }
+
+  try {
+    await ensureSchema();
+    await seedIfEmpty();
+    await upgradeUnmodifiedBundledRules();
+    const currentRows = await (await getDatabase())
+      .select({ payload: riskSkills.payload })
+      .from(riskSkills);
+    const currentSkills = parseRows(currentRows);
+    const preview = previewSkillImport(currentSkills, incoming, mode);
+    const now = new Date().toISOString();
+    const d1 = await getD1();
+    const statements = [d1.prepare("DELETE FROM risk_skills")];
+    for (const skill of preview.finalSkills) {
+      const row = rowForSkill(skill);
+      statements.push(d1.prepare(`
+        INSERT INTO risk_skills
+          (id, category, review_status, severity_floor, dominant_risk, payload, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        row.id,
+        row.category,
+        row.reviewStatus,
+        row.severityFloor,
+        row.dominantRisk ? 1 : 0,
+        row.payload,
+        row.createdAt,
+        row.updatedAt,
+      ));
+    }
+    statements.push(d1.prepare(`
+      INSERT INTO riskshield_settings (key, payload, updated_at)
+      VALUES ('severity_rules', ?, ?)
+      ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `).bind(JSON.stringify(severity.rules), now));
+    await d1.batch(statements);
+
+    const savedRows = await (await getDatabase())
+      .select({ payload: riskSkills.payload })
+      .from(riskSkills)
+      .orderBy(desc(riskSkills.updatedAt));
+    const savedSkills = parseRows(savedRows);
+    if (savedSkills.length !== preview.finalCount) {
+      throw new Error("가져오기 저장 후 개수 검증에 실패했습니다.");
+    }
+    const summary = {
+      mode: preview.mode,
+      newCount: preview.newCount,
+      updateCount: preview.updateCount,
+      sameCount: preview.sameCount,
+      conflictCount: preview.conflictCount,
+      skippedCount: preview.skippedCount,
+      errorCount: preview.errorCount,
+      finalCount: preview.finalCount,
+      newIds: preview.newIds,
+      updateIds: preview.updateIds,
+      sameIds: preview.sameIds,
+      conflictIds: preview.conflictIds,
+    };
+    return Response.json({ skills: savedSkills, severityRules: severity.rules, summary, storage: "d1" });
+  } catch (error) {
+    return serverError("PUT", error, "스킬 번들을 저장하지 못했습니다.");
   }
 }
 

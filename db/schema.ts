@@ -18,7 +18,7 @@ export const riskSkills = sqliteTable(
     index("risk_skills_status_idx").on(table.reviewStatus, table.category),
     check(
       "risk_skills_review_status_check",
-      sql`${table.reviewStatus} IN ('draft', 'reviewed')`,
+      sql`${table.reviewStatus} IN ('draft', 'reviewed', 'rejected')`,
     ),
     check(
       "risk_skills_severity_floor_check",

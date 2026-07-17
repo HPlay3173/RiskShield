@@ -123,7 +123,7 @@ test("exports are stably sorted and JSONL ends with exactly one newline", () => 
   const records = forward.riskSkillsJsonl.trimEnd().split("\n").map((line) => JSON.parse(line));
   const ids = records.map((record) => record.id as string);
   assert.deepEqual(ids, [...ids].sort());
-  assert.equal(records.length, positiveCases.length);
+  assert.equal(records.length, starterSkills.filter((skill) => skill.reviewStatus === "reviewed").length);
 });
 
 test("drafts may retain unverified sources but reviewed exports may not", () => {

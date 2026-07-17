@@ -227,6 +227,57 @@ code {
   gap: 4px;
 }
 
+.mobileNavSelect {
+  display: none;
+}
+
+.storageErrorBanner {
+  max-width: var(--content-width);
+  margin: 16px auto 0;
+  padding: 12px 16px;
+  border: 1px solid var(--critical-border);
+  border-radius: 9px;
+  background: var(--critical-bg);
+  color: var(--critical-text);
+  font-size: 14px;
+}
+
+.importModeSwitch {
+  width: min(440px, calc(100% - (2 * var(--gutter))));
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 24px auto 0;
+}
+
+.importModeSwitch .secondaryButton {
+  width: 100%;
+  margin: 0;
+}
+
+.importModeSwitch .importModeActive {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--surface);
+}
+
+.bundleApplyActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.replaceConfirm {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--neutral-text);
+  font-size: 13px;
+}
+
 .navItem,
 .appNavItem {
   min-height: 44px;
@@ -2794,6 +2845,29 @@ textarea:disabled {
   }
 
   .appNav {
+    display: none;
+  }
+
+  .mobileNavSelect {
+    width: calc(100vw - 32px);
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-column: 1 / -1;
+    grid-row: 2;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .mobileNavSelect select {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .appNav {
     width: calc(100vw - 32px);
     grid-column: 1 / -1;
     grid-row: 2;
@@ -2801,6 +2875,24 @@ textarea:disabled {
     overflow-x: auto;
     padding-bottom: 8px;
     scrollbar-width: thin;
+  }
+
+  .storageErrorBanner {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .importModeSwitch {
+    width: calc(100% - 32px);
+  }
+
+  .bundleApplyActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bundleApplyActions > * {
+    width: 100%;
   }
 
   .appNav::-webkit-scrollbar {
