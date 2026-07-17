@@ -26,46 +26,38 @@ type ViewId = "builder" | "import" | "library" | "analyzer" | "export";
 const NAV_ITEMS: Array<{
   id: ViewId;
   label: string;
-  short: string;
-  description: string;
 }> = [
-  { id: "builder", label: "스킬 만들기", short: "01", description: "사례를 조합 패턴으로 변환" },
-  { id: "import", label: "CSV 가져오기", short: "02", description: "대량 자료를 검토 큐로 이동" },
-  { id: "library", label: "스킬 라이브러리", short: "03", description: "스킬 검색과 사람 검토" },
-  { id: "analyzer", label: "Analyzer 테스트", short: "04", description: "실제 문구로 패턴 검증" },
-  { id: "export", label: "내보내기", short: "05", description: "Analyzer용 파일 생성" },
+  { id: "builder", label: "스킬 만들기" },
+  { id: "import", label: "CSV 가져오기" },
+  { id: "library", label: "스킬 라이브러리" },
+  { id: "analyzer", label: "Analyzer 테스트" },
+  { id: "export", label: "내보내기" },
 ];
 
 const BUILDER_STEPS = [
   {
     title: "자료 입력",
     description: "먼저 검토할 문구와 최소한의 배경 정보만 입력하세요.",
-    eyebrow: "01 · SOURCE",
   },
   {
     title: "맥락 해석",
     description: "생성된 의미와 위험 요약이 원문 맥락에 맞는지 확인하세요.",
-    eyebrow: "02 · INTERPRETATION",
   },
   {
     title: "분류·점수",
     description: "스킬의 적용 범위와 위험 점수 기준을 필요한 만큼 조정하세요.",
-    eyebrow: "03 · CLASSIFICATION",
   },
   {
     title: "탐지 패턴",
     description: "함께 나타나야 할 표현과 제외할 표현을 조합하세요.",
-    eyebrow: "04 · PATTERN",
   },
   {
     title: "사람 검토",
     description: "판단 근거와 출처를 확인한 뒤 스킬의 검토 상태를 결정하세요.",
-    eyebrow: "05 · HUMAN REVIEW",
   },
   {
     title: "Analyzer 검증",
     description: "실제 문구를 넣어 방금 만든 스킬이 의도대로 작동하는지 확인하세요.",
-    eyebrow: "06 · VALIDATION",
   },
 ] as const;
 
@@ -811,17 +803,13 @@ export function RiskShieldWorkbench() {
                 onClick={() => changeView(item.id)}
                 data-view={item.id}
               >
-                <span className="navIndex" aria-hidden="true">{item.short}</span>
                 <span>{item.label}</span>
               </button>
             ))}
           </nav>
 
           <div className="appHeaderActions">
-            <div className="appSystemStatus" aria-label="현재 시스템 상태">
-              <span>Mock 해석기</span>
-              <span>{storageLabel}</span>
-            </div>
+            <span className="visuallyHidden" aria-live="polite">{storageLabel}</span>
             {(activeView === "builder" || activeView === "library") && (
               <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button">
                 {activeView === "library" ? "새 스킬 만들기" : "새 스킬"}
@@ -835,31 +823,24 @@ export function RiskShieldWorkbench() {
         {activeView === "builder" && (
           <div className="builderLayout appleBuilder wizardBuilder">
             <section className="builderMain" aria-labelledby="builder-title">
-              <section className="pageHeading editorialHero productTileLight wizardHero">
-                <div>
-                  <span className="editorialEyebrow">STEP {builderStep} OF {BUILDER_STEPS.length}</span>
-                  <h1 id="builder-title">{currentBuilderStep.title}</h1>
-                  <p>{currentBuilderStep.description}</p>
-                  <div className="breadcrumb"><span>현재 스킬</span><b>/</b><span>{activeSkill.id}</span></div>
+              <section className="simpleWizardHeader">
+                <div className="simpleWizardMeta">
+                  <span>{builderStep} / {BUILDER_STEPS.length}</span>
+                  <span>{reviewStatusLabel(activeSkill.reviewStatus)}</span>
                 </div>
-                <div className="headingStatus">
-                  <span className="sourceBadge">제공 샘플</span>
-                  <span className={cx("statusBadge", reviewStatusTone(activeSkill.reviewStatus))}>
-                    {reviewStatusLabel(activeSkill.reviewStatus)}
-                  </span>
+                <h1 id="builder-title">{currentBuilderStep.title}</h1>
+                <p>{currentBuilderStep.description}</p>
+                <div
+                  className="simpleProgressTrack"
+                  role="progressbar"
+                  aria-label="스킬 제작 진행률"
+                  aria-valuemin={1}
+                  aria-valuemax={BUILDER_STEPS.length}
+                  aria-valuenow={builderStep}
+                >
+                  <span style={{ width: `${(builderStep / BUILDER_STEPS.length) * 100}%` }} />
                 </div>
               </section>
-
-              <ol className="stepper workflowStrip" aria-label="스킬 제작 단계">
-                {BUILDER_STEPS.map((step, index) => (
-                  <li key={step.title} className={cx(index + 1 <= builderStep && "stepDone", index + 1 === builderStep && "stepActive")}>
-                    <div className="stepIndicator" aria-current={index + 1 === builderStep ? "step" : undefined}>
-                      <span>{index + 1}</span>
-                      <b>{step.title}</b>
-                    </div>
-                  </li>
-                ))}
-              </ol>
 
               <div
                 className="wizardStageHost"
@@ -872,13 +853,7 @@ export function RiskShieldWorkbench() {
                 aria-labelledby="case-input-title"
                 hidden={builderStep !== 1}
               >
-                <div className="cardHeading">
-                  <div>
-                    <span className="sectionNumber">01 · SOURCE</span>
-                    <h2 id="case-input-title">자료 입력</h2>
-                  </div>
-                  <span className="requiredNote">* 필수 입력</span>
-                </div>
+                <h2 id="case-input-title" className="visuallyHidden">자료 입력</h2>
                 <div className="field">
                   <div className="labelRow">
                     <label htmlFor="case-text">논란 문구 *</label>
@@ -951,14 +926,14 @@ export function RiskShieldWorkbench() {
                   </details>
                 </div>
                 <div className="cardFooter">
-                  <p><span aria-hidden="true">◇</span> Mock은 규칙 기반 시연 결과를 생성합니다. 실제 AI 분석이 아닙니다.</p>
+                  <p>Mock은 규칙 기반 시연 결과를 생성합니다. 실제 AI 분석이 아닙니다.</p>
                   <button
                     type="button"
                     className="primaryButton"
                     onClick={interpretCase}
                     data-testid="builder-interpret-button"
                   >
-                    <span aria-hidden="true">✦</span> 맥락 해석하기
+                    해석하고 다음
                   </button>
                 </div>
               </section>
@@ -968,41 +943,15 @@ export function RiskShieldWorkbench() {
                 aria-labelledby="review-title"
                 hidden={builderStep < 2 || builderStep > 5}
               >
-                <div className="cardHeading">
-                  <div>
-                    <span className="sectionNumber">{currentBuilderStep.eyebrow}</span>
-                    <h2 id="review-title">{builderStep === 2 ? "Mock 해석 초안" : currentBuilderStep.title}</h2>
-                  </div>
-                  {builderStep < 5 ? (
-                    <span className="completionBadge">직접 수정 가능</span>
-                  ) : (
-                    <span className={cx("completionBadge", validationErrors.length === 0 && "completionBadgeComplete")}>
-                      필수 항목 {validationErrors.length === 0 ? "완료" : validationErrors.length + "개 확인"}
-                    </span>
-                  )}
-                </div>
-                {builderStep === 2 && (
-                  <div className="interpretationIntro">
-                    <div>
-                      <span>표면 의미</span>
-                      <strong>{activeSkill.surfaceMeaning || "해석 결과를 확인해 주세요."}</strong>
-                    </div>
-                    <div>
-                      <span>위험 요약</span>
-                      <strong>{activeSkill.riskSummary || "아직 생성된 요약이 없습니다."}</strong>
-                    </div>
-                    <div>
-                      <span>조합 패턴</span>
-                      <strong>{activeSkill.patternType || "패턴을 확인해 주세요."}</strong>
-                    </div>
-                  </div>
+                <h2 id="review-title" className="visuallyHidden">{currentBuilderStep.title}</h2>
+                {builderStep === 5 && (
+                  <p className={cx("simpleCompletion", validationErrors.length === 0 && "simpleCompletionReady")}>
+                    {validationErrors.length === 0 ? "필수 내용 확인 완료" : `확인할 내용 ${validationErrors.length}개`}
+                  </p>
                 )}
                 {builderStep === 5 && (
                   <>
-                    <div className="reviewNotice">
-                      <span aria-hidden="true">!</span>
-                      <p><strong>담당자 검토 전에는 Analyzer에 반영되지 않습니다.</strong> 판단 근거와 출처, 오탐 가능성을 직접 확인해 주세요.</p>
-                    </div>
+                    <p className="simpleReviewNote">최종 반영 전, 판단 근거와 출처를 사람이 확인합니다.</p>
                     {showReviewErrors && reviewValidationErrors.length > 0 && (
                       <div className="validationSummary" role="alert" aria-live="assertive">
                         <strong>검토 완료 전에 다음 항목을 확인해 주세요.</strong>
@@ -1014,96 +963,102 @@ export function RiskShieldWorkbench() {
                   </>
                 )}
 
-                <div className="fieldGrid" hidden={builderStep !== 3}>
-                  <div className="field fieldWide">
-                    <label htmlFor="skill-id">스킬 ID</label>
-                    <input id="skill-id" value={activeSkill.id} onChange={(event) => patchSkill({ id: event.target.value })} />
+                <div className="simpleSettingsStage" hidden={builderStep !== 3}>
+                  <div className="fieldGrid">
+                    <div className="field">
+                      <label htmlFor="skill-category">카테고리</label>
+                      <input id="skill-category" value={activeSkill.category} onChange={(event) => patchSkill({ category: event.target.value })} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-domain">적용 분야</label>
+                      <input id="skill-domain" value={activeSkill.riskDomain} onChange={(event) => patchSkill({ riskDomain: event.target.value })} />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-floor">최소 위험 점수</label>
+                      <div className="numberField">
+                        <input
+                          id="skill-floor"
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={activeSkill.severityFloor}
+                          onChange={(event) => patchSkill({ severityFloor: Number(event.target.value) })}
+                        />
+                        <span>/ 100</span>
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-confidence">신뢰도</label>
+                      <div className="numberField">
+                        <input
+                          id="skill-confidence"
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={Math.round(activeSkill.confidence * 100)}
+                          onChange={(event) => patchSkill({ confidence: Number(event.target.value) / 100 })}
+                        />
+                        <span>%</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="field">
-                    <label htmlFor="skill-schema">스키마 버전</label>
-                    <input id="skill-schema" value={activeSkill.schemaVersion} disabled />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-revision">리비전</label>
-                    <input
-                      id="skill-revision"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={activeSkill.revision}
-                      onChange={(event) => patchSkill({ revision: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-category">카테고리</label>
-                    <input id="skill-category" value={activeSkill.category} onChange={(event) => patchSkill({ category: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-subcategory">세부 유형</label>
-                    <input id="skill-subcategory" value={activeSkill.subcategory} onChange={(event) => patchSkill({ subcategory: event.target.value })} />
-                  </div>
-                  <div className="field fieldWide">
-                    <label htmlFor="skill-pattern">조합 패턴</label>
-                    <input id="skill-pattern" value={activeSkill.patternType} onChange={(event) => patchSkill({ patternType: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-domain">적용 분야</label>
-                    <input id="skill-domain" value={activeSkill.riskDomain} onChange={(event) => patchSkill({ riskDomain: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-scope">적용 범위</label>
-                    <select
-                      id="skill-scope"
-                      value={activeSkill.conditionScope}
-                      onChange={(event) => patchSkill({ conditionScope: event.target.value as RiskSkill["conditionScope"] })}
+
+                  <div className="dominantControl simpleDominantControl">
+                    <div>
+                      <strong>심각한 위험은 최소 점수 보장</strong>
+                      <p>다른 항목 점수가 낮아도 이 위험의 최소 점수를 유지합니다.</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={activeSkill.dominantRisk}
+                      aria-label="심각한 위험의 최소 점수 보장"
+                      className={cx("switchControl", activeSkill.dominantRisk && "switchControlOn")}
+                      onClick={() => patchSkill({ dominantRisk: !activeSkill.dominantRisk })}
                     >
-                      <option value="sentence">같은 문장</option>
-                      <option value="paragraph">같은 문단</option>
-                    </select>
+                      <span />
+                    </button>
                   </div>
-                  <div className="field">
-                    <label htmlFor="skill-distance">최대 거리</label>
-                    <div className="numberField">
-                      <input
-                        id="skill-distance"
-                        type="number"
-                        min={0}
-                        max={2000}
-                        step={1}
-                        value={activeSkill.maxDistance}
-                        onChange={(event) => patchSkill({ maxDistance: Number(event.target.value) })}
-                      />
-                      <span>자</span>
+
+                  <details className="optionalDetails advancedDetails">
+                    <summary>고급 설정 <span>ID · 적용 범위 · 거리</span></summary>
+                    <div className="fieldGrid">
+                      <div className="field fieldWide">
+                        <label htmlFor="skill-id">스킬 ID</label>
+                        <input id="skill-id" value={activeSkill.id} onChange={(event) => patchSkill({ id: event.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-schema">스키마 버전</label>
+                        <input id="skill-schema" value={activeSkill.schemaVersion} disabled />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-revision">리비전</label>
+                        <input id="skill-revision" type="number" min={1} step={1} value={activeSkill.revision} onChange={(event) => patchSkill({ revision: Number(event.target.value) })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-subcategory">세부 유형</label>
+                        <input id="skill-subcategory" value={activeSkill.subcategory} onChange={(event) => patchSkill({ subcategory: event.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-pattern">조합 패턴</label>
+                        <input id="skill-pattern" value={activeSkill.patternType} onChange={(event) => patchSkill({ patternType: event.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-scope">적용 범위</label>
+                        <select id="skill-scope" value={activeSkill.conditionScope} onChange={(event) => patchSkill({ conditionScope: event.target.value as RiskSkill["conditionScope"] })}>
+                          <option value="sentence">같은 문장</option>
+                          <option value="paragraph">같은 문단</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-distance">최대 거리</label>
+                        <div className="numberField">
+                          <input id="skill-distance" type="number" min={0} max={2000} step={1} value={activeSkill.maxDistance} onChange={(event) => patchSkill({ maxDistance: Number(event.target.value) })} />
+                          <span>자</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-floor">최소 위험 점수</label>
-                    <div className="numberField">
-                      <input
-                        id="skill-floor"
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={activeSkill.severityFloor}
-                        onChange={(event) => patchSkill({ severityFloor: Number(event.target.value) })}
-                      />
-                      <span>/ 100</span>
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-confidence">신뢰도</label>
-                    <div className="numberField">
-                      <input
-                        id="skill-confidence"
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={Math.round(activeSkill.confidence * 100)}
-                        onChange={(event) => patchSkill({ confidence: Number(event.target.value) / 100 })}
-                      />
-                      <span>%</span>
-                    </div>
-                  </div>
+                  </details>
                 </div>
 
                 <div className="fieldGrid narrativeGrid" hidden={builderStep !== 2}>
@@ -1117,49 +1072,35 @@ export function RiskShieldWorkbench() {
                   </div>
                 </div>
 
-                <div className="dominantControl" hidden={builderStep !== 3}>
-                  <div>
-                    <strong>Dominant Risk로 적용</strong>
-                    <p>심각한 위험이 다른 0점 카테고리에 묻히지 않도록 최종 점수 하한을 적용합니다.</p>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={activeSkill.dominantRisk}
-                    aria-label="Dominant Risk로 적용"
-                    className={cx("switchControl", activeSkill.dominantRisk && "switchControlOn")}
-                    onClick={() => patchSkill({ dominantRisk: !activeSkill.dominantRisk })}
-                  >
-                    <span />
-                  </button>
-                </div>
-
                 <div className="patternStage" hidden={builderStep !== 4}>
                 <div className="editorPair">
                   <ChipEditor
-                    label="all_of · 트리거 패턴"
+                    label="필수 위험 표현"
                     values={activeSkill.triggerPatterns}
                     onChange={(values) => patchSkill({ triggerPatterns: values })}
                     tone="risk"
                   />
                   <div className="pairPlus" aria-hidden="true">AND</div>
                   <ChipEditor
-                    label="all_of · 맥락 패턴"
+                    label="필수 맥락 표현"
                     values={activeSkill.contextPatterns}
                     onChange={(values) => patchSkill({ contextPatterns: values })}
                     tone="brand"
                   />
                 </div>
 
+                <details className="optionalDetails advancedDetails patternOptions">
+                  <summary>추가 조건 <span>선택 · 제외 · 최근 맥락</span></summary>
+                  <div className="patternAdvancedContent">
                 <div className="conditionEditorGrid">
                   <ChipEditor
-                    label="any_of · 선택 패턴"
+                    label="선택 표현"
                     values={activeSkill.anyOfPatterns}
                     onChange={(values) => patchSkill({ anyOfPatterns: values })}
                     tone="neutral"
                   />
                   <ChipEditor
-                    label="none_of · 제외 패턴"
+                    label="제외 표현"
                     values={activeSkill.exclusionPatterns ?? []}
                     onChange={(values) => patchSkill({ exclusionPatterns: values })}
                     tone="neutral"
@@ -1167,142 +1108,112 @@ export function RiskShieldWorkbench() {
                 </div>
 
                 <ChipEditor
-                  label="최근 사회 맥락 태그"
+                  label="최근 맥락 태그"
                   values={activeSkill.recentContextTags}
                   onChange={(values) => patchSkill({ recentContextTags: values })}
                   tone="neutral"
                 />
+                  </div>
+                </details>
                 </div>
 
                 {builderStep >= 2 && builderStep <= 4 && (
                   <div className="wizardActions">
-                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(builderStep - 1)}>
-                      이전: {BUILDER_STEPS[builderStep - 2].title}
+                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(builderStep - 1)} aria-label={`이전: ${BUILDER_STEPS[builderStep - 2].title}`}>
+                      이전
                     </button>
-                    <button type="button" className="primaryButton" onClick={() => goToBuilderStep(builderStep + 1)}>
-                      다음: {BUILDER_STEPS[builderStep].title}
+                    <button type="button" className="primaryButton" onClick={() => goToBuilderStep(builderStep + 1)} aria-label={`다음: ${BUILDER_STEPS[builderStep].title}`}>
+                      다음
                     </button>
                   </div>
                 )}
 
                 <div className="humanReviewStage" hidden={builderStep !== 5}>
-                <div className="field">
-                  <label htmlFor="skill-reason">판단 근거</label>
-                  <textarea id="skill-reason" rows={3} value={activeSkill.riskReason} onChange={(event) => patchSkill({ riskReason: event.target.value })} />
-                </div>
-                <div className="fieldGrid">
                   <div className="field">
-                    <label htmlFor="skill-social">사회적 맥락</label>
-                    <textarea id="skill-social" rows={3} value={activeSkill.socialContext} onChange={(event) => patchSkill({ socialContext: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-ethic">법률·윤리 쟁점</label>
-                    <textarea id="skill-ethic" rows={3} value={activeSkill.legalOrEthicIssue} onChange={(event) => patchSkill({ legalOrEthicIssue: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-fp">오탐 가능성</label>
-                    <textarea id="skill-fp" rows={3} value={activeSkill.falsePositiveNote} onChange={(event) => patchSkill({ falsePositiveNote: event.target.value })} />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="skill-rewrite">안전한 대체 문구</label>
-                    <textarea
-                      id="skill-rewrite"
-                      rows={3}
-                      value={activeSkill.safeRewrite.join("\n")}
-                      onChange={(event) => patchSkill({ safeRewrite: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })}
-                    />
-                  </div>
-                  <div className="field fieldWide">
-                    <label htmlFor="skill-notes">관리자 메모</label>
-                    <textarea id="skill-notes" rows={3} value={activeSkill.notes} onChange={(event) => patchSkill({ notes: event.target.value })} />
-                  </div>
-                </div>
-
-                <section className="sourceEditor" aria-labelledby="source-editor-title">
-                  <div className="subsectionHeading">
-                    <div>
-                      <span className="sectionNumber">SOURCE PROVENANCE</span>
-                      <h3 id="source-editor-title">출처와 검증 상태</h3>
-                    </div>
-                    <span className="requiredNote">검토 완료 전 확인</span>
+                    <label htmlFor="skill-reason">판단 근거</label>
+                    <textarea id="skill-reason" rows={3} value={activeSkill.riskReason} onChange={(event) => patchSkill({ riskReason: event.target.value })} />
                   </div>
                   <div className="fieldGrid">
-                    <div className="field fieldWide">
-                      <label htmlFor="skill-source-title">출처 제목</label>
-                      <input
-                        id="skill-source-title"
-                        value={activeSkill.source.title}
-                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, title: event.target.value } })}
-                      />
+                    <div className="field">
+                      <label htmlFor="skill-fp">오탐 가능성</label>
+                      <textarea id="skill-fp" rows={3} value={activeSkill.falsePositiveNote} onChange={(event) => patchSkill({ falsePositiveNote: event.target.value })} />
                     </div>
                     <div className="field">
-                      <label htmlFor="skill-source-date">출처 날짜</label>
-                      <input
-                        id="skill-source-date"
-                        type="date"
-                        value={activeSkill.source.date}
-                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, date: event.target.value } })}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="skill-source-status">검증 상태</label>
-                      <select
-                        id="skill-source-status"
-                        value={activeSkill.source.provenanceStatus ?? "synthetic_unverified"}
-                        onChange={(event) => patchSkill({
-                          source: {
-                            ...activeSkill.source,
-                            provenanceStatus: event.target.value as RiskSkill["source"]["provenanceStatus"],
-                          },
-                        })}
-                      >
-                        <option value="synthetic_unverified">Mock · 미검증</option>
-                        <option value="provided">제공 자료</option>
-                        <option value="verified">담당자 검증 완료</option>
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label htmlFor="skill-source-id">Source ID</label>
-                      <input
-                        id="skill-source-id"
-                        value={activeSkill.source.sourceId ?? ""}
-                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, sourceId: event.target.value } })}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="skill-source-url">출처 URL</label>
-                      <input
-                        id="skill-source-url"
-                        type="url"
-                        value={activeSkill.source.url}
-                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, url: event.target.value } })}
-                        placeholder="https://"
-                      />
+                      <label htmlFor="skill-rewrite">안전한 대체 문구</label>
+                      <textarea id="skill-rewrite" rows={3} value={activeSkill.safeRewrite.join("\n")} onChange={(event) => patchSkill({ safeRewrite: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })} />
                     </div>
                   </div>
-                </section>
-                <div className="reviewActions wizardReviewActions">
-                  <span>{saving ? "저장하는 중…" : "마지막 수정 " + formatTime(activeSkill.updatedAt)}</span>
-                  <div className="reviewDecisionActions">
-                    <button type="button" className="secondaryButton" onClick={() => saveSkill("draft")} disabled={saving} data-testid="builder-save-button">
-                      초안 저장
-                    </button>
-                    <button type="button" className="dangerButton" onClick={() => saveSkill("rejected")} disabled={saving}>
-                      반려로 표시
-                    </button>
+
+                  <section className="sourceEditor simpleSourceEditor" aria-labelledby="source-editor-title">
+                    <h3 id="source-editor-title">출처 확인</h3>
+                    <div className="fieldGrid">
+                      <div className="field fieldWide">
+                        <label htmlFor="skill-source-title">출처 제목</label>
+                        <input id="skill-source-title" value={activeSkill.source.title} onChange={(event) => patchSkill({ source: { ...activeSkill.source, title: event.target.value } })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-source-status">검증 상태</label>
+                        <select
+                          id="skill-source-status"
+                          value={activeSkill.source.provenanceStatus ?? "synthetic_unverified"}
+                          onChange={(event) => patchSkill({ source: { ...activeSkill.source, provenanceStatus: event.target.value as RiskSkill["source"]["provenanceStatus"] } })}
+                        >
+                          <option value="synthetic_unverified">Mock · 미검증</option>
+                          <option value="provided">제공 자료</option>
+                          <option value="verified">담당자 검증 완료</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+
+                  <details className="optionalDetails advancedDetails">
+                    <summary>추가 검토 정보 <span>사회 맥락 · 메모 · 출처 세부정보</span></summary>
+                    <div className="fieldGrid">
+                      <div className="field">
+                        <label htmlFor="skill-social">사회적 맥락</label>
+                        <textarea id="skill-social" rows={3} value={activeSkill.socialContext} onChange={(event) => patchSkill({ socialContext: event.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-ethic">법률·윤리 쟁점</label>
+                        <textarea id="skill-ethic" rows={3} value={activeSkill.legalOrEthicIssue} onChange={(event) => patchSkill({ legalOrEthicIssue: event.target.value })} />
+                      </div>
+                      <div className="field fieldWide">
+                        <label htmlFor="skill-notes">관리자 메모</label>
+                        <textarea id="skill-notes" rows={3} value={activeSkill.notes} onChange={(event) => patchSkill({ notes: event.target.value })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-source-date">출처 날짜</label>
+                        <input id="skill-source-date" type="date" value={activeSkill.source.date} onChange={(event) => patchSkill({ source: { ...activeSkill.source, date: event.target.value } })} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="skill-source-id">Source ID</label>
+                        <input id="skill-source-id" value={activeSkill.source.sourceId ?? ""} onChange={(event) => patchSkill({ source: { ...activeSkill.source, sourceId: event.target.value } })} />
+                      </div>
+                      <div className="field fieldWide">
+                        <label htmlFor="skill-source-url">출처 URL</label>
+                        <input id="skill-source-url" type="url" value={activeSkill.source.url} onChange={(event) => patchSkill({ source: { ...activeSkill.source, url: event.target.value } })} placeholder="https://" />
+                      </div>
+                    </div>
+                  </details>
+
+                  <div className="simpleSaveRow">
+                    <span>{saving ? "저장하는 중…" : "마지막 수정 " + formatTime(activeSkill.updatedAt)}</span>
                     <button type="button" className="secondaryButton" onClick={() => saveSkill("reviewed")} disabled={saving} data-testid="builder-review-button">
-                      검토 완료로 표시
+                      검토 완료로 저장
                     </button>
+                    <details className="saveOptions">
+                      <summary>다른 저장 방식</summary>
+                      <div>
+                        <button type="button" className="textButton" onClick={() => saveSkill("draft")} disabled={saving} data-testid="builder-save-button">초안 저장</button>
+                        <button type="button" className="textButton dangerTextButton" onClick={() => saveSkill("rejected")} disabled={saving}>반려로 저장</button>
+                      </div>
+                    </details>
                   </div>
+
                   <div className="wizardActions">
-                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(4)}>
-                      이전: 탐지 패턴
-                    </button>
-                    <button type="button" className="primaryButton" onClick={() => runAnalysis(analysisInput, true)}>
-                      다음: Analyzer 검증
-                    </button>
+                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(4)}>이전</button>
+                    <button type="button" className="primaryButton" onClick={() => runAnalysis(analysisInput, true)}>다음</button>
                   </div>
-                </div>
                 </div>
               </section>
               {builderStep === 6 && (
@@ -1339,10 +1250,10 @@ export function RiskShieldWorkbench() {
                   )}
                   <div className="wizardActions analyzerStageActions">
                     <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(5)}>
-                      이전: 사람 검토
+                      이전
                     </button>
-                    <button type="button" className="primaryButton" onClick={() => changeView("library")}>
-                      스킬 라이브러리 보기
+                    <button type="button" className="primaryButton" onClick={() => changeView("library")} aria-label="완료하고 스킬 라이브러리 보기">
+                      완료
                     </button>
                   </div>
                 </section>

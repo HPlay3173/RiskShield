@@ -829,8 +829,85 @@ textarea:disabled {
 }
 
 .wizardBuilder {
-  max-width: 1040px;
+  max-width: 900px;
   grid-template-columns: minmax(0, 1fr);
+}
+
+.simpleWizardHeader {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 40px 0 8px;
+}
+
+.simpleWizardMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.simpleWizardHeader h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(30px, 4vw, 42px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.simpleWizardHeader p {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.simpleProgressTrack {
+  height: 4px;
+  overflow: hidden;
+  margin-top: 24px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.simpleProgressTrack span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 180ms ease;
+}
+
+.wizardStageHost {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.wizardBuilder .workspaceCard,
+.wizardBuilder .wizardAnalyzerStage {
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.simpleCompletion {
+  margin: 0 0 18px;
+  color: var(--warning-text);
+  font-size: 13px;
+}
+
+.simpleCompletionReady {
+  color: var(--safe-text);
+}
+
+.simpleReviewNote {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .wizardHero {
@@ -956,6 +1033,81 @@ textarea:disabled {
 
 .optionalDetails > .fieldGrid {
   padding: 18px;
+}
+
+.advancedDetails {
+  margin-top: 20px;
+}
+
+.simpleDominantControl {
+  margin-top: 20px;
+}
+
+.patternOptions > .patternAdvancedContent {
+  padding: 18px;
+}
+
+.patternAdvancedContent > .field {
+  margin-top: 18px;
+}
+
+.simpleSourceEditor {
+  margin-top: 24px;
+  padding-top: 20px;
+}
+
+.simpleSourceEditor h3 {
+  margin: 0 0 16px;
+  font-size: 15px;
+}
+
+.simpleSaveRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.simpleSaveRow > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.saveOptions {
+  position: relative;
+}
+
+.saveOptions summary {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.saveOptions > div {
+  min-width: 150px;
+  display: grid;
+  gap: 4px;
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
+}
+
+.dangerTextButton {
+  color: var(--critical-text);
 }
 
 .patternStage > .field + .field,
@@ -2755,6 +2907,39 @@ textarea:disabled {
 
   .wizardActions button {
     width: 100%;
+  }
+
+  .simpleWizardHeader {
+    padding-top: 28px;
+  }
+
+  .simpleWizardHeader h1 {
+    font-size: 32px;
+  }
+
+  .simpleSaveRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .simpleSaveRow > span {
+    margin-right: 0;
+  }
+
+  .simpleSaveRow > button,
+  .saveOptions,
+  .saveOptions summary {
+    width: 100%;
+  }
+
+  .saveOptions summary {
+    justify-content: center;
+  }
+
+  .saveOptions > div {
+    position: static;
+    margin-top: 6px;
+    box-shadow: none;
   }
 
   .workspaceCard,
