@@ -36,7 +36,38 @@ const NAV_ITEMS: Array<{
   { id: "export", label: "내보내기", short: "05", description: "Analyzer용 파일 생성" },
 ];
 
-const BUILDER_STEPS = ["자료 입력", "맥락 해석", "사람 검토", "Analyzer 검증"];
+const BUILDER_STEPS = [
+  {
+    title: "자료 입력",
+    description: "먼저 검토할 문구와 최소한의 배경 정보만 입력하세요.",
+    eyebrow: "01 · SOURCE",
+  },
+  {
+    title: "맥락 해석",
+    description: "생성된 의미와 위험 요약이 원문 맥락에 맞는지 확인하세요.",
+    eyebrow: "02 · INTERPRETATION",
+  },
+  {
+    title: "분류·점수",
+    description: "스킬의 적용 범위와 위험 점수 기준을 필요한 만큼 조정하세요.",
+    eyebrow: "03 · CLASSIFICATION",
+  },
+  {
+    title: "탐지 패턴",
+    description: "함께 나타나야 할 표현과 제외할 표현을 조합하세요.",
+    eyebrow: "04 · PATTERN",
+  },
+  {
+    title: "사람 검토",
+    description: "판단 근거와 출처를 확인한 뒤 스킬의 검토 상태를 결정하세요.",
+    eyebrow: "05 · HUMAN REVIEW",
+  },
+  {
+    title: "Analyzer 검증",
+    description: "실제 문구를 넣어 방금 만든 스킬이 의도대로 작동하는지 확인하세요.",
+    eyebrow: "06 · VALIDATION",
+  },
+] as const;
 
 const QUICK_TESTS = [
   "15초만에 형량 분석",
@@ -373,7 +404,7 @@ export function RiskShieldWorkbench() {
     sourceUrl: "",
     memo: "제공된 handoff 기대 사례",
   });
-  const [builderStep, setBuilderStep] = useState(3);
+  const [builderStep, setBuilderStep] = useState(1);
   const [severityRules, setSeverityRules] = useState<SeverityRules>(DEFAULT_SEVERITY_RULES);
   const [analysisInput, setAnalysisInput] = useState("15초만에 형량 분석");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(() =>
@@ -397,10 +428,12 @@ export function RiskShieldWorkbench() {
   const [libraryCategory, setLibraryCategory] = useState("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
+  const builderStageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  }, [activeView]);
+    if (activeView === "builder") builderStageRef.current?.focus({ preventScroll: true });
+  }, [activeView, builderStep]);
 
   useEffect(() => {
     let cancelled = false;
@@ -474,6 +507,7 @@ export function RiskShieldWorkbench() {
   const reviewedCount = skills.filter(
     (skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0,
   ).length;
+  const currentBuilderStep = BUILDER_STEPS[builderStep - 1] ?? BUILDER_STEPS[0];
 
   function patchCase<K extends keyof CaseInput>(key: K, value: CaseInput[K]) {
     setCaseInput((current) => ({ ...current, [key]: value }));
@@ -485,6 +519,10 @@ export function RiskShieldWorkbench() {
       ...patch,
       updatedAt: new Date().toISOString(),
     }));
+  }
+
+  function goToBuilderStep(step: number) {
+    setBuilderStep(Math.min(BUILDER_STEPS.length, Math.max(1, step)));
   }
 
   function beginNewSkill() {
@@ -500,8 +538,8 @@ export function RiskShieldWorkbench() {
   }
 
   function interpretCase() {
-    if (!caseInput.text.trim()) {
-      setNotice("논란 문구를 먼저 입력해 주세요.");
+    if (!caseInput.text.trim() || !caseInput.description.trim() || !caseInput.domain.trim()) {
+      setNotice("논란 문구, 관련 설명, 분야를 먼저 입력해 주세요.");
       return;
     }
     const draft = createMockSkillDraft(caseInput, skills);
@@ -512,8 +550,8 @@ export function RiskShieldWorkbench() {
       severityRules,
     }));
     setAnalysisError("");
-    setBuilderStep(3);
-    setNotice("Mock 해석이 완료되었습니다. 사람이 결과를 검토해 주세요.");
+    setBuilderStep(2);
+    setNotice("Mock 해석이 완료되었습니다. 생성된 패턴을 확인해 주세요.");
   }
 
   function runAnalysis(value = analysisInput, includeDrafts = true) {
@@ -530,7 +568,7 @@ export function RiskShieldWorkbench() {
       includeDrafts ? testSkillSet : reviewedSkills,
       { includeDrafts, severityRules },
     ));
-    if (includeDrafts) setBuilderStep(4);
+    if (includeDrafts) setBuilderStep(6);
   }
 
   function changeView(nextView: ViewId) {
@@ -696,6 +734,9 @@ export function RiskShieldWorkbench() {
   function openSkill(skill: RiskSkill) {
     setActiveSkill(skill);
     setShowReviewErrors(false);
+    setAnalysisInput(skill.surfaceMeaning);
+    setAnalysisResult(null);
+    setAnalysisError("");
     setCaseInput({
       text: skill.surfaceMeaning,
       description: skill.source.title,
@@ -704,7 +745,7 @@ export function RiskShieldWorkbench() {
       sourceUrl: skill.source.url,
       memo: skill.notes,
     });
-    setBuilderStep(3);
+    setBuilderStep(5);
     setActiveView("builder");
   }
 
@@ -792,13 +833,13 @@ export function RiskShieldWorkbench() {
 
       <main id="main-content" className="mainArea appleMain" tabIndex={-1}>
         {activeView === "builder" && (
-          <div className="builderLayout appleBuilder">
+          <div className="builderLayout appleBuilder wizardBuilder">
             <section className="builderMain" aria-labelledby="builder-title">
-              <section className="pageHeading editorialHero productTileLight">
+              <section className="pageHeading editorialHero productTileLight wizardHero">
                 <div>
-                  <span className="editorialEyebrow">RISKSHIELD SKILL BUILDER</span>
-                  <h1 id="builder-title">위험 패턴 스킬 만들기</h1>
-                  <p>실제 사례를 조합형 위험 패턴으로 바꾸고, 사람이 검토한 결과만 Analyzer에 전달하세요.</p>
+                  <span className="editorialEyebrow">STEP {builderStep} OF {BUILDER_STEPS.length}</span>
+                  <h1 id="builder-title">{currentBuilderStep.title}</h1>
+                  <p>{currentBuilderStep.description}</p>
                   <div className="breadcrumb"><span>현재 스킬</span><b>/</b><span>{activeSkill.id}</span></div>
                 </div>
                 <div className="headingStatus">
@@ -811,16 +852,26 @@ export function RiskShieldWorkbench() {
 
               <ol className="stepper workflowStrip" aria-label="스킬 제작 단계">
                 {BUILDER_STEPS.map((step, index) => (
-                  <li key={step} className={cx(index + 1 <= builderStep && "stepDone", index + 1 === builderStep && "stepActive")}>
+                  <li key={step.title} className={cx(index + 1 <= builderStep && "stepDone", index + 1 === builderStep && "stepActive")}>
                     <div className="stepIndicator" aria-current={index + 1 === builderStep ? "step" : undefined}>
                       <span>{index + 1}</span>
-                      <b>{step}</b>
+                      <b>{step.title}</b>
                     </div>
                   </li>
                 ))}
               </ol>
 
-              <section className="workspaceCard inputCard productTileParchment featureSection" aria-labelledby="case-input-title">
+              <div
+                className="wizardStageHost"
+                ref={builderStageRef}
+                tabIndex={-1}
+                aria-label={`${builderStep}/${BUILDER_STEPS.length}단계 ${currentBuilderStep.title}`}
+              >
+              <section
+                className="workspaceCard inputCard productTileParchment featureSection wizardStage"
+                aria-labelledby="case-input-title"
+                hidden={builderStep !== 1}
+              >
                 <div className="cardHeading">
                   <div>
                     <span className="sectionNumber">01 · SOURCE</span>
@@ -852,11 +903,12 @@ export function RiskShieldWorkbench() {
                       value={caseInput.description}
                       onChange={(event) => patchCase("description", event.target.value)}
                       placeholder="어떤 맥락에서 문제가 될 수 있는지 적어 주세요."
+                      required
                     />
                   </div>
                   <div className="field">
                     <label htmlFor="case-domain">분야 *</label>
-                    <select id="case-domain" value={caseInput.domain} onChange={(event) => patchCase("domain", event.target.value)}>
+                    <select id="case-domain" value={caseInput.domain} onChange={(event) => patchCase("domain", event.target.value)} required>
                       <option>법률 광고</option>
                       <option>의료 광고</option>
                       <option>교육·입시 광고</option>
@@ -868,6 +920,9 @@ export function RiskShieldWorkbench() {
                       <option>브랜드 평판 위험</option>
                     </select>
                   </div>
+                  <details className="optionalDetails fieldWide">
+                    <summary>선택 정보 추가 <span>발생 시기 · 출처 · 메모</span></summary>
+                    <div className="fieldGrid">
                   <div className="field">
                     <label htmlFor="case-date">발생 시기</label>
                     <input id="case-date" type="date" value={caseInput.occurredAt} onChange={(event) => patchCase("occurredAt", event.target.value)} />
@@ -892,6 +947,8 @@ export function RiskShieldWorkbench() {
                       placeholder="후속 확인 사항이나 내부 검토 메모를 적어 주세요."
                     />
                   </div>
+                    </div>
+                  </details>
                 </div>
                 <div className="cardFooter">
                   <p><span aria-hidden="true">◇</span> Mock은 규칙 기반 시연 결과를 생성합니다. 실제 AI 분석이 아닙니다.</p>
@@ -906,30 +963,58 @@ export function RiskShieldWorkbench() {
                 </div>
               </section>
 
-              <section className="workspaceCard reviewCard featureSection" aria-labelledby="review-title">
+              <section
+                className="workspaceCard reviewCard featureSection wizardStage"
+                aria-labelledby="review-title"
+                hidden={builderStep < 2 || builderStep > 5}
+              >
                 <div className="cardHeading">
                   <div>
-                    <span className="sectionNumber">02 · HUMAN REVIEW</span>
-                    <h2 id="review-title">사람 검토</h2>
+                    <span className="sectionNumber">{currentBuilderStep.eyebrow}</span>
+                    <h2 id="review-title">{builderStep === 2 ? "Mock 해석 초안" : currentBuilderStep.title}</h2>
                   </div>
-                  <span className={cx("completionBadge", validationErrors.length === 0 && "completionBadgeComplete")}>
-                    필수 항목 {validationErrors.length === 0 ? "완료" : validationErrors.length + "개 확인"}
-                  </span>
+                  {builderStep < 5 ? (
+                    <span className="completionBadge">직접 수정 가능</span>
+                  ) : (
+                    <span className={cx("completionBadge", validationErrors.length === 0 && "completionBadgeComplete")}>
+                      필수 항목 {validationErrors.length === 0 ? "완료" : validationErrors.length + "개 확인"}
+                    </span>
+                  )}
                 </div>
-                <div className="reviewNotice">
-                  <span aria-hidden="true">!</span>
-                  <p><strong>담당자 검토 전에는 Analyzer에 반영되지 않습니다.</strong> 해석 결과와 출처, 오탐 가능성을 직접 확인해 주세요.</p>
-                </div>
-                {showReviewErrors && reviewValidationErrors.length > 0 && (
-                  <div className="validationSummary" role="alert" aria-live="assertive">
-                    <strong>검토 완료 전에 다음 항목을 확인해 주세요.</strong>
-                    <ul>
-                      {reviewValidationErrors.map((error) => <li key={error}>{error}</li>)}
-                    </ul>
+                {builderStep === 2 && (
+                  <div className="interpretationIntro">
+                    <div>
+                      <span>표면 의미</span>
+                      <strong>{activeSkill.surfaceMeaning || "해석 결과를 확인해 주세요."}</strong>
+                    </div>
+                    <div>
+                      <span>위험 요약</span>
+                      <strong>{activeSkill.riskSummary || "아직 생성된 요약이 없습니다."}</strong>
+                    </div>
+                    <div>
+                      <span>조합 패턴</span>
+                      <strong>{activeSkill.patternType || "패턴을 확인해 주세요."}</strong>
+                    </div>
                   </div>
                 )}
+                {builderStep === 5 && (
+                  <>
+                    <div className="reviewNotice">
+                      <span aria-hidden="true">!</span>
+                      <p><strong>담당자 검토 전에는 Analyzer에 반영되지 않습니다.</strong> 판단 근거와 출처, 오탐 가능성을 직접 확인해 주세요.</p>
+                    </div>
+                    {showReviewErrors && reviewValidationErrors.length > 0 && (
+                      <div className="validationSummary" role="alert" aria-live="assertive">
+                        <strong>검토 완료 전에 다음 항목을 확인해 주세요.</strong>
+                        <ul>
+                          {reviewValidationErrors.map((error) => <li key={error}>{error}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
 
-                <div className="fieldGrid">
+                <div className="fieldGrid" hidden={builderStep !== 3}>
                   <div className="field fieldWide">
                     <label htmlFor="skill-id">스킬 ID</label>
                     <input id="skill-id" value={activeSkill.id} onChange={(event) => patchSkill({ id: event.target.value })} />
@@ -1021,7 +1106,7 @@ export function RiskShieldWorkbench() {
                   </div>
                 </div>
 
-                <div className="fieldGrid narrativeGrid">
+                <div className="fieldGrid narrativeGrid" hidden={builderStep !== 2}>
                   <div className="field">
                     <label htmlFor="skill-surface">표면 의미</label>
                     <textarea id="skill-surface" rows={3} value={activeSkill.surfaceMeaning} onChange={(event) => patchSkill({ surfaceMeaning: event.target.value })} />
@@ -1032,7 +1117,7 @@ export function RiskShieldWorkbench() {
                   </div>
                 </div>
 
-                <div className="dominantControl">
+                <div className="dominantControl" hidden={builderStep !== 3}>
                   <div>
                     <strong>Dominant Risk로 적용</strong>
                     <p>심각한 위험이 다른 0점 카테고리에 묻히지 않도록 최종 점수 하한을 적용합니다.</p>
@@ -1049,6 +1134,7 @@ export function RiskShieldWorkbench() {
                   </button>
                 </div>
 
+                <div className="patternStage" hidden={builderStep !== 4}>
                 <div className="editorPair">
                   <ChipEditor
                     label="all_of · 트리거 패턴"
@@ -1086,7 +1172,20 @@ export function RiskShieldWorkbench() {
                   onChange={(values) => patchSkill({ recentContextTags: values })}
                   tone="neutral"
                 />
+                </div>
 
+                {builderStep >= 2 && builderStep <= 4 && (
+                  <div className="wizardActions">
+                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(builderStep - 1)}>
+                      이전: {BUILDER_STEPS[builderStep - 2].title}
+                    </button>
+                    <button type="button" className="primaryButton" onClick={() => goToBuilderStep(builderStep + 1)}>
+                      다음: {BUILDER_STEPS[builderStep].title}
+                    </button>
+                  </div>
+                )}
+
+                <div className="humanReviewStage" hidden={builderStep !== 5}>
                 <div className="field">
                   <label htmlFor="skill-reason">판단 근거</label>
                   <textarea id="skill-reason" rows={3} value={activeSkill.riskReason} onChange={(event) => patchSkill({ riskReason: event.target.value })} />
@@ -1182,55 +1281,74 @@ export function RiskShieldWorkbench() {
                     </div>
                   </div>
                 </section>
-                <div className="reviewActions">
+                <div className="reviewActions wizardReviewActions">
                   <span>{saving ? "저장하는 중…" : "마지막 수정 " + formatTime(activeSkill.updatedAt)}</span>
-                  <div>
+                  <div className="reviewDecisionActions">
                     <button type="button" className="secondaryButton" onClick={() => saveSkill("draft")} disabled={saving} data-testid="builder-save-button">
                       초안 저장
                     </button>
                     <button type="button" className="dangerButton" onClick={() => saveSkill("rejected")} disabled={saving}>
                       반려로 표시
                     </button>
-                    <button type="button" className="primaryButton" onClick={() => saveSkill("reviewed")} disabled={saving} data-testid="builder-review-button">
+                    <button type="button" className="secondaryButton" onClick={() => saveSkill("reviewed")} disabled={saving} data-testid="builder-review-button">
                       검토 완료로 표시
                     </button>
                   </div>
+                  <div className="wizardActions">
+                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(4)}>
+                      이전: 탐지 패턴
+                    </button>
+                    <button type="button" className="primaryButton" onClick={() => runAnalysis(analysisInput, true)}>
+                      다음: Analyzer 검증
+                    </button>
+                  </div>
+                </div>
                 </div>
               </section>
-            </section>
-
-            <aside className="inspector productTileLight analyzerPreviewTile" aria-label="스킬 검증 패널">
-              <div className="inspectorTabs">
-                <strong>Analyzer 미리보기</strong>
-                <span>현재 초안 포함</span>
-              </div>
-              <div className="inspectorInput">
-                <label htmlFor="inspector-analysis-input">테스트할 광고 문구</label>
-                <div>
-                  <input
-                    id="inspector-analysis-input"
-                    value={analysisInput}
-                    onChange={(event) => {
-                      setAnalysisInput(event.target.value);
-                      if (event.target.value.trim()) setAnalysisError("");
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") runAnalysis(analysisInput, true);
-                    }}
-                  />
-                  <button type="button" onClick={() => runAnalysis(analysisInput, true)} aria-label="현재 문구 분석" data-testid="analyzer-run-button">→</button>
-                </div>
-                {analysisError && <p className="formError" role="alert">{analysisError}</p>}
-              </div>
-              {analysisResult ? (
-                <AnalysisPanel result={analysisResult} title="실시간 검증" compact />
-              ) : (
-                <div className="analysisEmptyState">
-                  <strong>{analysisError || "분석할 문구를 입력해 주세요."}</strong>
-                  <p>현재 초안은 이 미리보기에서만 포함되며 반려 스킬은 제외됩니다.</p>
-                </div>
+              {builderStep === 6 && (
+                <section className="inspector productTileLight analyzerPreviewTile wizardAnalyzerStage" aria-label="스킬 검증 패널">
+                  <div className="inspectorTabs">
+                    <strong>Analyzer 검증</strong>
+                    <span>현재 초안 포함</span>
+                  </div>
+                  <div className="inspectorInput">
+                    <label htmlFor="inspector-analysis-input">테스트할 광고 문구</label>
+                    <div>
+                      <input
+                        id="inspector-analysis-input"
+                        value={analysisInput}
+                        onChange={(event) => {
+                          setAnalysisInput(event.target.value);
+                          if (event.target.value.trim()) setAnalysisError("");
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") runAnalysis(analysisInput, true);
+                        }}
+                      />
+                      <button type="button" onClick={() => runAnalysis(analysisInput, true)} aria-label="현재 문구 분석" data-testid="analyzer-run-button">분석</button>
+                    </div>
+                    {analysisError && <p className="formError" role="alert">{analysisError}</p>}
+                  </div>
+                  {analysisResult ? (
+                    <AnalysisPanel result={analysisResult} title="실시간 검증" />
+                  ) : (
+                    <div className="analysisEmptyState">
+                      <strong>{analysisError || "분석할 문구를 입력해 주세요."}</strong>
+                      <p>현재 초안은 이 검증 화면에서만 포함되며 반려 스킬은 제외됩니다.</p>
+                    </div>
+                  )}
+                  <div className="wizardActions analyzerStageActions">
+                    <button type="button" className="secondaryButton" onClick={() => goToBuilderStep(5)}>
+                      이전: 사람 검토
+                    </button>
+                    <button type="button" className="primaryButton" onClick={() => changeView("library")}>
+                      스킬 라이브러리 보기
+                    </button>
+                  </div>
+                </section>
               )}
-            </aside>
+              </div>
+            </section>
           </div>
         )}
 

@@ -828,6 +828,197 @@ textarea:disabled {
   font-weight: 600;
 }
 
+.wizardBuilder {
+  max-width: 1040px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wizardHero {
+  padding-bottom: 24px;
+}
+
+.wizardHero > div:first-child {
+  max-width: 720px;
+}
+
+.wizardBuilder .workflowStrip {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.wizardBuilder .stepIndicator {
+  min-height: 62px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wizardBuilder .stepIndicator span {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.wizardBuilder .stepDone .stepIndicator span {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.wizardStageHost {
+  outline: none;
+}
+
+.wizardStage,
+.wizardAnalyzerStage {
+  animation: wizardStageIn 180ms ease-out;
+}
+
+.wizardStage[hidden],
+.wizardStage [hidden],
+.patternStage[hidden],
+.humanReviewStage[hidden] {
+  display: none;
+}
+
+@keyframes wizardStageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.interpretationIntro {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--border);
+}
+
+.interpretationIntro > div {
+  min-width: 0;
+  padding: 16px;
+  background: var(--neutral-bg);
+}
+
+.interpretationIntro span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.interpretationIntro strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.optionalDetails {
+  overflow: hidden;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.optionalDetails summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.optionalDetails summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.optionalDetails[open] summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.optionalDetails > .fieldGrid {
+  padding: 18px;
+}
+
+.patternStage > .field + .field,
+.patternStage > .conditionEditorGrid,
+.patternStage > .field {
+  margin-top: 18px;
+}
+
+.wizardActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.reviewActions.wizardReviewActions {
+  position: static;
+  display: grid;
+  gap: 14px;
+}
+
+.wizardReviewActions .reviewDecisionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wizardReviewActions .wizardActions {
+  width: 100%;
+  margin-top: 0;
+}
+
+.inspector.wizardAnalyzerStage {
+  position: static;
+  max-height: none;
+  overflow: visible;
+  margin-top: 24px;
+}
+
+.wizardAnalyzerStage .inspectorInput > div {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.wizardAnalyzerStage .inspectorInput button {
+  width: auto;
+  min-width: 72px;
+  padding: 0 16px;
+}
+
+.wizardAnalyzerStage .analysisPanel {
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.analyzerStageActions {
+  margin: 0;
+  padding: 20px;
+}
+
 .inputCard,
 .reviewCard {
   margin-top: 24px;
@@ -2511,6 +2702,61 @@ textarea:disabled {
     height: 4px;
   }
 
+  .wizardBuilder .workflowStrip {
+    display: flex;
+    gap: 6px;
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .wizardBuilder .workflowStrip li {
+    flex: 1 1 0;
+    border: 0;
+  }
+
+  .wizardBuilder .stepIndicator,
+  .wizardBuilder .stepDone .stepIndicator,
+  .wizardBuilder .stepActive .stepIndicator {
+    min-height: 8px;
+    padding: 0;
+    border-radius: 999px;
+    background: var(--border);
+  }
+
+  .wizardBuilder .stepDone .stepIndicator {
+    background: color-mix(in srgb, var(--primary) 35%, var(--border));
+  }
+
+  .wizardBuilder .stepActive .stepIndicator {
+    background: var(--primary);
+  }
+
+  .wizardBuilder .stepIndicator span,
+  .wizardBuilder .stepIndicator b {
+    display: none;
+  }
+
+  .interpretationIntro {
+    grid-template-columns: 1fr;
+  }
+
+  .optionalDetails summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .wizardActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wizardActions button {
+    width: 100%;
+  }
+
   .workspaceCard,
   .analysisPanel {
     padding: 20px;
@@ -2667,6 +2913,10 @@ textarea:disabled {
   .metricStrip,
   .librarySummary,
   .filterBar {
+    grid-template-columns: 1fr;
+  }
+
+  .wizardActions {
     grid-template-columns: 1fr;
   }
 
