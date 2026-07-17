@@ -1,66 +1,30 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
   analyzeText,
   buildExportBundle,
   buildHighlightSegments,
+  parseCsv,
   starterSkills,
   validateSkill,
   type RiskSkill,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/riskshield.ts";
 
-const positiveCases = [
-  {
-    text: "15초만에 형량 분석",
-    category: "고위험 전문서비스 광고",
-    patternType: "short_time_claim + legal_judgment",
-    minimum: 78,
-  },
-  {
-    text: "기각 시 100% 환불",
-    category: "고위험 전문서비스 광고",
-    patternType: "legal_outcome + refund_guarantee",
-    minimum: 85,
-  },
-  {
-    text: "잊지말자 625%",
-    category: "역사·기념일 민감성",
-    patternType: "historical_memory + discount_rate",
-    minimum: 86,
-  },
-  {
-    text: "침투하자 더 깊게",
-    category: "브랜드 평판 위험",
-    patternType: "aggressive_or_sexual_double_meaning + campaign_copy",
-    minimum: 72,
-  },
-  {
-    text: "합격 보장",
-    category: "교육·입시 광고",
-    patternType: "education_outcome + guarantee",
-    minimum: 80,
-  },
-  {
-    text: "100% 완치",
-    category: "의료 광고",
-    patternType: "medical_effect + absolute_guarantee",
-    minimum: 88,
-  },
-  {
-    text: "월 수익 보장",
-    category: "금융·투자 광고",
-    patternType: "financial_profit + guarantee",
-    minimum: 85,
-  },
-  {
-    text: "몰래 위치 분석",
-    category: "개인정보·사생활 침해 위험",
-    patternType: "privacy_tracking + lack_of_consent",
-    minimum: 82,
-  },
-] as const;
+const behaviorCsv = readFileSync(
+  new URL("./fixtures/test_cases_expected_behavior.csv", import.meta.url),
+  "utf8",
+);
+const [behaviorHeaders, ...behaviorRows] = parseCsv(behaviorCsv.replace(/^\uFEFF/u, ""));
+const behaviorIndex = Object.fromEntries(behaviorHeaders.map((header, index) => [header, index]));
+const positiveCases = behaviorRows.map((row) => ({
+  text: row[behaviorIndex.input_text],
+  category: row[behaviorIndex.expected_category],
+  patternType: row[behaviorIndex.expected_pattern_type],
+  minimum: Number(row[behaviorIndex.expected_min_score]),
+}));
 
 test("the eight handoff cases match reusable two-part skills at their required floors", () => {
   for (const expected of positiveCases) {
@@ -86,6 +50,8 @@ test("the eight handoff cases match reusable two-part skills at their required f
 });
 
 const negativeCases = [
+  ["보장", "a single general word is not a combination"],
+  ["할인", "a single commerce word is not a sensitive context"],
   ["15초 만에 상담 신청을 접수합니다.", "time claim without a legal judgment"],
   ["형량 분석에는 사실관계 검토가 필요합니다.", "legal judgment without a short-time claim"],
   ["배송 지연 시 100% 환불해 드립니다.", "refund without a legal outcome"],

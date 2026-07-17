@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { riskSkills } from "../../../db/schema";
 import {
+  RISK_SKILL_SCHEMA_VERSION,
   starterSkills,
   validateSkill,
   type RiskSkill,
@@ -96,6 +97,39 @@ function parseRiskSkill(value: unknown): { skill?: RiskSkill; issues: string[] }
   if (value.exclusionPatterns !== undefined && !isStringArray(value.exclusionPatterns)) {
     issues.push("exclusionPatterns는 문자열 배열이어야 합니다.");
   }
+  if (value.schemaVersion !== undefined && value.schemaVersion !== RISK_SKILL_SCHEMA_VERSION) {
+    issues.push(`schemaVersion은 ${RISK_SKILL_SCHEMA_VERSION}이어야 합니다.`);
+  }
+  if (
+    value.revision !== undefined &&
+    (typeof value.revision !== "number" || !Number.isInteger(value.revision) || value.revision < 1)
+  ) {
+    issues.push("revision은 1 이상의 정수여야 합니다.");
+  }
+  if (value.anyOfPatterns !== undefined && !isStringArray(value.anyOfPatterns)) {
+    issues.push("anyOfPatterns는 문자열 배열이어야 합니다.");
+  }
+  if (
+    value.conditionScope !== undefined &&
+    value.conditionScope !== "sentence" &&
+    value.conditionScope !== "paragraph"
+  ) {
+    issues.push("conditionScope는 sentence 또는 paragraph여야 합니다.");
+  }
+  if (
+    value.maxDistance !== undefined &&
+    (
+      typeof value.maxDistance !== "number" ||
+      !Number.isInteger(value.maxDistance) ||
+      value.maxDistance < 0 ||
+      value.maxDistance > 2_000
+    )
+  ) {
+    issues.push("maxDistance는 0에서 2000 사이의 정수여야 합니다.");
+  }
+  if (value.notes !== undefined && typeof value.notes !== "string") {
+    issues.push("notes는 문자열이어야 합니다.");
+  }
   if (typeof value.severityFloor !== "number" || !Number.isFinite(value.severityFloor)) {
     issues.push("severityFloor은 유한한 숫자여야 합니다.");
   }
@@ -105,8 +139,12 @@ function parseRiskSkill(value: unknown): { skill?: RiskSkill; issues: string[] }
   if (typeof value.confidence !== "number" || !Number.isFinite(value.confidence)) {
     issues.push("confidence는 유한한 숫자여야 합니다.");
   }
-  if (value.reviewStatus !== "draft" && value.reviewStatus !== "reviewed") {
-    issues.push("reviewStatus는 draft 또는 reviewed여야 합니다.");
+  if (
+    value.reviewStatus !== "draft" &&
+    value.reviewStatus !== "reviewed" &&
+    value.reviewStatus !== "rejected"
+  ) {
+    issues.push("reviewStatus는 draft, reviewed 또는 rejected여야 합니다.");
   }
   if (typeof value.id === "string" && !skillIdPattern.test(value.id)) {
     issues.push("id는 risk_로 시작하는 안전한 식별자여야 합니다.");
@@ -137,15 +175,20 @@ function parseRiskSkill(value: unknown): { skill?: RiskSkill; issues: string[] }
 
   const source = value.source;
   const skill: RiskSkill = {
+    schemaVersion: (value.schemaVersion ?? RISK_SKILL_SCHEMA_VERSION) as RiskSkill["schemaVersion"],
+    revision: (value.revision ?? 1) as number,
     id: value.id as string,
     category: value.category as string,
     subcategory: value.subcategory as string,
     patternType: value.patternType as string,
     triggerPatterns: value.triggerPatterns as string[],
     contextPatterns: value.contextPatterns as string[],
+    anyOfPatterns: (value.anyOfPatterns ?? []) as string[],
     ...(value.exclusionPatterns === undefined
       ? {}
       : { exclusionPatterns: value.exclusionPatterns as string[] }),
+    conditionScope: (value.conditionScope ?? "sentence") as RiskSkill["conditionScope"],
+    maxDistance: (value.maxDistance ?? 48) as number,
     surfaceMeaning: value.surfaceMeaning as string,
     riskSummary: value.riskSummary as string,
     socialContext: value.socialContext as string,
@@ -158,6 +201,7 @@ function parseRiskSkill(value: unknown): { skill?: RiskSkill; issues: string[] }
     recentContextTags: value.recentContextTags as string[],
     safeRewrite: value.safeRewrite as string[],
     falsePositiveNote: value.falsePositiveNote as string,
+    notes: (value.notes ?? "") as string,
     source: {
       title: source.title as string,
       url: source.url as string,
@@ -182,7 +226,7 @@ function rowForSkill(skill: RiskSkill) {
   return {
     id: skill.id,
     category: skill.category,
-    reviewStatus: skill.reviewStatus,
+    reviewStatus: skill.reviewStatus === "rejected" ? "draft" : skill.reviewStatus,
     severityFloor: skill.severityFloor,
     dominantRisk: skill.dominantRisk,
     payload: JSON.stringify(skill),

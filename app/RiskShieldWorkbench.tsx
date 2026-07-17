@@ -1,19 +1,23 @@
 "use client";
 
 import {
+  DEFAULT_SEVERITY_RULES,
   analyzeText,
   buildExportBundle,
   buildHighlightSegments,
   createMockSkillDraft,
   parseCsv,
+  parseBundleFiles,
   starterSkills,
   summarizeCsv,
   validateSkill,
   type AnalysisResult,
+  type BundleFiles,
   type CaseInput,
   type CsvSummary,
   type HighlightSegment,
   type RiskSkill,
+  type SeverityRules,
 } from "@/lib/riskshield";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -42,6 +46,22 @@ const QUICK_TESTS = [
   "월 수익 보장",
 ];
 
+const BUNDLE_FILE_NAMES = [
+  "risk_skills.jsonl",
+  "trend_context.json",
+  "severity_rules.json",
+  "rewrite_templates.json",
+  "source_index.json",
+] as const satisfies ReadonlyArray<keyof BundleFiles>;
+
+type BundleImportReport = {
+  selectedNames: string[];
+  loadedNames: string[];
+  skillCount: number;
+  issues: string[];
+  applied: boolean;
+};
+
 const EMPTY_CASE: CaseInput = {
   text: "",
   description: "",
@@ -54,12 +74,18 @@ const EMPTY_CASE: CaseInput = {
 function makeBlankSkill(): RiskSkill {
   const now = new Date().toISOString();
   return {
+    schemaVersion: "2.0.0",
+    revision: 1,
     id: "risk_draft_" + now.replace(/[-:.TZ]/g, "").slice(0, 14),
     category: "",
     subcategory: "",
     patternType: "",
     triggerPatterns: [],
     contextPatterns: [],
+    anyOfPatterns: [],
+    exclusionPatterns: [],
+    conditionScope: "sentence",
+    maxDistance: 48,
     surfaceMeaning: "",
     riskSummary: "",
     socialContext: "",
@@ -72,6 +98,7 @@ function makeBlankSkill(): RiskSkill {
     recentContextTags: [],
     safeRewrite: [],
     falsePositiveNote: "",
+    notes: "",
     source: {
       title: "",
       url: "",
@@ -83,6 +110,18 @@ function makeBlankSkill(): RiskSkill {
     updatedAt: now,
     reviewStatus: "draft",
   };
+}
+
+function reviewStatusLabel(status: RiskSkill["reviewStatus"]) {
+  if (status === "reviewed") return "검토 완료";
+  if (status === "rejected") return "반려";
+  return "초안";
+}
+
+function reviewStatusTone(status: RiskSkill["reviewStatus"]) {
+  if (status === "reviewed") return "statusBadge-safe";
+  if (status === "rejected") return "statusBadge-critical";
+  return "statusBadge-neutral";
 }
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -150,7 +189,7 @@ function ChipEditor({
                 {isRegex ? (
                   <code className="editableChipValue" title={displayValue}>{displayValue}</code>
                 ) : (
-                  <span className="editableChipValue">{displayValue}</span>
+                  <span className="editableChipValue" title={displayValue}>{displayValue}</span>
                 )}
                 <button
                   type="button"
@@ -335,10 +374,16 @@ export function RiskShieldWorkbench() {
     memo: "제공된 handoff 기대 사례",
   });
   const [builderStep, setBuilderStep] = useState(3);
+  const [severityRules, setSeverityRules] = useState<SeverityRules>(DEFAULT_SEVERITY_RULES);
   const [analysisInput, setAnalysisInput] = useState("15초만에 형량 분석");
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult>(() =>
-    analyzeText("15초만에 형량 분석", starterSkills, { includeDrafts: true }),
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(() =>
+    analyzeText("15초만에 형량 분석", starterSkills, {
+      includeDrafts: true,
+      severityRules: DEFAULT_SEVERITY_RULES,
+    }),
   );
+  const [analysisError, setAnalysisError] = useState("");
+  const [showReviewErrors, setShowReviewErrors] = useState(false);
   const [storageLabel, setStorageLabel] = useState("샘플 불러오는 중");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -346,10 +391,16 @@ export function RiskShieldWorkbench() {
   const [csvText, setCsvText] = useState("");
   const [csvName, setCsvName] = useState("");
   const [maskSensitive, setMaskSensitive] = useState(true);
+  const [bundleImportReport, setBundleImportReport] = useState<BundleImportReport | null>(null);
   const [libraryQuery, setLibraryQuery] = useState("");
-  const [libraryStatus, setLibraryStatus] = useState<"all" | "draft" | "reviewed">("all");
+  const [libraryStatus, setLibraryStatus] = useState<"all" | RiskSkill["reviewStatus"]>("all");
   const [libraryCategory, setLibraryCategory] = useState("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const bundleInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [activeView]);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,6 +433,10 @@ export function RiskShieldWorkbench() {
   }, [activeSkill, skills]);
 
   const validationErrors = useMemo(() => validateSkill(activeSkill), [activeSkill]);
+  const reviewValidationErrors = useMemo(
+    () => validateSkill({ ...activeSkill, reviewStatus: "reviewed" }),
+    [activeSkill],
+  );
   const categories = useMemo(
     () => [...new Set(skills.map((skill) => skill.category).filter(Boolean))].sort(),
     [skills],
@@ -391,14 +446,31 @@ export function RiskShieldWorkbench() {
     return skills.filter((skill) => {
       const matchesStatus = libraryStatus === "all" || skill.reviewStatus === libraryStatus;
       const matchesCategory = libraryCategory === "all" || skill.category === libraryCategory;
-      const haystack = [skill.id, skill.category, skill.subcategory, skill.patternType]
+      const haystack = [
+        skill.id,
+        skill.category,
+        skill.subcategory,
+        skill.patternType,
+        skill.surfaceMeaning,
+        skill.riskDomain,
+        ...skill.triggerPatterns,
+        ...skill.contextPatterns,
+        ...skill.anyOfPatterns,
+      ]
         .join(" ")
         .toLocaleLowerCase("ko-KR");
       return matchesStatus && matchesCategory && (!query || haystack.includes(query));
     });
   }, [libraryCategory, libraryQuery, libraryStatus, skills]);
 
-  const exportBundle = useMemo(() => buildExportBundle(skills), [skills]);
+  const reviewedSkills = useMemo(
+    () => skills.filter((skill) => skill.reviewStatus === "reviewed"),
+    [skills],
+  );
+  const exportBundle = useMemo(
+    () => buildExportBundle(skills, new Date(), severityRules),
+    [severityRules, skills],
+  );
   const reviewedCount = skills.filter(
     (skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0,
   ).length;
@@ -418,6 +490,10 @@ export function RiskShieldWorkbench() {
   function beginNewSkill() {
     setCaseInput(EMPTY_CASE);
     setActiveSkill(makeBlankSkill());
+    setAnalysisInput("");
+    setAnalysisResult(null);
+    setAnalysisError("");
+    setShowReviewErrors(false);
     setBuilderStep(1);
     setActiveView("builder");
     setNotice("새 초안을 열었습니다.");
@@ -431,20 +507,35 @@ export function RiskShieldWorkbench() {
     const draft = createMockSkillDraft(caseInput, skills);
     setActiveSkill(draft);
     setAnalysisInput(caseInput.text);
-    setAnalysisResult(analyzeText(caseInput.text, [draft, ...skills], { includeDrafts: true }));
+    setAnalysisResult(analyzeText(caseInput.text, [draft, ...skills], {
+      includeDrafts: true,
+      severityRules,
+    }));
+    setAnalysisError("");
     setBuilderStep(3);
     setNotice("Mock 해석이 완료되었습니다. 사람이 결과를 검토해 주세요.");
   }
 
-  function runAnalysis(value = analysisInput) {
+  function runAnalysis(value = analysisInput, includeDrafts = true) {
     const text = value.trim();
     if (!text) {
-      setNotice("테스트할 광고 문구를 입력해 주세요.");
+      setAnalysisResult(null);
+      setAnalysisError("테스트할 광고 문구를 입력해 주세요.");
       return;
     }
     setAnalysisInput(text);
-    setAnalysisResult(analyzeText(text, testSkillSet, { includeDrafts: true }));
-    setBuilderStep(4);
+    setAnalysisError("");
+    setAnalysisResult(analyzeText(
+      text,
+      includeDrafts ? testSkillSet : reviewedSkills,
+      { includeDrafts, severityRules },
+    ));
+    if (includeDrafts) setBuilderStep(4);
+  }
+
+  function changeView(nextView: ViewId) {
+    setActiveView(nextView);
+    if (nextView === "analyzer") runAnalysis(analysisInput, false);
   }
 
   async function saveSkill(status: RiskSkill["reviewStatus"]) {
@@ -455,9 +546,11 @@ export function RiskShieldWorkbench() {
     };
     const errors = validateSkill(nextSkill);
     if (status === "reviewed" && errors.length) {
+      setShowReviewErrors(true);
       setNotice(errors[0]);
       return;
     }
+    setShowReviewErrors(false);
     setSaving(true);
     try {
       const response = await fetch("/api/skills", {
@@ -470,7 +563,13 @@ export function RiskShieldWorkbench() {
       const saved = payload.skill ?? nextSkill;
       setActiveSkill(saved);
       setSkills((current) => [saved, ...current.filter((skill) => skill.id !== saved.id)]);
-      setNotice(status === "reviewed" ? "사람 검토가 완료되었습니다." : "초안을 저장했습니다.");
+      setNotice(
+        status === "reviewed"
+          ? "사람 검토가 완료되었습니다."
+          : status === "rejected"
+            ? "스킬을 반려 상태로 저장했습니다."
+            : "초안을 저장했습니다.",
+      );
     } catch {
       setActiveSkill(nextSkill);
       setSkills((current) => [nextSkill, ...current.filter((skill) => skill.id !== nextSkill.id)]);
@@ -490,6 +589,74 @@ export function RiskShieldWorkbench() {
     setCsvName(file.name);
     setCsvText(text);
     setCsvSummary(summarizeCsv(text));
+  }
+
+  async function readBundleFiles(fileList?: FileList | null) {
+    const selected = Array.from(fileList ?? []);
+    if (!selected.length) return;
+
+    const contents: Partial<BundleFiles> = {};
+    const issues: string[] = [];
+    const seen = new Set<string>();
+    let riskFileReadFailed = false;
+
+    for (const file of selected) {
+      if (!BUNDLE_FILE_NAMES.includes(file.name as keyof BundleFiles)) {
+        issues.push(`${file.name}: 지원하지 않는 파일명입니다.`);
+        continue;
+      }
+      if (seen.has(file.name)) {
+        issues.push(`${file.name}: 같은 이름의 파일이 두 번 선택되었습니다.`);
+        if (file.name === "risk_skills.jsonl") riskFileReadFailed = true;
+        continue;
+      }
+      seen.add(file.name);
+      try {
+        contents[file.name as keyof BundleFiles] = await file.text();
+      } catch {
+        issues.push(`${file.name}: 파일을 읽을 수 없습니다.`);
+        if (file.name === "risk_skills.jsonl") riskFileReadFailed = true;
+      }
+    }
+
+    const parsed = parseBundleFiles(contents);
+    const riskIssues = parsed.issues.filter((issue) => issue.startsWith("risk_skills.jsonl"));
+    const riskSkillsValid = Boolean(contents["risk_skills.jsonl"])
+      && !riskFileReadFailed
+      && riskIssues.length === 0
+      && parsed.skills.length > 0;
+    const allIssues = [...issues, ...parsed.issues];
+    if (contents["risk_skills.jsonl"] && parsed.skills.length === 0 && riskIssues.length === 0) {
+      allIssues.push("risk_skills.jsonl에 불러올 수 있는 스킬이 없습니다.");
+    }
+
+    if (riskSkillsValid) {
+      const firstSkill = parsed.skills[0];
+      setSkills(parsed.skills);
+      setSeverityRules(parsed.severityRules);
+      setActiveSkill(firstSkill);
+      setCaseInput({
+        text: firstSkill.surfaceMeaning,
+        description: firstSkill.source.title,
+        domain: firstSkill.riskDomain,
+        occurredAt: firstSkill.source.date,
+        sourceUrl: firstSkill.source.url,
+        memo: firstSkill.notes,
+      });
+      setAnalysisResult(null);
+      setAnalysisError("");
+      setLibraryStatus("all");
+      setNotice(`${parsed.skills.length}개 스킬과 점수 정책을 불러왔습니다.`);
+    }
+
+    setBundleImportReport({
+      selectedNames: selected.map((file) => file.name),
+      loadedNames: parsed.filesLoaded,
+      skillCount: parsed.skills.length,
+      issues: allIssues,
+      applied: riskSkillsValid,
+    });
+    if (bundleInputRef.current) bundleInputRef.current.value = "";
   }
 
   function stageCsvRows() {
@@ -528,13 +695,14 @@ export function RiskShieldWorkbench() {
 
   function openSkill(skill: RiskSkill) {
     setActiveSkill(skill);
+    setShowReviewErrors(false);
     setCaseInput({
       text: skill.surfaceMeaning,
       description: skill.source.title,
       domain: skill.riskDomain,
       occurredAt: skill.source.date,
       sourceUrl: skill.source.url,
-      memo: "",
+      memo: skill.notes,
     });
     setBuilderStep(3);
     setActiveView("builder");
@@ -587,7 +755,7 @@ export function RiskShieldWorkbench() {
       <a className="skipLink" href="#main-content">본문으로 건너뛰기</a>
       <header className="appHeader">
         <div className="appHeaderInner">
-          <button type="button" className="appBrand" onClick={() => setActiveView("builder")} aria-label="RiskShield Studio 홈">
+          <button type="button" className="appBrand" onClick={() => changeView("builder")} aria-label="RiskShield Studio 홈">
             <span className="appBrandMark" aria-hidden="true">R</span>
             <strong>RiskShield Studio</strong>
           </button>
@@ -599,7 +767,7 @@ export function RiskShieldWorkbench() {
                 key={item.id}
                 className={cx("navItem", "appNavItem", activeView === item.id && "navItemActive", activeView === item.id && "appNavItemActive")}
                 aria-current={activeView === item.id ? "page" : undefined}
-                onClick={() => setActiveView(item.id)}
+                onClick={() => changeView(item.id)}
                 data-view={item.id}
               >
                 <span className="navIndex" aria-hidden="true">{item.short}</span>
@@ -635,8 +803,8 @@ export function RiskShieldWorkbench() {
                 </div>
                 <div className="headingStatus">
                   <span className="sourceBadge">제공 샘플</span>
-                  <span className={cx("statusBadge", activeSkill.reviewStatus === "reviewed" ? "statusBadge-safe" : "statusBadge-neutral")}>
-                    {activeSkill.reviewStatus === "reviewed" ? "검토 완료" : "초안"}
+                  <span className={cx("statusBadge", reviewStatusTone(activeSkill.reviewStatus))}>
+                    {reviewStatusLabel(activeSkill.reviewStatus)}
                   </span>
                 </div>
               </section>
@@ -714,6 +882,16 @@ export function RiskShieldWorkbench() {
                       placeholder="https://"
                     />
                   </div>
+                  <div className="field fieldWide">
+                    <label htmlFor="case-memo">관리자 메모</label>
+                    <textarea
+                      id="case-memo"
+                      rows={3}
+                      value={caseInput.memo}
+                      onChange={(event) => patchCase("memo", event.target.value)}
+                      placeholder="후속 확인 사항이나 내부 검토 메모를 적어 주세요."
+                    />
+                  </div>
                 </div>
                 <div className="cardFooter">
                   <p><span aria-hidden="true">◇</span> Mock은 규칙 기반 시연 결과를 생성합니다. 실제 AI 분석이 아닙니다.</p>
@@ -742,8 +920,35 @@ export function RiskShieldWorkbench() {
                   <span aria-hidden="true">!</span>
                   <p><strong>담당자 검토 전에는 Analyzer에 반영되지 않습니다.</strong> 해석 결과와 출처, 오탐 가능성을 직접 확인해 주세요.</p>
                 </div>
+                {showReviewErrors && reviewValidationErrors.length > 0 && (
+                  <div className="validationSummary" role="alert" aria-live="assertive">
+                    <strong>검토 완료 전에 다음 항목을 확인해 주세요.</strong>
+                    <ul>
+                      {reviewValidationErrors.map((error) => <li key={error}>{error}</li>)}
+                    </ul>
+                  </div>
+                )}
 
                 <div className="fieldGrid">
+                  <div className="field fieldWide">
+                    <label htmlFor="skill-id">스킬 ID</label>
+                    <input id="skill-id" value={activeSkill.id} onChange={(event) => patchSkill({ id: event.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="skill-schema">스키마 버전</label>
+                    <input id="skill-schema" value={activeSkill.schemaVersion} disabled />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="skill-revision">리비전</label>
+                    <input
+                      id="skill-revision"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={activeSkill.revision}
+                      onChange={(event) => patchSkill({ revision: Number(event.target.value) })}
+                    />
+                  </div>
                   <div className="field">
                     <label htmlFor="skill-category">카테고리</label>
                     <input id="skill-category" value={activeSkill.category} onChange={(event) => patchSkill({ category: event.target.value })} />
@@ -755,6 +960,36 @@ export function RiskShieldWorkbench() {
                   <div className="field fieldWide">
                     <label htmlFor="skill-pattern">조합 패턴</label>
                     <input id="skill-pattern" value={activeSkill.patternType} onChange={(event) => patchSkill({ patternType: event.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="skill-domain">적용 분야</label>
+                    <input id="skill-domain" value={activeSkill.riskDomain} onChange={(event) => patchSkill({ riskDomain: event.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="skill-scope">적용 범위</label>
+                    <select
+                      id="skill-scope"
+                      value={activeSkill.conditionScope}
+                      onChange={(event) => patchSkill({ conditionScope: event.target.value as RiskSkill["conditionScope"] })}
+                    >
+                      <option value="sentence">같은 문장</option>
+                      <option value="paragraph">같은 문단</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="skill-distance">최대 거리</label>
+                    <div className="numberField">
+                      <input
+                        id="skill-distance"
+                        type="number"
+                        min={0}
+                        max={2000}
+                        step={1}
+                        value={activeSkill.maxDistance}
+                        onChange={(event) => patchSkill({ maxDistance: Number(event.target.value) })}
+                      />
+                      <span>자</span>
+                    </div>
                   </div>
                   <div className="field">
                     <label htmlFor="skill-floor">최소 위험 점수</label>
@@ -786,6 +1021,17 @@ export function RiskShieldWorkbench() {
                   </div>
                 </div>
 
+                <div className="fieldGrid narrativeGrid">
+                  <div className="field">
+                    <label htmlFor="skill-surface">표면 의미</label>
+                    <textarea id="skill-surface" rows={3} value={activeSkill.surfaceMeaning} onChange={(event) => patchSkill({ surfaceMeaning: event.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="skill-summary">위험 요약</label>
+                    <textarea id="skill-summary" rows={3} value={activeSkill.riskSummary} onChange={(event) => patchSkill({ riskSummary: event.target.value })} />
+                  </div>
+                </div>
+
                 <div className="dominantControl">
                   <div>
                     <strong>Dominant Risk로 적용</strong>
@@ -805,19 +1051,41 @@ export function RiskShieldWorkbench() {
 
                 <div className="editorPair">
                   <ChipEditor
-                    label="트리거 패턴"
+                    label="all_of · 트리거 패턴"
                     values={activeSkill.triggerPatterns}
                     onChange={(values) => patchSkill({ triggerPatterns: values })}
                     tone="risk"
                   />
                   <div className="pairPlus" aria-hidden="true">AND</div>
                   <ChipEditor
-                    label="맥락 패턴"
+                    label="all_of · 맥락 패턴"
                     values={activeSkill.contextPatterns}
                     onChange={(values) => patchSkill({ contextPatterns: values })}
                     tone="brand"
                   />
                 </div>
+
+                <div className="conditionEditorGrid">
+                  <ChipEditor
+                    label="any_of · 선택 패턴"
+                    values={activeSkill.anyOfPatterns}
+                    onChange={(values) => patchSkill({ anyOfPatterns: values })}
+                    tone="neutral"
+                  />
+                  <ChipEditor
+                    label="none_of · 제외 패턴"
+                    values={activeSkill.exclusionPatterns ?? []}
+                    onChange={(values) => patchSkill({ exclusionPatterns: values })}
+                    tone="neutral"
+                  />
+                </div>
+
+                <ChipEditor
+                  label="최근 사회 맥락 태그"
+                  values={activeSkill.recentContextTags}
+                  onChange={(values) => patchSkill({ recentContextTags: values })}
+                  tone="neutral"
+                />
 
                 <div className="field">
                   <label htmlFor="skill-reason">판단 근거</label>
@@ -845,12 +1113,83 @@ export function RiskShieldWorkbench() {
                       onChange={(event) => patchSkill({ safeRewrite: event.target.value.split("\n").map((value) => value.trim()).filter(Boolean) })}
                     />
                   </div>
+                  <div className="field fieldWide">
+                    <label htmlFor="skill-notes">관리자 메모</label>
+                    <textarea id="skill-notes" rows={3} value={activeSkill.notes} onChange={(event) => patchSkill({ notes: event.target.value })} />
+                  </div>
                 </div>
+
+                <section className="sourceEditor" aria-labelledby="source-editor-title">
+                  <div className="subsectionHeading">
+                    <div>
+                      <span className="sectionNumber">SOURCE PROVENANCE</span>
+                      <h3 id="source-editor-title">출처와 검증 상태</h3>
+                    </div>
+                    <span className="requiredNote">검토 완료 전 확인</span>
+                  </div>
+                  <div className="fieldGrid">
+                    <div className="field fieldWide">
+                      <label htmlFor="skill-source-title">출처 제목</label>
+                      <input
+                        id="skill-source-title"
+                        value={activeSkill.source.title}
+                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, title: event.target.value } })}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-source-date">출처 날짜</label>
+                      <input
+                        id="skill-source-date"
+                        type="date"
+                        value={activeSkill.source.date}
+                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, date: event.target.value } })}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-source-status">검증 상태</label>
+                      <select
+                        id="skill-source-status"
+                        value={activeSkill.source.provenanceStatus ?? "synthetic_unverified"}
+                        onChange={(event) => patchSkill({
+                          source: {
+                            ...activeSkill.source,
+                            provenanceStatus: event.target.value as RiskSkill["source"]["provenanceStatus"],
+                          },
+                        })}
+                      >
+                        <option value="synthetic_unverified">Mock · 미검증</option>
+                        <option value="provided">제공 자료</option>
+                        <option value="verified">담당자 검증 완료</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-source-id">Source ID</label>
+                      <input
+                        id="skill-source-id"
+                        value={activeSkill.source.sourceId ?? ""}
+                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, sourceId: event.target.value } })}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="skill-source-url">출처 URL</label>
+                      <input
+                        id="skill-source-url"
+                        type="url"
+                        value={activeSkill.source.url}
+                        onChange={(event) => patchSkill({ source: { ...activeSkill.source, url: event.target.value } })}
+                        placeholder="https://"
+                      />
+                    </div>
+                  </div>
+                </section>
                 <div className="reviewActions">
                   <span>{saving ? "저장하는 중…" : "마지막 수정 " + formatTime(activeSkill.updatedAt)}</span>
                   <div>
                     <button type="button" className="secondaryButton" onClick={() => saveSkill("draft")} disabled={saving} data-testid="builder-save-button">
                       초안 저장
+                    </button>
+                    <button type="button" className="dangerButton" onClick={() => saveSkill("rejected")} disabled={saving}>
+                      반려로 표시
                     </button>
                     <button type="button" className="primaryButton" onClick={() => saveSkill("reviewed")} disabled={saving} data-testid="builder-review-button">
                       검토 완료로 표시
@@ -871,15 +1210,26 @@ export function RiskShieldWorkbench() {
                   <input
                     id="inspector-analysis-input"
                     value={analysisInput}
-                    onChange={(event) => setAnalysisInput(event.target.value)}
+                    onChange={(event) => {
+                      setAnalysisInput(event.target.value);
+                      if (event.target.value.trim()) setAnalysisError("");
+                    }}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") runAnalysis();
+                      if (event.key === "Enter") runAnalysis(analysisInput, true);
                     }}
                   />
-                  <button type="button" onClick={() => runAnalysis()} aria-label="현재 문구 분석" data-testid="analyzer-run-button">→</button>
+                  <button type="button" onClick={() => runAnalysis(analysisInput, true)} aria-label="현재 문구 분석" data-testid="analyzer-run-button">→</button>
                 </div>
+                {analysisError && <p className="formError" role="alert">{analysisError}</p>}
               </div>
-              <AnalysisPanel result={analysisResult} title="실시간 검증" compact />
+              {analysisResult ? (
+                <AnalysisPanel result={analysisResult} title="실시간 검증" compact />
+              ) : (
+                <div className="analysisEmptyState">
+                  <strong>{analysisError || "분석할 문구를 입력해 주세요."}</strong>
+                  <p>현재 초안은 이 미리보기에서만 포함되며 반려 스킬은 제외됩니다.</p>
+                </div>
+              )}
             </aside>
           </div>
         )}
@@ -889,9 +1239,9 @@ export function RiskShieldWorkbench() {
             <section className="pageHeading editorialHero productTileLight">
               <div>
                 <span className="editorialEyebrow">DATA INTAKE</span>
-                <h1 id="import-title">CSV 데이터 가져오기</h1>
-                <p>대량 자료를 바로 승인하지 않고 구조와 출처를 점검한 뒤 사람의 검토 큐로 보냅니다.</p>
-                <div className="breadcrumb"><span>가져오기</span><b>/</b><span>CSV</span></div>
+                <h1 id="import-title">데이터 가져오기</h1>
+                <p>CSV 후보 자료와 기존 RiskShield 번들을 분리해 불러오고, 검증된 스킬만 작업 공간에 반영합니다.</p>
+                <div className="breadcrumb"><span>가져오기</span><b>/</b><span>CSV · Skill Bundle</span></div>
               </div>
               <span className="safetyBadge">민감 원문 보호</span>
             </section>
@@ -949,6 +1299,66 @@ export function RiskShieldWorkbench() {
               </section>
             </div>
 
+            <section className="workspaceCard bundleImportCard featureSection" aria-labelledby="bundle-import-title">
+              <div className="cardHeading">
+                <div>
+                  <span className="sectionNumber">SKILL BUNDLE</span>
+                  <h2 id="bundle-import-title">기존 스킬 번들 불러오기</h2>
+                </div>
+                <span className="requiredNote">risk_skills.jsonl 필수</span>
+              </div>
+              <p className="bundleHelp">
+                레거시 sample JSONL도 스키마 v2로 변환합니다. 원문 내용은 이 화면에 미리보기로 노출하지 않습니다.
+              </p>
+              <input
+                ref={bundleInputRef}
+                type="file"
+                multiple
+                accept=".json,.jsonl,application/json,application/x-ndjson"
+                onChange={(event) => void readBundleFiles(event.target.files)}
+                className="visuallyHidden"
+                data-testid="bundle-file-input"
+              />
+              <div className="bundlePickerRow">
+                <div className="bundleExpectedFiles" aria-label="지원하는 번들 파일">
+                  {BUNDLE_FILE_NAMES.map((name) => <code key={name}>{name}</code>)}
+                </div>
+                <button type="button" className="secondaryButton" onClick={() => bundleInputRef.current?.click()}>
+                  번들 파일 선택
+                </button>
+              </div>
+              {bundleImportReport && (
+                <div
+                  className={cx(
+                    "bundleReport",
+                    bundleImportReport.applied && bundleImportReport.issues.length === 0 && "bundleReportSuccess",
+                    bundleImportReport.applied && bundleImportReport.issues.length > 0 && "bundleReportWarning",
+                    !bundleImportReport.applied && "bundleReportError",
+                  )}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <strong>
+                    {bundleImportReport.applied
+                      ? `${bundleImportReport.skillCount}개 스킬을 작업 공간에 반영했습니다.`
+                      : "번들을 반영하지 않았습니다."}
+                  </strong>
+                  <dl>
+                    <div><dt>선택 파일</dt><dd>{bundleImportReport.selectedNames.join(", ") || "없음"}</dd></div>
+                    <div><dt>인식 파일</dt><dd>{bundleImportReport.loadedNames.join(", ") || "없음"}</dd></div>
+                    <div><dt>유효 스킬</dt><dd>{bundleImportReport.skillCount.toLocaleString("ko-KR")}개</dd></div>
+                  </dl>
+                  {bundleImportReport.issues.length > 0 ? (
+                    <ul className="bundleIssueList">
+                      {bundleImportReport.issues.map((issue, index) => <li key={`${issue}-${index}`}>{issue}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="bundleNoIssues">구조 검사에서 문제가 발견되지 않았습니다.</p>
+                  )}
+                </div>
+              )}
+            </section>
+
             {csvSummary ? (
               <section className="workspaceCard csvResults productTileParchment featureSection" aria-labelledby="csv-results-title">
                 <div className="cardHeading">
@@ -1004,6 +1414,7 @@ export function RiskShieldWorkbench() {
               <div><span>전체 스킬</span><strong>{skills.length}</strong></div>
               <div><span>검토 완료</span><strong>{skills.filter((skill) => skill.reviewStatus === "reviewed").length}</strong></div>
               <div><span>검토 대기</span><strong>{skills.filter((skill) => skill.reviewStatus === "draft").length}</strong></div>
+              <div><span>반려</span><strong>{skills.filter((skill) => skill.reviewStatus === "rejected").length}</strong></div>
               <div><span>Dominant</span><strong>{skills.filter((skill) => skill.dominantRisk).length}</strong></div>
             </div>
             <section className="workspaceCard libraryCard productTileLight featureSection">
@@ -1019,6 +1430,7 @@ export function RiskShieldWorkbench() {
                     <option value="all">모든 상태</option>
                     <option value="reviewed">검토 완료</option>
                     <option value="draft">초안</option>
+                    <option value="rejected">반려</option>
                   </select>
                 </label>
                 <label>
@@ -1047,8 +1459,16 @@ export function RiskShieldWorkbench() {
                     <tbody>
                       {filteredSkills.map((skill) => (
                         <tr key={skill.id}>
-                          <td><span className={cx("tableStatus", skill.reviewStatus === "reviewed" && "tableStatusReviewed")}>{skill.reviewStatus === "reviewed" ? "검토 완료" : "초안"}</span></td>
-                          <td><strong>{skill.id}</strong><code>{skill.patternType}</code></td>
+                          <td>
+                            <span className={cx(
+                              "tableStatus",
+                              skill.reviewStatus === "reviewed" && "tableStatusReviewed",
+                              skill.reviewStatus === "rejected" && "tableStatusRejected",
+                            )}>
+                              {reviewStatusLabel(skill.reviewStatus)}
+                            </span>
+                          </td>
+                          <td><strong title={skill.id}>{skill.id}</strong><code title={skill.patternType}>{skill.patternType}</code></td>
                           <td>{skill.category}</td>
                           <td><b className="scoreCell">{skill.severityFloor}</b></td>
                           <td>{skill.dominantRisk ? <span className="dominantDot">적용</span> : <span className="mutedText">미적용</span>}</td>
@@ -1079,32 +1499,43 @@ export function RiskShieldWorkbench() {
                 <p>단어 하나가 아닌 표현의 조합과 사용 맥락을 읽고, 가장 지배적인 위험을 중심으로 판단합니다.</p>
                 <div className="breadcrumb"><span>Analyzer v4</span><b>/</b><span>Live test</span></div>
               </div>
-              <span className="engineBadge"><i />{skills.length}개 스킬 로드됨</span>
+              <span className="engineBadge"><i />검토 완료 {reviewedSkills.length}개만 로드</span>
             </section>
             <div className="analyzerWorkspace productTileLight featureSection">
               <section className="workspaceCard analyzerInputCard storeUtilityCard">
                 <span className="sectionNumber">TEST COPY</span>
                 <h2>검토할 광고 문구</h2>
-                <p>현재 초안도 포함해 패턴을 시험합니다. 결과는 자동 승인이나 금지 판단이 아닙니다.</p>
+                <p>검토 완료된 스킬과 현재 점수 정책만 사용합니다. 초안과 반려 스킬은 분석에서 제외됩니다.</p>
                 <label htmlFor="full-analysis-input">광고 문구</label>
                 <textarea
                   id="full-analysis-input"
                   rows={7}
                   value={analysisInput}
-                  onChange={(event) => setAnalysisInput(event.target.value)}
+                  onChange={(event) => {
+                    setAnalysisInput(event.target.value);
+                    if (event.target.value.trim()) setAnalysisError("");
+                  }}
                   placeholder="광고 문구를 입력해 주세요."
                   data-testid="analyzer-input"
                 />
                 <div className="quickTests" aria-label="빠른 테스트 예시">
                   {QUICK_TESTS.map((value) => (
-                    <button type="button" key={value} onClick={() => { setAnalysisInput(value); runAnalysis(value); }}>{value}</button>
+                    <button type="button" key={value} onClick={() => runAnalysis(value, false)}>{value}</button>
                   ))}
                 </div>
-                <button type="button" className="primaryButton wideButton" onClick={() => runAnalysis()} data-testid="analyzer-submit-button">
+                {analysisError && <p className="formError" role="alert">{analysisError}</p>}
+                <button type="button" className="primaryButton wideButton" onClick={() => runAnalysis(analysisInput, false)} data-testid="analyzer-submit-button">
                   Dominant Risk 분석
                 </button>
               </section>
-              <AnalysisPanel result={analysisResult} title="분석 결과" />
+              {analysisResult ? (
+                <AnalysisPanel result={analysisResult} title="분석 결과" />
+              ) : (
+                <div className="analysisPanel analysisEmptyState">
+                  <strong>{analysisError || "분석할 문구를 입력해 주세요."}</strong>
+                  <p>검토 완료 스킬만 사용하는 분석 결과가 여기에 표시됩니다.</p>
+                </div>
+              )}
             </div>
             <section className="workspaceCard categoryCard productTileParchment featureSection">
               <div className="cardHeading">
@@ -1112,12 +1543,12 @@ export function RiskShieldWorkbench() {
                 <span className="requiredNote">평균 대신 최고 위험 중심</span>
               </div>
               <div className="categoryBars">
-                {analysisResult.categoryScores.length ? analysisResult.categoryScores.map((category) => (
+                {analysisResult?.categoryScores.length ? analysisResult.categoryScores.map((category) => (
                   <div key={category.category}>
                     <div><span>{category.category}</span><b>{category.score}</b></div>
                     <span className="barTrack"><i style={{ width: category.score + "%" }} /></span>
                   </div>
-                )) : <p className="mutedText">탐지된 위험 카테고리가 없습니다.</p>}
+                )) : <p className="mutedText">표시할 카테고리 점수가 없습니다.</p>}
               </div>
             </section>
           </section>
@@ -1132,13 +1563,15 @@ export function RiskShieldWorkbench() {
                 <p>사람의 검토를 마친 스킬만 일관된 JSONL·JSON 파일로 만들고, 출처와 상태를 함께 보존합니다.</p>
                 <div className="breadcrumb"><span>Delivery</span><b>/</b><span>Analyzer files</span></div>
               </div>
-              <span className="completionBadge completionBadgeComplete">5개 파일 준비</span>
+              <span className={cx("completionBadge", reviewedCount > 0 && "completionBadgeComplete")}>
+                {reviewedCount > 0 ? "5개 파일 준비" : "검토 완료 스킬 필요"}
+              </span>
             </section>
             <div className="workspaceCard exportHero featureSection">
               <div>
-                <span className="sectionNumber">PREFLIGHT COMPLETE</span>
-                <h2>{reviewedCount}개 검토 완료 스킬이 준비되었습니다.</h2>
-                <p>초안과 필수 항목이 누락된 스킬은 자동으로 제외됩니다.</p>
+                <span className="sectionNumber">{reviewedCount > 0 ? "PREFLIGHT COMPLETE" : "ACTION REQUIRED"}</span>
+                <h2>{reviewedCount > 0 ? `${reviewedCount}개 검토 완료 스킬이 준비되었습니다.` : "내보낼 검토 완료 스킬이 없습니다."}</h2>
+                <p>{reviewedCount > 0 ? "초안, 반려, 필수 항목이 누락된 스킬은 자동으로 제외됩니다." : "스킬을 사람 검토 완료 상태로 저장한 뒤 다시 확인해 주세요."}</p>
               </div>
               <div className="exportGauge">
                 <strong>{reviewedCount}</strong><span>reviewed</span>
@@ -1154,13 +1587,16 @@ export function RiskShieldWorkbench() {
                   </div>
                   <div className="fileMeta">
                     <span>{Math.max(1, Math.ceil(new TextEncoder().encode(file.content).length / 1024))} KB</span>
-                    <span className="mappingOk">스키마 통과</span>
+                    <span className={reviewedCount > 0 ? "mappingOk" : "mappingPending"}>
+                      {reviewedCount > 0 ? "스키마 통과" : "대기 중"}
+                    </span>
                   </div>
                   <button
                     type="button"
                     className="secondaryButton"
                     onClick={() => downloadFile(file.name, file.content, file.type)}
                     aria-label={file.name + " 다운로드"}
+                    disabled={reviewedCount === 0}
                   >
                     다운로드
                   </button>

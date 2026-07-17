@@ -1,6 +1,26 @@
-export type ReviewStatus = "draft" | "reviewed";
+export const RISK_SKILL_SCHEMA_VERSION = "2.0.0" as const;
+
+export type ReviewStatus = "draft" | "reviewed" | "rejected";
 
 export type PatternRole = "trigger" | "context";
+
+export type PatternScope = "sentence" | "paragraph";
+
+export interface SeverityRules {
+  schemaVersion: "1.0.0";
+  scoringStrategy: "dominant_risk";
+  noMatchScore: number;
+  categoryCorroborationPerPattern: number;
+  maxCategoryCorroboration: number;
+  secondaryCategoryWeight: number;
+  tertiaryCategoryWeight: number;
+  maxCrossCategorySupport: number;
+  gradeThresholds: Array<{
+    grade: AnalysisResult["grade"];
+    min: number;
+    max: number;
+  }>;
+}
 
 export interface RiskSource {
   title: string;
@@ -11,13 +31,18 @@ export interface RiskSource {
 }
 
 export interface RiskSkill {
+  schemaVersion: typeof RISK_SKILL_SCHEMA_VERSION;
+  revision: number;
   id: string;
   category: string;
   subcategory: string;
   patternType: string;
   triggerPatterns: string[];
   contextPatterns: string[];
+  anyOfPatterns: string[];
   exclusionPatterns?: string[];
+  conditionScope: PatternScope;
+  maxDistance: number;
   surfaceMeaning: string;
   riskSummary: string;
   socialContext: string;
@@ -30,6 +55,7 @@ export interface RiskSkill {
   recentContextTags: string[];
   safeRewrite: string[];
   falsePositiveNote: string;
+  notes: string;
   source: RiskSource;
   createdAt: string;
   updatedAt: string;
@@ -86,6 +112,12 @@ export interface CaseInput {
   memo: string;
 }
 
+export interface SkillInterpreter {
+  readonly id: string;
+  readonly label: string;
+  interpret(input: CaseInput, skills: RiskSkill[], now?: Date): RiskSkill;
+}
+
 export interface CsvSummary {
   profile: "controversy" | "false_advertising" | "hate_speech" | "generic";
   headers: string[];
@@ -107,6 +139,39 @@ export interface ExportBundle {
   sourceIndex: Record<string, unknown>;
 }
 
+export interface BundleFiles {
+  "risk_skills.jsonl": string;
+  "trend_context.json"?: string;
+  "severity_rules.json"?: string;
+  "rewrite_templates.json"?: string;
+  "source_index.json"?: string;
+}
+
+export interface ParsedBundle {
+  skills: RiskSkill[];
+  severityRules: SeverityRules;
+  filesLoaded: string[];
+  issues: string[];
+}
+
+export const DEFAULT_SEVERITY_RULES: SeverityRules = {
+  schemaVersion: "1.0.0",
+  scoringStrategy: "dominant_risk",
+  noMatchScore: 0,
+  categoryCorroborationPerPattern: 2,
+  maxCategoryCorroboration: 6,
+  secondaryCategoryWeight: 0.1,
+  tertiaryCategoryWeight: 0.05,
+  maxCrossCategorySupport: 10,
+  gradeThresholds: [
+    { grade: "미탐지", min: 0, max: 0 },
+    { grade: "낮음", min: 1, max: 44 },
+    { grade: "유의", min: 45, max: 69 },
+    { grade: "주의", min: 70, max: 84 },
+    { grade: "높음", min: 85, max: 100 },
+  ],
+};
+
 const HANDOFF_SOURCE: RiskSource = {
   title: "RiskShield AI Programmer Handoff · expected behavior",
   url: "",
@@ -118,13 +183,37 @@ const HANDOFF_SOURCE: RiskSource = {
 const SEED_DATE = "2026-07-17T00:00:00.000Z";
 
 function seedSkill(
-  skill: Omit<RiskSkill, "createdAt" | "updatedAt" | "source" | "reviewStatus"> & {
+  skill: Omit<
+    RiskSkill,
+    | "schemaVersion"
+    | "revision"
+    | "anyOfPatterns"
+    | "conditionScope"
+    | "maxDistance"
+    | "notes"
+    | "createdAt"
+    | "updatedAt"
+    | "source"
+    | "reviewStatus"
+  > & {
     reviewStatus?: ReviewStatus;
     source?: RiskSource;
+    schemaVersion?: typeof RISK_SKILL_SCHEMA_VERSION;
+    revision?: number;
+    anyOfPatterns?: string[];
+    conditionScope?: PatternScope;
+    maxDistance?: number;
+    notes?: string;
   },
 ): RiskSkill {
   return {
     ...skill,
+    schemaVersion: skill.schemaVersion ?? RISK_SKILL_SCHEMA_VERSION,
+    revision: skill.revision ?? 1,
+    anyOfPatterns: skill.anyOfPatterns ?? [],
+    conditionScope: skill.conditionScope ?? "sentence",
+    maxDistance: skill.maxDistance ?? 48,
+    notes: skill.notes ?? "",
     source: skill.source ?? HANDOFF_SOURCE,
     createdAt: SEED_DATE,
     updatedAt: SEED_DATE,
@@ -526,6 +615,24 @@ function sentenceRanges(text: string): SentenceRange[] {
   return ranges;
 }
 
+function paragraphRanges(text: string): SentenceRange[] {
+  const ranges: SentenceRange[] = [];
+  const separator = /\n\s*\n/gu;
+  let start = 0;
+
+  for (let match = separator.exec(text); match; match = separator.exec(text)) {
+    if (text.slice(start, match.index).trim()) {
+      ranges.push({ index: ranges.length, start, end: match.index });
+    }
+    start = match.index + match[0].length;
+  }
+
+  if (text.slice(start).trim()) {
+    ranges.push({ index: ranges.length, start, end: text.length });
+  }
+  return ranges;
+}
+
 interface InternalHit extends PatternHit {
   normalizedStart: number;
   normalizedEnd: number;
@@ -650,8 +757,6 @@ function gapBetween(left: InternalHit, right: InternalHit) {
   return 0;
 }
 
-const MAX_PATTERN_GAP = 48;
-
 function isExplicitlyDenied(sentence: string) {
   const denialPatterns = [
     /(?:보장|확정|완치|분석|예측|추적|수집|환불)(?:을|를|은|는|이|가)?\s*(?:하지\s*않|할\s*수\s*없|되지\s*않|아니(?:다|며|고|므로|습니다)|불가)/u,
@@ -664,40 +769,60 @@ function isExplicitlyDenied(sentence: string) {
 function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
   if (!skill.triggerPatterns.length || !skill.contextPatterns.length) return null;
   const normalized = normalizeWithMap(input);
-  const sentences = sentenceRanges(normalized.text);
+  const ranges = skill.conditionScope === "paragraph"
+    ? paragraphRanges(normalized.text)
+    : sentenceRanges(normalized.text);
+  const maxDistance = clamp(Math.round(skill.maxDistance), 0, 2_000);
 
   type Candidate = {
     trigger: InternalHit;
     context: InternalHit;
+    support?: InternalHit;
     gap: number;
     envelope: number;
     start: number;
   };
   const candidates: Candidate[] = [];
 
-  for (const sentence of sentences) {
-    const triggerHits = findPatternHits(input, normalized, sentence, skill.triggerPatterns, "trigger");
-    const contextHits = findPatternHits(input, normalized, sentence, skill.contextPatterns, "context");
+  for (const range of ranges) {
+    const triggerHits = findPatternHits(input, normalized, range, skill.triggerPatterns, "trigger");
+    const contextHits = findPatternHits(input, normalized, range, skill.contextPatterns, "context");
     if (!triggerHits.length || !contextHits.length) continue;
+    const supportHits = findPatternHits(
+      input,
+      normalized,
+      range,
+      skill.anyOfPatterns,
+      "context",
+    );
+    if (skill.anyOfPatterns.length && !supportHits.length) continue;
 
     const exclusionHits = findPatternHits(
       input,
       normalized,
-      sentence,
+      range,
       skill.exclusionPatterns ?? [],
       "context",
     );
-    const sentenceText = normalized.text.slice(sentence.start, sentence.end);
-    if (exclusionHits.length || isExplicitlyDenied(sentenceText)) continue;
+    const scopedText = normalized.text.slice(range.start, range.end);
+    if (exclusionHits.length || isExplicitlyDenied(scopedText)) continue;
 
     for (const trigger of triggerHits) {
       for (const context of contextHits) {
         if (spansOverlap(trigger, context)) continue;
-        const gap = gapBetween(trigger, context);
-        if (gap > MAX_PATTERN_GAP) continue;
-        const start = Math.min(trigger.normalizedStart, context.normalizedStart);
-        const end = Math.max(trigger.normalizedEnd, context.normalizedEnd);
-        candidates.push({ trigger, context, gap, envelope: end - start, start });
+        const supports = skill.anyOfPatterns.length ? supportHits : [undefined];
+        for (const support of supports) {
+          if (support && (spansOverlap(trigger, support) || spansOverlap(context, support))) continue;
+          const selectedHits = support ? [trigger, context, support] : [trigger, context];
+          const gap = Math.max(
+            ...selectedHits.flatMap((left, index) =>
+              selectedHits.slice(index + 1).map((right) => gapBetween(left, right))),
+          );
+          if (gap > maxDistance) continue;
+          const start = Math.min(...selectedHits.map((hit) => hit.normalizedStart));
+          const end = Math.max(...selectedHits.map((hit) => hit.normalizedEnd));
+          candidates.push({ trigger, context, support, gap, envelope: end - start, start });
+        }
       }
     }
   }
@@ -711,7 +836,8 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
 
   const selected = candidates[0];
   if (!selected) return null;
-  const hits = [selected.trigger, selected.context]
+  const hits = [selected.trigger, selected.context, selected.support]
+    .filter((hit): hit is InternalHit => Boolean(hit))
     .sort((left, right) => left.start - right.start || left.end - right.end)
     .map((hit): PatternHit => ({
       pattern: hit.pattern,
@@ -729,21 +855,26 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
   };
 }
 
-export function gradeForScore(score: number): AnalysisResult["grade"] {
-  if (score <= 0) return "미탐지";
-  if (score >= 85) return "높음";
-  if (score >= 70) return "주의";
-  if (score >= 45) return "유의";
-  return "낮음";
+export function gradeForScore(
+  score: number,
+  rules: SeverityRules = DEFAULT_SEVERITY_RULES,
+): AnalysisResult["grade"] {
+  const threshold = [...rules.gradeThresholds]
+    .sort((left, right) => right.min - left.min)
+    .find((candidate) => score >= candidate.min && score <= candidate.max);
+  return threshold?.grade ?? (score <= 0 ? "미탐지" : "높음");
 }
 
 export function analyzeText(
   input: string,
   skills: RiskSkill[],
-  options: { includeDrafts?: boolean } = {},
+  options: { includeDrafts?: boolean; severityRules?: SeverityRules } = {},
 ): AnalysisResult {
+  const severityRules = options.severityRules ?? DEFAULT_SEVERITY_RULES;
   const usableSkills = skills
-    .filter((skill) => options.includeDrafts || skill.reviewStatus === "reviewed")
+    .filter((skill) => options.includeDrafts
+      ? skill.reviewStatus !== "rejected"
+      : skill.reviewStatus === "reviewed")
     .sort((left, right) => compareText(left.id, right.id));
   const matches = usableSkills.flatMap((skill) => {
     const match = bestSkillMatch(input, skill);
@@ -772,7 +903,10 @@ export function analyzeText(
     ([category, categoryMatches]) => {
       const highest = Math.max(...categoryMatches.map((match) => match.score));
       const distinctPatternTypes = new Set(categoryMatches.map((match) => match.skill.patternType)).size;
-      const corroboration = Math.min(6, Math.max(0, distinctPatternTypes - 1) * 2);
+      const corroboration = Math.min(
+        severityRules.maxCategoryCorroboration,
+        Math.max(0, distinctPatternTypes - 1) * severityRules.categoryCorroborationPerPattern,
+      );
       return {
         category,
         score: clamp(highest + corroboration, 0, 100),
@@ -792,17 +926,20 @@ export function analyzeText(
     0,
   );
   const crossCategoryBonus = Math.min(
-    10,
-    Math.round(secondCategoryScore * 0.1 + thirdCategoryScore * 0.05),
+    severityRules.maxCrossCategorySupport,
+    Math.round(
+      secondCategoryScore * severityRules.secondaryCategoryWeight
+      + thirdCategoryScore * severityRules.tertiaryCategoryWeight,
+    ),
   );
   const finalScore = matches.length
     ? clamp(Math.max(topCategoryScore, dominantFloor) + crossCategoryBonus, 0, 100)
-    : 0;
+    : clamp(Math.round(severityRules.noMatchScore), 0, 100);
 
   return {
     input,
     finalScore,
-    grade: gradeForScore(finalScore),
+    grade: gradeForScore(finalScore, severityRules),
     recommendation: matches.length
       ? finalScore >= 70
         ? "배포 전 담당자의 검토와 표현 수정을 권장합니다. 이 결과는 자동 금지 판단이 아닙니다."
@@ -861,6 +998,12 @@ export function buildHighlightSegments(
 
 export function validateSkill(skill: RiskSkill) {
   const errors: string[] = [];
+  if (skill.schemaVersion !== RISK_SKILL_SCHEMA_VERSION) {
+    errors.push(`스키마 버전은 ${RISK_SKILL_SCHEMA_VERSION}이어야 합니다.`);
+  }
+  if (!Number.isInteger(skill.revision) || skill.revision < 1) {
+    errors.push("리비전은 1 이상의 정수여야 합니다.");
+  }
   if (!skill.id.trim()) errors.push("스킬 ID가 필요합니다.");
   if (!skill.category.trim()) errors.push("카테고리가 필요합니다.");
   if (!skill.subcategory.trim()) errors.push("세부 유형이 필요합니다.");
@@ -873,6 +1016,15 @@ export function validateSkill(skill: RiskSkill) {
   }
   if (skill.exclusionPatterns?.some((pattern) => !pattern.trim())) {
     errors.push("제외 패턴은 빈 문자열일 수 없습니다.");
+  }
+  if (skill.anyOfPatterns.some((pattern) => !pattern.trim())) {
+    errors.push("any_of 패턴은 빈 문자열일 수 없습니다.");
+  }
+  if (skill.conditionScope !== "sentence" && skill.conditionScope !== "paragraph") {
+    errors.push("적용 범위는 sentence 또는 paragraph여야 합니다.");
+  }
+  if (!Number.isInteger(skill.maxDistance) || skill.maxDistance < 0 || skill.maxDistance > 2_000) {
+    errors.push("최대 거리는 0에서 2000 사이의 정수여야 합니다.");
   }
   if (!Number.isFinite(skill.severityFloor) || skill.severityFloor < 0 || skill.severityFloor > 100) {
     errors.push("최소 위험 점수는 0에서 100 사이여야 합니다.");
@@ -916,6 +1068,10 @@ export function createMockSkillDraft(
   const analysis = analyzeText(input.text, skills, { includeDrafts: true });
   const matched = analysis.primaryMatch?.skill;
   const [fallbackCategory, fallbackDomain] = inferDraftCategory(`${input.text} ${input.description}`);
+  const candidateTokens = normalizeText(input.text)
+    .split(/[^\p{L}\p{N}%·.]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
   const compactId = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
   const source: RiskSource = {
     title: input.description || "관리자 수동 입력",
@@ -929,7 +1085,9 @@ export function createMockSkillDraft(
     return {
       ...matched,
       id: `risk_draft_${compactId}`,
+      revision: 1,
       surfaceMeaning: input.text,
+      notes: input.memo,
       source,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
@@ -938,12 +1096,21 @@ export function createMockSkillDraft(
   }
 
   return {
+    schemaVersion: RISK_SKILL_SCHEMA_VERSION,
+    revision: 1,
     id: `risk_draft_${compactId}`,
     category: fallbackCategory,
     subcategory: "맥락 검토 필요",
     patternType: "candidate_expression + contextual_review",
-    triggerPatterns: [input.text.trim()].filter(Boolean),
-    contextPatterns: [input.domain || fallbackDomain],
+    triggerPatterns: candidateTokens.length >= 2
+      ? [candidateTokens[0]]
+      : [input.text.trim()].filter(Boolean),
+    contextPatterns: candidateTokens.length >= 2
+      ? [candidateTokens[candidateTokens.length - 1]]
+      : [input.domain || fallbackDomain],
+    anyOfPatterns: [],
+    conditionScope: "sentence",
+    maxDistance: 48,
     surfaceMeaning: input.text,
     riskSummary: "입력 표현의 사용 맥락과 결합 조건을 사람이 검토해야 합니다.",
     socialContext: input.description || "추가 사회적 맥락이 필요합니다.",
@@ -956,12 +1123,19 @@ export function createMockSkillDraft(
     recentContextTags: ["검토 필요"],
     safeRewrite: ["구체적인 근거와 적용 조건을 함께 안내합니다."],
     falsePositiveNote: "인용·교육·비판·중립적 정보 제공 문맥을 확인하세요.",
+    notes: input.memo,
     source,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     reviewStatus: "draft",
   };
 }
+
+export const MockInterpreter: SkillInterpreter = {
+  id: "riskshield.mock-interpreter.v1",
+  label: "규칙 기반 MockInterpreter",
+  interpret: createMockSkillDraft,
+};
 
 export function parseCsv(text: string) {
   const rows: string[][] = [];
@@ -1051,9 +1225,274 @@ export function summarizeCsv(text: string): CsvSummary {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function firstDefined(record: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    if (record[key] !== undefined) return record[key];
+  }
+  return undefined;
+}
+
+function readString(record: Record<string, unknown>, keys: string[], fallback = "") {
+  const value = firstDefined(record, ...keys);
+  return typeof value === "string" ? value : fallback;
+}
+
+function readNumber(record: Record<string, unknown>, keys: string[], fallback: number) {
+  const value = firstDefined(record, ...keys);
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readBoolean(record: Record<string, unknown>, keys: string[], fallback: boolean) {
+  const value = firstDefined(record, ...keys);
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function readStrings(record: Record<string, unknown>, keys: string[]) {
+  const value = firstDefined(record, ...keys);
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function readConditionGroup(
+  groups: unknown[],
+  groupId: "trigger" | "context",
+  fallbackIndex: number,
+) {
+  const records = groups.filter(isRecord);
+  const group = records.find((candidate) => candidate.group_id === groupId)
+    ?? records[fallbackIndex];
+  return group ? readStrings(group, ["any_of", "anyOf", "patterns"]) : [];
+}
+
+export function migrateRiskSkill(
+  value: unknown,
+  fallbackTime = SEED_DATE,
+): { skill?: RiskSkill; issues: string[] } {
+  if (!isRecord(value)) return { issues: ["스킬 레코드는 객체여야 합니다."] };
+
+  const id = readString(value, ["id"]);
+  const conditions = isRecord(value.conditions) ? value.conditions : {};
+  const allOf = Array.isArray(conditions.all_of)
+    ? conditions.all_of
+    : Array.isArray(conditions.allOf)
+      ? conditions.allOf
+      : [];
+  const conditionTrigger = readConditionGroup(allOf, "trigger", 0);
+  const conditionContext = readConditionGroup(allOf, "context", 1);
+  const sourceValue = isRecord(value.source) ? value.source : {};
+  const statusValue = readString(value, ["review_status", "reviewStatus"], "draft");
+  const reviewStatus: ReviewStatus = statusValue === "reviewed" || statusValue === "rejected"
+    ? statusValue
+    : "draft";
+  const scopeValue = readString(conditions, ["scope"], readString(value, ["conditionScope"], "sentence"));
+  const conditionScope: PatternScope = scopeValue === "paragraph" ? "paragraph" : "sentence";
+  const provenanceValue = readString(
+    sourceValue,
+    ["provenance_status", "provenanceStatus"],
+    "provided",
+  );
+  const provenanceStatus: NonNullable<RiskSource["provenanceStatus"]> =
+    provenanceValue === "verified" || provenanceValue === "synthetic_unverified"
+      ? provenanceValue
+      : "provided";
+
+  const skill: RiskSkill = {
+    schemaVersion: RISK_SKILL_SCHEMA_VERSION,
+    revision: Math.max(1, Math.round(readNumber(value, ["revision"], 1))),
+    id,
+    category: readString(value, ["category"]),
+    subcategory: readString(value, ["subcategory"]),
+    patternType: readString(value, ["pattern_type", "patternType"]),
+    triggerPatterns: conditionTrigger.length
+      ? conditionTrigger
+      : readStrings(value, ["trigger_patterns", "triggerPatterns"]),
+    contextPatterns: conditionContext.length
+      ? conditionContext
+      : readStrings(value, ["context_patterns", "contextPatterns"]),
+    anyOfPatterns: readStrings(conditions, ["any_of", "anyOf"]).length
+      ? readStrings(conditions, ["any_of", "anyOf"])
+      : readStrings(value, ["anyOfPatterns"]),
+    exclusionPatterns: readStrings(conditions, ["none_of", "noneOf"]).length
+      ? readStrings(conditions, ["none_of", "noneOf"])
+      : readStrings(value, ["exclusion_patterns", "exclusionPatterns"]),
+    conditionScope,
+    maxDistance: Math.max(
+      0,
+      Math.round(readNumber(conditions, ["max_distance", "maxDistance"], readNumber(value, ["maxDistance"], 48))),
+    ),
+    surfaceMeaning: readString(value, ["surface_meaning", "surfaceMeaning"]),
+    riskSummary: readString(value, ["risk_summary", "riskSummary"]),
+    socialContext: readString(value, ["social_context", "socialContext"]),
+    legalOrEthicIssue: readString(value, ["legal_or_ethic_issue", "legalOrEthicIssue"]),
+    riskReason: readString(value, ["risk_reason", "riskReason"]),
+    severityFloor: readNumber(value, ["severity_floor", "severityFloor"], 0),
+    dominantRisk: readBoolean(value, ["dominant_risk", "dominantRisk"], false),
+    confidence: readNumber(value, ["confidence"], 0),
+    riskDomain: readString(value, ["risk_domain", "riskDomain"]),
+    recentContextTags: readStrings(value, ["recent_context_tags", "recentContextTags"]),
+    safeRewrite: readStrings(value, ["safe_rewrite", "safeRewrite"]),
+    falsePositiveNote: readString(value, ["false_positive_note", "falsePositiveNote"]),
+    notes: readString(value, ["memo", "notes"]),
+    source: {
+      title: readString(sourceValue, ["title"]),
+      url: readString(sourceValue, ["url"]),
+      date: readString(sourceValue, ["date"]),
+      sourceId: readString(sourceValue, ["source_id", "sourceId"], id ? `legacy_${id}` : ""),
+      provenanceStatus,
+    },
+    createdAt: readString(value, ["created_at", "createdAt"], fallbackTime),
+    updatedAt: readString(value, ["updated_at", "updatedAt"], fallbackTime),
+    reviewStatus,
+  };
+
+  const issues = validateSkill(skill);
+  return issues.length ? { issues } : { skill, issues: [] };
+}
+
+export function parseRiskSkillsJsonl(text: string) {
+  const skills: RiskSkill[] = [];
+  const issues: string[] = [];
+  const ids = new Set<string>();
+  const lines = text.replace(/^\uFEFF/u, "").split(/\r?\n/u);
+
+  lines.forEach((line, index) => {
+    if (!line.trim()) return;
+    try {
+      const migrated = migrateRiskSkill(JSON.parse(line) as unknown);
+      if (!migrated.skill) {
+        issues.push(`risk_skills.jsonl ${index + 1}행: ${migrated.issues.join(" ")}`);
+        return;
+      }
+      if (ids.has(migrated.skill.id)) {
+        issues.push(`risk_skills.jsonl ${index + 1}행: 중복 ID ${migrated.skill.id}`);
+        return;
+      }
+      ids.add(migrated.skill.id);
+      skills.push(migrated.skill);
+    } catch {
+      issues.push(`risk_skills.jsonl ${index + 1}행: 올바른 JSON 객체가 아닙니다.`);
+    }
+  });
+
+  return { skills, issues };
+}
+
+export function parseSeverityRules(value: unknown): { rules: SeverityRules; issues: string[] } {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return { rules: DEFAULT_SEVERITY_RULES, issues: ["severity_rules.json이 올바른 JSON이 아닙니다."] };
+    }
+  }
+  if (!isRecord(parsed)) {
+    return { rules: DEFAULT_SEVERITY_RULES, issues: ["severity_rules.json은 객체여야 합니다."] };
+  }
+
+  const rawThresholds = firstDefined(parsed, "grade_thresholds", "gradeThresholds");
+  const gradeThresholds = Array.isArray(rawThresholds)
+    ? rawThresholds.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const grade = readString(item, ["grade"]) as AnalysisResult["grade"];
+      const min = readNumber(item, ["min"], Number.NaN);
+      const max = readNumber(item, ["max"], Number.NaN);
+      return ["미탐지", "낮음", "유의", "주의", "높음"].includes(grade)
+        && Number.isFinite(min)
+        && Number.isFinite(max)
+        ? [{ grade, min, max }]
+        : [];
+    })
+    : [];
+
+  const rules: SeverityRules = {
+    schemaVersion: "1.0.0",
+    scoringStrategy: "dominant_risk",
+    noMatchScore: readNumber(
+      parsed,
+      ["no_match_score", "noMatchScore"],
+      DEFAULT_SEVERITY_RULES.noMatchScore,
+    ),
+    categoryCorroborationPerPattern: readNumber(
+      parsed,
+      ["category_corroboration_per_pattern", "categoryCorroborationPerPattern"],
+      DEFAULT_SEVERITY_RULES.categoryCorroborationPerPattern,
+    ),
+    maxCategoryCorroboration: readNumber(
+      parsed,
+      ["max_category_corroboration", "maxCategoryCorroboration"],
+      DEFAULT_SEVERITY_RULES.maxCategoryCorroboration,
+    ),
+    secondaryCategoryWeight: readNumber(
+      parsed,
+      ["secondary_category_weight", "secondaryCategoryWeight"],
+      DEFAULT_SEVERITY_RULES.secondaryCategoryWeight,
+    ),
+    tertiaryCategoryWeight: readNumber(
+      parsed,
+      ["tertiary_category_weight", "tertiaryCategoryWeight"],
+      DEFAULT_SEVERITY_RULES.tertiaryCategoryWeight,
+    ),
+    maxCrossCategorySupport: readNumber(
+      parsed,
+      ["max_cross_category_support", "maxCrossCategorySupport"],
+      DEFAULT_SEVERITY_RULES.maxCrossCategorySupport,
+    ),
+    gradeThresholds: gradeThresholds.length
+      ? gradeThresholds
+      : DEFAULT_SEVERITY_RULES.gradeThresholds.map((threshold) => ({ ...threshold })),
+  };
+  const issues: string[] = [];
+  if (rules.gradeThresholds.length !== 5) issues.push("점수 등급 5개가 모두 필요합니다.");
+  if (rules.secondaryCategoryWeight < 0 || rules.tertiaryCategoryWeight < 0) {
+    issues.push("카테고리 지원 가중치는 0 이상이어야 합니다.");
+  }
+  if (rules.maxCrossCategorySupport < 0 || rules.maxCategoryCorroboration < 0) {
+    issues.push("점수 보정 상한은 0 이상이어야 합니다.");
+  }
+  if (rules.noMatchScore < 0 || rules.noMatchScore > 100) {
+    issues.push("미탐지 점수는 0에서 100 사이여야 합니다.");
+  }
+  return issues.length ? { rules: DEFAULT_SEVERITY_RULES, issues } : { rules, issues: [] };
+}
+
+export function parseBundleFiles(files: Partial<BundleFiles>): ParsedBundle {
+  const issues: string[] = [];
+  const riskSkills = files["risk_skills.jsonl"]
+    ? parseRiskSkillsJsonl(files["risk_skills.jsonl"])
+    : { skills: [], issues: ["risk_skills.jsonl 파일이 필요합니다."] };
+  issues.push(...riskSkills.issues);
+  const severity = files["severity_rules.json"]
+    ? parseSeverityRules(files["severity_rules.json"])
+    : { rules: DEFAULT_SEVERITY_RULES, issues: [] };
+  issues.push(...severity.issues);
+
+  for (const name of ["trend_context.json", "rewrite_templates.json", "source_index.json"] as const) {
+    const content = files[name];
+    if (!content) continue;
+    try {
+      const parsed = JSON.parse(content) as unknown;
+      if (!isRecord(parsed)) issues.push(`${name}은 JSON 객체여야 합니다.`);
+    } catch {
+      issues.push(`${name}이 올바른 JSON이 아닙니다.`);
+    }
+  }
+
+  return {
+    skills: riskSkills.skills,
+    severityRules: severity.rules,
+    filesLoaded: Object.keys(files).filter((name) => Boolean(files[name as keyof BundleFiles])).sort(compareText),
+    issues,
+  };
+}
+
 export function buildExportBundle(
   skills: RiskSkill[],
   now: Date = new Date(),
+  policy: SeverityRules = DEFAULT_SEVERITY_RULES,
 ): ExportBundle {
   const reviewed = skills
     .filter((skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0)
@@ -1062,6 +1501,8 @@ export function buildExportBundle(
   const categories = [...new Set(reviewed.map((skill) => skill.category))].sort(compareText);
 
   const riskSkillLines = reviewed.map((skill) => JSON.stringify({
+    schema_version: skill.schemaVersion,
+    revision: skill.revision,
     id: skill.id,
     category: skill.category,
     subcategory: skill.subcategory,
@@ -1069,6 +1510,16 @@ export function buildExportBundle(
     trigger_patterns: skill.triggerPatterns,
     context_patterns: skill.contextPatterns,
     exclusion_patterns: skill.exclusionPatterns ?? [],
+    conditions: {
+      all_of: [
+        { group_id: "trigger", any_of: skill.triggerPatterns },
+        { group_id: "context", any_of: skill.contextPatterns },
+      ],
+      any_of: skill.anyOfPatterns,
+      none_of: skill.exclusionPatterns ?? [],
+      scope: skill.conditionScope,
+      max_distance: skill.maxDistance,
+    },
     surface_meaning: skill.surfaceMeaning,
     risk_summary: skill.riskSummary,
     social_context: skill.socialContext,
@@ -1081,6 +1532,7 @@ export function buildExportBundle(
     recent_context_tags: [...skill.recentContextTags].sort(compareText),
     safe_rewrite: skill.safeRewrite,
     false_positive_note: skill.falsePositiveNote,
+    memo: skill.notes,
     source: {
       title: skill.source.title,
       url: skill.source.url,
@@ -1112,19 +1564,18 @@ export function buildExportBundle(
     .sort((left, right) => compareText(left.tag, right.tag));
 
   const severityRules = {
-    schema_version: "1.0.0",
+    schema_version: policy.schemaVersion,
     generated_at: generatedAt,
-    scoring_strategy: "dominant_risk",
+    scoring_strategy: policy.scoringStrategy,
     formula: "max(top_category_score, dominant_severity_floor) + capped_secondary_and_tertiary_support",
-    no_match_score: 0,
+    no_match_score: policy.noMatchScore,
     no_match_meaning: "검토된 조합 규칙에서 미탐지됨; 자동 승인 또는 안전 보장이 아님",
-    grade_thresholds: [
-      { grade: "미탐지", min: 0, max: 0 },
-      { grade: "낮음", min: 1, max: 44 },
-      { grade: "유의", min: 45, max: 69 },
-      { grade: "주의", min: 70, max: 84 },
-      { grade: "높음", min: 85, max: 100 },
-    ],
+    category_corroboration_per_pattern: policy.categoryCorroborationPerPattern,
+    max_category_corroboration: policy.maxCategoryCorroboration,
+    secondary_category_weight: policy.secondaryCategoryWeight,
+    tertiary_category_weight: policy.tertiaryCategoryWeight,
+    max_cross_category_support: policy.maxCrossCategorySupport,
+    grade_thresholds: policy.gradeThresholds,
     categories: categories.map((category) => ({
       category,
       highest_reviewed_floor: Math.max(

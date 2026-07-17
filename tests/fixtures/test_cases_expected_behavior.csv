@@ -1,0 +1,9 @@
+input_text,expected_category,expected_pattern_type,expected_min_score,why,suggested_rewrite
+15초만에 형량 분석,고위험 전문서비스 광고,short_time_claim + legal_judgment,78,법률 판단이 매우 짧은 시간 안에 정확히 가능한 것처럼 보여 소비자 오인 가능성,간단한 정보를 입력하면 주요 쟁점을 빠르게 정리해 드립니다.
+기각 시 100% 환불,고위험 전문서비스 광고,legal_outcome + refund_guarantee,85,법률 결과와 환불을 직접 연결해 결과 보장처럼 보일 수 있음,사건 진행 조건과 서비스 범위에 따른 환불 기준을 명확히 안내합니다.
+잊지말자 625%,역사·기념일 민감성,historical_memory + discount_rate,86,6·25 전쟁 기억을 할인율처럼 활용하는 상업화 논란 가능성,호국의 의미를 기억하며 고객 감사 혜택을 준비했습니다.
+침투하자 더 깊게,브랜드 평판 위험,aggressive_or_sexual_double_meaning + campaign_copy,72,공격적 표현과 성적 중의성으로 해석될 수 있어 브랜드 리스크,고객의 필요를 더 깊이 이해하는 캠페인을 시작합니다.
+합격 보장,교육·입시 광고,education_outcome + guarantee,80,입시 결과를 보장하는 표현은 불안 조장과 과장 광고 위험,학습 목표 달성을 위한 맞춤형 관리 프로그램을 제공합니다.
+100% 완치,의료 광고,medical_effect + absolute_guarantee,88,의료 효과를 절대적으로 보장하는 표현은 고위험 과장 광고,개인 상태에 따라 적절한 상담과 치료 방향을 안내합니다.
+월 수익 보장,금융·투자 광고,financial_profit + guarantee,85,수익을 보장하는 표현은 투자자 오인 위험,수익 가능성과 위험 요인을 함께 안내합니다.
+몰래 위치 분석,개인정보·사생활 침해 위험,privacy_tracking + lack_of_consent,82,위치정보 활용에서 동의와 목적 고지가 불명확함,동의받은 위치 정보를 바탕으로 맞춤 정보를 제공합니다.
