@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://riskshield.local/schemas/interpreter-1.0.0.json",
+  "title": "RiskShield Interpreter Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "risk_intent",
+    "speech_act",
+    "claim_target",
+    "context_relation",
+    "actor",
+    "claim_strength",
+    "confidence",
+    "evidence_spans",
+    "policy_reason"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "risk_intent": {
+      "type": "string",
+      "enum": ["direct_promotional", "contextual_only", "uncertain"]
+    },
+    "speech_act": {
+      "type": "string",
+      "enum": ["claim", "quote", "warning", "criticism", "report", "definition", "condition"]
+    },
+    "claim_target": {
+      "type": "string",
+      "enum": ["health", "finance", "education", "legal", "privacy", "general", "none"]
+    },
+    "context_relation": {
+      "type": "string",
+      "enum": ["supports", "negates", "warns_about", "reports", "defines", "conditions", "unclear"]
+    },
+    "actor": {
+      "type": "string",
+      "enum": ["advertiser", "reporter", "regulator", "consumer", "unknown"]
+    },
+    "claim_strength": {
+      "type": "string",
+      "enum": ["absolute", "strong", "limited", "none", "unclear"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "evidence_spans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end", "text"],
+        "properties": {
+          "start": { "type": "integer", "minimum": 0 },
+          "end": { "type": "integer", "minimum": 1 },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "policy_reason": {
+      "type": "string",
+      "enum": [
+        "DIRECT_ABSOLUTE_CLAIM",
+        "DIRECT_STRONG_RESULT",
+        "DIRECT_LIMITED_CLAIM",
+        "CONTRASTED_PROMOTION",
+        "CONTEXT_WARNING",
+        "CONTEXT_CRITICISM",
+        "CONTEXT_REPORT",
+        "CONTEXT_QUOTE",
+        "CONTEXT_DEFINITION",
+        "LEGITIMATE_CONDITION",
+        "NO_RISK_CLAIM",
+        "UNCERTAIN_INTENT"
+      ]
+    }
+  }
+}

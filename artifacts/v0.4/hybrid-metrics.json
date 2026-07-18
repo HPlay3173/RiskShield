@@ -1,0 +1,370 @@
+{
+  "schemaVersion": "1.0.0",
+  "prototype": "RiskShield-v0.4-offline-hybrid",
+  "evaluatedAt": "2026-07-18T14:00:18.223Z",
+  "sourceMode": "recorded_from_deterministic_mock",
+  "liveInterpreterExecuted": false,
+  "liveProviderConfigured": false,
+  "claimsScope": "engineering regression only; not blind performance and not Live LLM quality",
+  "assets": {
+    "totalRows": 364,
+    "uniqueInputHashes": 364,
+    "datasets": {
+      "frozen100": {
+        "total": 100,
+        "composition": {
+          "risky": 51,
+          "safe": 20,
+          "ambiguous": 29,
+          "invalid": 0
+        },
+        "rulesRiskyRecall": 0.803921568627451,
+        "rulesSafeFalsePositiveRate": 0,
+        "hybridRiskyRecall": 0.9215686274509803,
+        "hybridSafeFalsePositiveRate": 0,
+        "hybridReviewRate": 0.27,
+        "failures": [
+          "frozen100:FB036",
+          "frozen100:FB043",
+          "frozen100:FB053",
+          "frozen100:FB066"
+        ]
+      },
+      "development60": {
+        "total": 60,
+        "composition": {
+          "risky": 30,
+          "safe": 20,
+          "ambiguous": 10,
+          "invalid": 0
+        },
+        "rulesRiskyRecall": 1,
+        "rulesSafeFalsePositiveRate": 0,
+        "hybridRiskyRecall": 0.9666666666666667,
+        "hybridSafeFalsePositiveRate": 0,
+        "hybridReviewRate": 0.18333333333333332,
+        "failures": [
+          "development60:DEV054",
+          "development60:DEV057"
+        ]
+      },
+      "final50": {
+        "total": 50,
+        "composition": {
+          "risky": 20,
+          "safe": 20,
+          "ambiguous": 10,
+          "invalid": 0
+        },
+        "rulesRiskyRecall": 0.55,
+        "rulesSafeFalsePositiveRate": 0.25,
+        "hybridRiskyRecall": 0.9,
+        "hybridSafeFalsePositiveRate": 0,
+        "hybridReviewRate": 0.26,
+        "failures": [
+          "final50:V031FB011",
+          "final50:V031FB020",
+          "final50:V031FB043",
+          "final50:V031FB044",
+          "final50:V031FB047",
+          "final50:V031FB048",
+          "final50:V031FB049"
+        ]
+      },
+      "fixture-v0.1": {
+        "total": 8,
+        "composition": {
+          "risky": 8,
+          "safe": 0,
+          "ambiguous": 0,
+          "invalid": 0
+        },
+        "rulesRiskyRecall": 1,
+        "rulesSafeFalsePositiveRate": null,
+        "hybridRiskyRecall": 1,
+        "hybridSafeFalsePositiveRate": null,
+        "hybridReviewRate": 0.5,
+        "failures": []
+      },
+      "fixture-v0.2": {
+        "total": 71,
+        "composition": {
+          "risky": 29,
+          "safe": 37,
+          "ambiguous": 3,
+          "invalid": 2
+        },
+        "rulesRiskyRecall": 1,
+        "rulesSafeFalsePositiveRate": 0.02702702702702703,
+        "hybridRiskyRecall": 0.9655172413793104,
+        "hybridSafeFalsePositiveRate": 0,
+        "hybridReviewRate": 0.2535211267605634,
+        "failures": [
+          "fixture-v0.2:R06",
+          "fixture-v0.2:V04"
+        ]
+      },
+      "fixture-v0.3": {
+        "total": 75,
+        "composition": {
+          "risky": 27,
+          "safe": 30,
+          "ambiguous": 18,
+          "invalid": 0
+        },
+        "rulesRiskyRecall": 0.8888888888888888,
+        "rulesSafeFalsePositiveRate": 0.06666666666666667,
+        "hybridRiskyRecall": 0.8888888888888888,
+        "hybridSafeFalsePositiveRate": 0,
+        "hybridReviewRate": 0.30666666666666664,
+        "failures": [
+          "fixture-v0.3:G007",
+          "fixture-v0.3:G008",
+          "fixture-v0.3:G018",
+          "fixture-v0.3:G023",
+          "fixture-v0.3:G031",
+          "fixture-v0.3:G053",
+          "fixture-v0.3:G066"
+        ]
+      }
+    }
+  },
+  "composition": {
+    "risky": 165,
+    "safe": 127,
+    "ambiguous": 70,
+    "invalid": 2
+  },
+  "comparison": {
+    "rulesOnlyStatus": {
+      "no_match": 188,
+      "review": 36,
+      "attention": 2,
+      "high": 138
+    },
+    "interpreterOnlyStatus": {
+      "no_match": 237,
+      "review": 1,
+      "attention": 0,
+      "high": 126
+    },
+    "hybridStatus": {
+      "no_match": 172,
+      "review": 96,
+      "attention": 0,
+      "high": 96
+    }
+  },
+  "risky": {
+    "total": 165,
+    "detected": 154,
+    "recall": 0.9333333333333333,
+    "missedCaseIds": [
+      "frozen100:FB036",
+      "frozen100:FB043",
+      "frozen100:FB053",
+      "frozen100:FB066",
+      "development60:DEV057",
+      "final50:V031FB011",
+      "final50:V031FB020",
+      "fixture-v0.2:R06",
+      "fixture-v0.3:G007",
+      "fixture-v0.3:G008",
+      "fixture-v0.3:G018"
+    ]
+  },
+  "safe": {
+    "total": 127,
+    "falsePositives": 0,
+    "falsePositiveRate": 0,
+    "falsePositiveCaseIds": [],
+    "warningCriticismCases": 35,
+    "warningCriticismHighFalsePositives": 0,
+    "warningCriticismHighFalsePositiveCaseIds": []
+  },
+  "perDomain": {
+    "health": {
+      "risky": 29,
+      "detected": 27,
+      "detectionRate": 0.9310344827586207
+    },
+    "finance": {
+      "risky": 21,
+      "detected": 20,
+      "detectionRate": 0.9523809523809523
+    },
+    "education": {
+      "risky": 20,
+      "detected": 19,
+      "detectionRate": 0.95
+    },
+    "legal": {
+      "risky": 15,
+      "detected": 13,
+      "detectionRate": 0.8666666666666667
+    },
+    "privacy": {
+      "risky": 26,
+      "detected": 25,
+      "detectionRate": 0.9615384615384616
+    },
+    "general": {
+      "risky": 24,
+      "detected": 21,
+      "detectionRate": 0.875
+    }
+  },
+  "jsonSchema": {
+    "valid": 364,
+    "total": 364,
+    "successRate": 1
+  },
+  "review": {
+    "count": 96,
+    "rate": 0.26373626373626374
+  },
+  "conflicts": {
+    "count": 80,
+    "rate": 0.21978021978021978,
+    "caseIds": [
+      "frozen100:FB001",
+      "frozen100:FB015",
+      "frozen100:FB018",
+      "frozen100:FB028",
+      "frozen100:FB032",
+      "frozen100:FB034",
+      "frozen100:FB038",
+      "frozen100:FB045",
+      "frozen100:FB050",
+      "frozen100:FB054",
+      "frozen100:FB058",
+      "frozen100:FB059",
+      "frozen100:FB060",
+      "frozen100:FB063",
+      "frozen100:FB069",
+      "frozen100:FB070",
+      "development60:DEV003",
+      "development60:DEV026",
+      "development60:DEV031",
+      "development60:DEV032",
+      "development60:DEV037",
+      "development60:DEV038",
+      "development60:DEV043",
+      "development60:DEV044",
+      "development60:DEV045",
+      "development60:DEV057",
+      "final50:V031FB011",
+      "final50:V031FB012",
+      "final50:V031FB016",
+      "final50:V031FB022",
+      "final50:V031FB027",
+      "final50:V031FB031",
+      "final50:V031FB033",
+      "final50:V031FB037",
+      "fixture-v0.1:V01-01",
+      "fixture-v0.1:V01-03",
+      "fixture-v0.1:V01-04",
+      "fixture-v0.1:V01-08",
+      "fixture-v0.2:R05",
+      "fixture-v0.2:R06",
+      "fixture-v0.2:R07",
+      "fixture-v0.2:R08",
+      "fixture-v0.2:N02",
+      "fixture-v0.2:V01",
+      "fixture-v0.2:V03",
+      "fixture-v0.2:V06",
+      "fixture-v0.2:V07",
+      "fixture-v0.2:V08",
+      "fixture-v0.2:C03",
+      "fixture-v0.2:C04",
+      "fixture-v0.2:G01",
+      "fixture-v0.2:G04",
+      "fixture-v0.2:G05",
+      "fixture-v0.2:G06",
+      "fixture-v0.2:G07",
+      "fixture-v0.2:G09",
+      "fixture-v0.2:G11",
+      "fixture-v0.2:G12",
+      "fixture-v0.3:G002",
+      "fixture-v0.3:G006",
+      "fixture-v0.3:G012",
+      "fixture-v0.3:G021",
+      "fixture-v0.3:G022",
+      "fixture-v0.3:G026",
+      "fixture-v0.3:G027",
+      "fixture-v0.3:G028",
+      "fixture-v0.3:G032",
+      "fixture-v0.3:G033",
+      "fixture-v0.3:G045",
+      "fixture-v0.3:G047",
+      "fixture-v0.3:G048",
+      "fixture-v0.3:G051",
+      "fixture-v0.3:G052",
+      "fixture-v0.3:G057",
+      "fixture-v0.3:G061",
+      "fixture-v0.3:G062",
+      "fixture-v0.3:G063",
+      "fixture-v0.3:G067",
+      "fixture-v0.3:G068",
+      "fixture-v0.3:G075"
+    ]
+  },
+  "interpreterRecovery": {
+    "rulesNoMatchCandidatesFound": 27,
+    "riskyRecoveredToReviewOrAbove": 14,
+    "caseIds": [
+      "frozen100:FB003",
+      "frozen100:FB006",
+      "frozen100:FB020",
+      "frozen100:FB024",
+      "frozen100:FB025",
+      "frozen100:FB031",
+      "frozen100:FB052",
+      "frozen100:FB055",
+      "frozen100:FB062",
+      "frozen100:FB091",
+      "frozen100:FB098",
+      "development60:DEV018",
+      "development60:DEV024",
+      "final50:V031FB002",
+      "final50:V031FB003",
+      "final50:V031FB004",
+      "final50:V031FB005",
+      "final50:V031FB006",
+      "final50:V031FB008",
+      "final50:V031FB018",
+      "final50:V031FB019",
+      "final50:V031FB041",
+      "final50:V031FB042",
+      "final50:V031FB050",
+      "fixture-v0.3:G071",
+      "fixture-v0.3:G072",
+      "fixture-v0.3:G073"
+    ]
+  },
+  "performance": {
+    "averageLatencyMs": 0.02817197802197805,
+    "p95LatencyMs": 0.04420000000000357,
+    "averageEstimatedCost": 0,
+    "timeoutRate": 0,
+    "measurementScope": "RecordedInterpreter replaying deterministic MockInterpreter responses"
+  },
+  "repetition": {
+    "runsPerInput": 3,
+    "inconsistentFinalStatuses": 0,
+    "inconsistencyRate": 0,
+    "caseIds": []
+  },
+  "gates": {
+    "riskyRecallAtLeast85": true,
+    "safeFalsePositiveRateAtMost5": true,
+    "warningCriticismHighFalsePositivesZero": true,
+    "allCoreDomainsAtLeast60": true,
+    "jsonSchemaSuccessRateAtLeast99": true,
+    "repeatFinalStatusMismatchAtMost1": true,
+    "rulesNoMatchRiskRecovered": true
+  },
+  "offlineEngineeringGate": "PASS",
+  "liveSemanticGate": "NOT_RUN",
+  "finalDecision": "ENGINEERING_PASS_LIVE_UNVERIFIED_NO_DEPLOY"
+}
