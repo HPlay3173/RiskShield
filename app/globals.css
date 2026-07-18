@@ -2014,6 +2014,129 @@ textarea:disabled {
   line-height: 1.5;
 }
 
+.aiAssistPanel {
+  border-color: #b9ccea;
+}
+
+.aiBetaBadge,
+.cacheBadge {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #b9ccea;
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: #eef4ff;
+  color: #175cd3;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.aiBetaBadge {
+  margin-bottom: 7px;
+}
+
+.hybridStatusGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.hybridStatusGrid > div {
+  min-width: 0;
+  padding: 14px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.hybridStatusGrid > div:nth-child(3n) {
+  border-right: 0;
+}
+
+.hybridStatusGrid > div:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
+.hybridStatusGrid span,
+.aiEvidenceSummary > div > span:first-child {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.hybridStatusGrid strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.aiEvidenceSummary,
+.aiFallbackNotice,
+.aiDecisionNotice,
+.aiPrivacyNote,
+.hybridReason,
+.aiLoadingText {
+  margin: 16px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.aiEvidenceSummary {
+  padding: 16px;
+  border: 1px solid var(--neutral-border);
+  border-radius: 10px;
+  background: var(--neutral-bg);
+}
+
+.aiEvidenceSummary > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aiEvidenceSummary ul {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--neutral-text);
+}
+
+.aiEvidenceSummary p,
+.hybridReason,
+.aiPrivacyNote,
+.aiLoadingText {
+  color: var(--muted);
+}
+
+.aiFallbackNotice {
+  padding: 13px 15px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-weight: 600;
+}
+
+.aiDecisionNotice {
+  padding: 13px 15px;
+  border-left: 3px solid var(--primary);
+  background: #f5f8ff;
+  color: var(--neutral-text);
+}
+
+.aiPrivacyNote {
+  margin-bottom: 0;
+}
+
 /* CSV intake */
 .importGrid,
 .analyzerWorkspace {
@@ -3154,6 +3277,21 @@ textarea:disabled {
 
   .evidenceGrid {
     grid-template-columns: 1fr;
+  }
+
+  .hybridStatusGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .hybridStatusGrid > div,
+  .hybridStatusGrid > div:nth-child(3n),
+  .hybridStatusGrid > div:nth-last-child(-n + 3) {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hybridStatusGrid > div:last-child {
+    border-bottom: 0;
   }
 
   .evidenceGrid div + div {

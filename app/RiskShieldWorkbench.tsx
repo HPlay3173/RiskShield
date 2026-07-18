@@ -93,6 +93,36 @@ type BundleImportReport = {
   preview: SkillImportPreview | null;
 };
 
+type BetaHybridStatus = "no_match" | "review" | "attention" | "high";
+
+type BetaAnalysis = {
+  beta: "RiskShield v0.4 AI-assisted private beta";
+  rules: AnalysisResult;
+  ai: {
+    state: "ready" | "fallback";
+    confidence: number | null;
+    riskIntent: "direct_promotional" | "contextual_only" | "uncertain" | null;
+    speechAct: "claim" | "quote" | "warning" | "criticism" | "report" | "definition" | "condition" | null;
+    contextRelation: string | null;
+    claimStrength: string | null;
+    evidenceSpans: Array<{ start: number; end: number; text: string }>;
+    masked: boolean;
+    cached: boolean;
+    latencyMs: number;
+    fallbackKind: "timeout" | "resource_exhausted" | "validation" | "provider_error" | null;
+  };
+  hybrid: {
+    status: BetaHybridStatus;
+    score: number;
+    conflict: boolean;
+    recoveredByInterpreter: boolean;
+    suppressedHigh: boolean;
+    reason: string;
+  };
+  notice: string;
+  cachePolicy: { ttlSeconds: number; storesOriginalText: false };
+};
+
 const EMPTY_CASE: CaseInput = {
   text: "",
   description: "",
@@ -177,6 +207,40 @@ function statusTone(status: AnalysisResult["status"]) {
   if (status === "attention") return "warning";
   if (status === "review") return "notice";
   return "neutral";
+}
+
+function hybridTone(status: BetaHybridStatus) {
+  if (status === "high") return "critical";
+  if (status === "attention") return "warning";
+  if (status === "review") return "notice";
+  return "neutral";
+}
+
+function hybridLabel(status: BetaHybridStatus) {
+  if (status === "high") return "높은 위험 · 담당자 검토";
+  if (status === "attention") return "주의 필요";
+  if (status === "review") return "사람 검토 필요";
+  return "직접 위험 주장 미확인";
+}
+
+function speechActLabel(value: BetaAnalysis["ai"]["speechAct"]) {
+  const labels: Record<NonNullable<BetaAnalysis["ai"]["speechAct"]>, string> = {
+    claim: "직접 주장",
+    quote: "인용",
+    warning: "경고",
+    criticism: "비판",
+    report: "보도",
+    definition: "정의·설명",
+    condition: "조건 안내",
+  };
+  return value ? labels[value] : "확인 불가";
+}
+
+function riskIntentLabel(value: BetaAnalysis["ai"]["riskIntent"]) {
+  if (value === "direct_promotional") return "직접 홍보 위험 주장";
+  if (value === "contextual_only") return "문맥상 직접 주장 아님";
+  if (value === "uncertain") return "의도 불확실";
+  return "분석 실패";
 }
 
 function ChipEditor({
@@ -289,10 +353,12 @@ function AnalysisPanel({
   result,
   title = "Analyzer 미리보기",
   compact = false,
+  scoreLabel = "최종 리스크",
 }: {
   result: AnalysisResult;
   title?: string;
   compact?: boolean;
+  scoreLabel?: string;
 }) {
   const primary = result.primaryMatch;
   const tone = statusTone(result.status);
@@ -311,7 +377,7 @@ function AnalysisPanel({
 
       <div className="scoreHero">
         <div>
-          <span className="scoreLabel">최종 리스크</span>
+          <span className="scoreLabel">{scoreLabel}</span>
           <strong data-testid="analyzer-score">{result.finalScore}</strong>
           <span className="scoreUnit">/ 100</span>
         </div>
@@ -388,6 +454,73 @@ function AnalysisPanel({
   );
 }
 
+function AiAssistPanel({ result, loading }: { result: BetaAnalysis | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <section className="analysisPanel aiAssistPanel" aria-live="polite" data-testid="ai-assist-loading">
+        <div className="panelHeading">
+          <div><span className="aiBetaBadge">AI 보조 베타</span><h2>AI 문맥 분석 중</h2></div>
+        </div>
+        <p className="aiLoadingText">규칙 결과는 유지한 채 문맥을 보조 분석하고 있습니다.</p>
+      </section>
+    );
+  }
+  if (!result) return null;
+
+  const tone = hybridTone(result.hybrid.status);
+  const confidence = result.ai.confidence === null ? "—" : `${Math.round(result.ai.confidence * 100)}%`;
+  const fallbackLabels = {
+    timeout: "AI 응답 시간이 초과되어 review로 전환했습니다.",
+    resource_exhausted: "AI 무료 할당량이 일시 소진되어 review로 전환했습니다.",
+    validation: "AI 응답 또는 근거를 검증하지 못해 review로 전환했습니다.",
+    provider_error: "AI 서비스 오류로 review로 전환했습니다.",
+  } as const;
+
+  return (
+    <section className="analysisPanel aiAssistPanel" aria-labelledby="ai-assist-title" data-testid="ai-assist-result">
+      <div className="panelHeading">
+        <div>
+          <span className="aiBetaBadge">AI 보조 베타</span>
+          <h2 id="ai-assist-title">하이브리드 검토 결과</h2>
+        </div>
+        <span className={cx("statusBadge", "statusBadge-" + tone)} data-testid="hybrid-status">
+          {hybridLabel(result.hybrid.status)}
+        </span>
+      </div>
+
+      <div className="hybridStatusGrid">
+        <div><span>규칙 분석</span><strong>{result.rules.statusLabel} · {result.rules.finalScore}점</strong></div>
+        <div><span>AI 문맥 상태</span><strong>{result.ai.state === "ready" ? riskIntentLabel(result.ai.riskIntent) : "review 폴백"}</strong></div>
+        <div><span>하이브리드 최종</span><strong>{hybridLabel(result.hybrid.status)}</strong></div>
+        <div><span>AI 신뢰도</span><strong>{confidence}</strong></div>
+        <div><span>발화 구분</span><strong>{speechActLabel(result.ai.speechAct)}</strong></div>
+        <div><span>규칙·AI 충돌</span><strong>{result.hybrid.conflict ? "있음 · 사람 검토" : "확인되지 않음"}</strong></div>
+      </div>
+
+      {result.ai.state === "fallback" && result.ai.fallbackKind ? (
+        <div className="aiFallbackNotice" role="status">{fallbackLabels[result.ai.fallbackKind]}</div>
+      ) : (
+        <div className="aiEvidenceSummary">
+          <div>
+            <span>검증된 AI 근거</span>
+            {result.ai.cached && <span className="cacheBadge">검증 캐시</span>}
+          </div>
+          {result.ai.evidenceSpans.length > 0 ? (
+            <ul>{result.ai.evidenceSpans.map((span) => <li key={`${span.start}-${span.end}`}>“{span.text}”</li>)}</ul>
+          ) : <p>직접 위험 주장의 근거 quote가 반환되지 않았습니다.</p>}
+        </div>
+      )}
+
+      <p className="hybridReason">{result.hybrid.reason}</p>
+      <p className="aiDecisionNotice">{result.notice}</p>
+      <p className="aiPrivacyNote">
+        개인정보는 서버에서 마스킹한 뒤 분석하며, 캐시는 원문이 아닌 입력 해시와 검증된 결과만 최대 {Math.round(result.cachePolicy.ttlSeconds / 60)}분 보관합니다.
+      </p>
+      <p className="humanNote">AI 결과는 보조 신호입니다. 최종 판단과 조치는 반드시 담당자가 결정합니다.</p>
+    </section>
+  );
+}
+
 export function RiskShieldWorkbench() {
   const [activeView, setActiveView] = useState<ViewId>("builder");
   const [skills, setSkills] = useState<RiskSkill[]>([]);
@@ -405,6 +538,8 @@ export function RiskShieldWorkbench() {
   const [severityRules, setSeverityRules] = useState<SeverityRules>(DEFAULT_SEVERITY_RULES);
   const [analysisInput, setAnalysisInput] = useState("15초만에 형량 분석");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [betaAnalysis, setBetaAnalysis] = useState<BetaAnalysis | null>(null);
+  const [betaAnalysisLoading, setBetaAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState("");
   const [candidatePreviewEnabled, setCandidatePreviewEnabled] = useState(false);
   const [showReviewErrors, setShowReviewErrors] = useState(false);
@@ -427,6 +562,7 @@ export function RiskShieldWorkbench() {
   const bundleInputRef = useRef<HTMLInputElement>(null);
   const builderStageRef = useRef<HTMLDivElement>(null);
   const hasMountedRef = useRef(false);
+  const analysisRequestIdRef = useRef(0);
 
   useEffect(() => {
     const host = window.location.hostname;
@@ -563,6 +699,8 @@ export function RiskShieldWorkbench() {
     setActiveSkill(makeBlankSkill());
     setAnalysisInput("");
     setAnalysisResult(null);
+    setBetaAnalysis(null);
+    setBetaAnalysisLoading(false);
     setAnalysisError("");
     setShowReviewErrors(false);
     setBuilderStep(1);
@@ -587,24 +725,77 @@ export function RiskShieldWorkbench() {
     setNotice("Mock 해석이 완료되었습니다. 생성된 패턴을 확인해 주세요.");
   }
 
-  function runAnalysis(value = analysisInput, includeDrafts = true) {
+  async function runAnalysis(value = analysisInput, includeDrafts = true) {
     const text = value.trim();
     if (!text) {
       setAnalysisResult(null);
+      setBetaAnalysis(null);
+      setBetaAnalysisLoading(false);
       setAnalysisError("테스트할 광고 문구를 입력해 주세요.");
       return;
     }
     setAnalysisInput(text);
     setAnalysisError("");
-    setAnalysisResult(analyzeText(
+    const localRules = analyzeText(
       text,
       includeDrafts ? testSkillSet : analyzerSkills,
       { includeDrafts, severityRules },
-    ));
+    );
+    setAnalysisResult(localRules);
     if (includeDrafts) {
+      setBetaAnalysis(null);
+      setBetaAnalysisLoading(false);
       setBuilderStep(6);
-    } else {
-      setAnalyzerStep(2);
+      return;
+    }
+
+    setAnalyzerStep(2);
+    setBetaAnalysis(null);
+    setBetaAnalysisLoading(true);
+    const requestId = analysisRequestIdRef.current + 1;
+    analysisRequestIdRef.current = requestId;
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error("ai_assist_unavailable");
+      const payload = await response.json() as BetaAnalysis;
+      if (requestId !== analysisRequestIdRef.current) return;
+      setAnalysisResult(payload.rules);
+      setBetaAnalysis(payload);
+    } catch {
+      if (requestId !== analysisRequestIdRef.current) return;
+      setBetaAnalysis({
+        beta: "RiskShield v0.4 AI-assisted private beta",
+        rules: localRules,
+        ai: {
+          state: "fallback",
+          confidence: null,
+          riskIntent: null,
+          speechAct: null,
+          contextRelation: null,
+          claimStrength: null,
+          evidenceSpans: [],
+          masked: false,
+          cached: false,
+          latencyMs: 0,
+          fallbackKind: "provider_error",
+        },
+        hybrid: {
+          status: "review",
+          score: Math.max(55, Math.min(69, localRules.finalScore || 55)),
+          conflict: true,
+          recoveredByInterpreter: false,
+          suppressedHigh: localRules.status === "high",
+          reason: "AI 분석 실패 시 규칙 결과를 유지하고 담당자 review로 전달합니다.",
+        },
+        notice: "AI 분석은 담당자의 최종 검토를 돕는 보조 신호이며 자동 승인·자동 금지를 의미하지 않습니다.",
+        cachePolicy: { ttlSeconds: 900, storesOriginalText: false },
+      });
+    } finally {
+      if (requestId === analysisRequestIdRef.current) setBetaAnalysisLoading(false);
     }
   }
 
@@ -613,6 +804,8 @@ export function RiskShieldWorkbench() {
     if (nextView === "analyzer") {
       setAnalyzerStep(1);
       setAnalysisResult(null);
+      setBetaAnalysis(null);
+      setBetaAnalysisLoading(false);
       setAnalysisError("");
     }
   }
@@ -1704,7 +1897,7 @@ export function RiskShieldWorkbench() {
                     ))}
                   </div>
                   {analysisError && <p className="formError" role="alert">{analysisError}</p>}
-                  <button type="button" className="primaryButton wideButton" onClick={() => runAnalysis(analysisInput, false)} data-testid="analyzer-submit-button">
+                  <button type="button" className="primaryButton wideButton" onClick={() => void runAnalysis(analysisInput, false)} data-testid="analyzer-submit-button">
                     결과 화면으로
                   </button>
                 </section>
@@ -1716,7 +1909,8 @@ export function RiskShieldWorkbench() {
                     다른 문구 분석
                   </button>
                 </div>
-                <AnalysisPanel result={analysisResult} title="분석 결과" />
+                <AnalysisPanel result={analysisResult} title="규칙 분석 결과" scoreLabel="규칙 리스크" />
+                <AiAssistPanel result={betaAnalysis} loading={betaAnalysisLoading} />
                 <section className="workspaceCard categoryCard productTileParchment">
                   <div className="cardHeading">
                     <div><span className="sectionNumber">EVIDENCE</span><h2>카테고리별 점수</h2></div>

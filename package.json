@@ -11,6 +11,8 @@
     "start": "vinext start",
     "test": "node --test tests/*.test.*",
     "evaluate:v0.4": "node scripts/evaluate-v0-4-offline.mjs",
+    "pilot:v0.4:gemma": "node scripts/run-v0-4-gemma-live-pilot.mjs",
+    "pilot:v0.4:gemma:evidence": "node scripts/rerun-v0-4-gemma-evidence-contract.mjs",
     "typecheck": "tsc --noEmit --incremental false",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"

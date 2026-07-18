@@ -3,8 +3,9 @@ import { headers } from "next/headers";
 import "./globals.css";
 
 const title = "RiskShield Studio | 조합형 위험 패턴 워크벤치";
+const betaTitle = "RiskShield v0.4 | AI-assisted private beta";
 const description =
-  "광고 사례를 조합형 위험 스킬로 만들고 Dominant Risk Scoring으로 검증하는 관리자 워크벤치";
+  "규칙 분석과 Gemma 문맥 분석을 결합해 담당자의 최종 검토를 돕는 RiskShield 비공개 AI 보조 베타";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -13,22 +14,22 @@ export async function generateMetadata(): Promise<Metadata> {
   const forwardedProtocol = requestHeaders.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const protocol = forwardedProtocol || (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const socialImage = new URL("/og.png", origin).toString();
+  const socialImage = new URL("/og-v04.png", origin).toString();
 
   return {
     metadataBase: new URL(origin),
     title,
     description,
     openGraph: {
-      title,
+      title: betaTitle,
       description,
       type: "website",
       locale: "ko_KR",
-      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield Studio" }],
+      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield v0.4 AI-assisted private beta" }],
     },
     twitter: {
       card: "summary_large_image",
-      title,
+      title: betaTitle,
       description,
       images: [socialImage],
     },

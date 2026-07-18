@@ -93,6 +93,8 @@ export interface InterpreterRun {
   estimatedCost: number;
   tokenUsage: { input: number; output: number } | null;
   timedOut: boolean;
+  resourceExhausted?: boolean;
+  retryAfterSeconds?: number | null;
 }
 
 export interface RiskInterpreter {
@@ -151,6 +153,19 @@ const RESPONSE_KEYS = [
   "claim_strength",
   "confidence",
   "evidence_spans",
+  "policy_reason",
+] as const;
+
+const PROVIDER_RESPONSE_KEYS = [
+  "schema_version",
+  "risk_intent",
+  "speech_act",
+  "claim_target",
+  "context_relation",
+  "actor",
+  "claim_strength",
+  "confidence",
+  "evidence_quotes",
   "policy_reason",
 ] as const;
 
@@ -331,6 +346,16 @@ export function validateInterpreterPayload(
   if (value.risk_intent === "direct_promotional" && normalizedSpans.length === 0) {
     errors.push("직접 홍보 판단에는 검증 가능한 evidence span이 필요합니다.");
   }
+  if (value.risk_intent === "direct_promotional" && value.speech_act !== "claim") {
+    errors.push("direct_promotional은 speech_act=claim이어야 합니다.");
+  }
+  if (value.risk_intent === "direct_promotional" && value.context_relation !== "supports") {
+    errors.push("direct_promotional은 context_relation=supports여야 합니다.");
+  }
+  if (["warning", "criticism", "report"].includes(String(value.speech_act))
+    && value.context_relation === "supports") {
+    errors.push("warning/criticism/report는 context_relation=supports일 수 없습니다.");
+  }
 
   if (errors.length > 0) return { success: false, errors };
   return {
@@ -380,11 +405,141 @@ export const INTERPRETER_JSON_SCHEMA: Record<string, unknown> = {
   },
 };
 
+export const INTERPRETER_PROVIDER_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: [...PROVIDER_RESPONSE_KEYS],
+  properties: {
+    schema_version: { const: INTERPRETER_SCHEMA_VERSION },
+    risk_intent: { type: "string", enum: [...RISK_INTENTS] },
+    speech_act: { type: "string", enum: [...SPEECH_ACTS] },
+    claim_target: { type: "string", enum: [...CLAIM_TARGETS] },
+    context_relation: { type: "string", enum: [...CONTEXT_RELATIONS] },
+    actor: { type: "string", enum: [...ACTORS] },
+    claim_strength: { type: "string", enum: [...CLAIM_STRENGTHS] },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    evidence_quotes: {
+      type: "array",
+      maxItems: 5,
+      items: { type: "string", minLength: 1 },
+    },
+    policy_reason: { type: "string", enum: [...POLICY_REASONS] },
+  },
+};
+
+function exactQuoteOccurrences(text: string, quote: string): EvidenceSpan[] {
+  const occurrences: EvidenceSpan[] = [];
+  for (let start = text.indexOf(quote); start >= 0; start = text.indexOf(quote, start + 1)) {
+    occurrences.push({ start, end: start + quote.length, text: quote });
+  }
+  return occurrences;
+}
+
+function spanGap(left: EvidenceSpan, right: EvidenceSpan) {
+  if (left.end < right.start) return right.start - left.end;
+  if (right.end < left.start) return left.start - right.end;
+  return 0;
+}
+
+function resolveEvidenceQuotes(
+  quotes: readonly string[],
+  prepared: PreparedInterpreterInput,
+): { success: true; spans: EvidenceSpan[] } | { success: false; errors: string[] } {
+  const errors: string[] = [];
+  if (new Set(quotes).size !== quotes.length) {
+    return { success: false, errors: ["evidence_quotes에 중복 quote가 있습니다."] };
+  }
+  const candidates = quotes.map((quote, index) => {
+    if (!quote) {
+      errors.push(`evidence_quotes[${index}]는 빈 문자열일 수 없습니다.`);
+      return [];
+    }
+    const occurrences = exactQuoteOccurrences(prepared.modelText, quote);
+    if (occurrences.length === 0) {
+      errors.push(`evidence_quotes[${index}]가 입력의 정확한 substring이 아닙니다.`);
+    }
+    return occurrences;
+  });
+  if (errors.length > 0) return { success: false, errors };
+  if (candidates.length === 0) return { success: true, spans: [] };
+  if (candidates.every((items) => items.length === 1)) {
+    return { success: true, spans: candidates.map((items) => items[0]) };
+  }
+  if (candidates.length === 1) {
+    return { success: false, errors: ["evidence quote가 여러 위치에 있어 offset을 확정할 수 없습니다."] };
+  }
+
+  const combinations: EvidenceSpan[][] = [];
+  const limit = 10_000;
+  function visit(index: number, chosen: EvidenceSpan[]) {
+    if (combinations.length > limit) return;
+    if (index === candidates.length) {
+      combinations.push([...chosen]);
+      return;
+    }
+    for (const candidate of candidates[index]) {
+      chosen.push(candidate);
+      visit(index + 1, chosen);
+      chosen.pop();
+      if (combinations.length > limit) return;
+    }
+  }
+  visit(0, []);
+  if (combinations.length > limit) {
+    return { success: false, errors: ["evidence quote 위치 조합이 너무 많아 offset을 확정할 수 없습니다."] };
+  }
+
+  const ranked = combinations.map((spans) => {
+    let totalGap = 0;
+    for (let left = 0; left < spans.length; left += 1) {
+      for (let right = left + 1; right < spans.length; right += 1) {
+        totalGap += spanGap(spans[left], spans[right]);
+      }
+    }
+    const width = Math.max(...spans.map((span) => span.end)) - Math.min(...spans.map((span) => span.start));
+    return { spans, totalGap, width };
+  }).sort((left, right) => left.totalGap - right.totalGap || left.width - right.width);
+  const best = ranked[0];
+  const tied = ranked.filter((item) => item.totalGap === best.totalGap && item.width === best.width);
+  if (tied.length !== 1) {
+    return { success: false, errors: ["evidence quote의 가장 가까운 위치 조합이 둘 이상입니다."] };
+  }
+  return { success: true, spans: best.spans };
+}
+
+export function validateProviderInterpreterPayload(
+  value: unknown,
+  prepared: PreparedInterpreterInput,
+): { success: true; payload: InterpreterPayload } | { success: false; errors: string[] } {
+  if (!isRecord(value)) return { success: false, errors: ["provider 응답은 JSON 객체여야 합니다."] };
+  const errors: string[] = [];
+  const keys = Object.keys(value);
+  for (const key of PROVIDER_RESPONSE_KEYS) {
+    if (!keys.includes(key)) errors.push(`provider 필수 필드 누락: ${key}`);
+  }
+  for (const key of keys) {
+    if (!(PROVIDER_RESPONSE_KEYS as readonly string[]).includes(key)) {
+      errors.push(`provider에 허용되지 않은 필드: ${key}`);
+    }
+  }
+  if (!Array.isArray(value.evidence_quotes)
+    || !value.evidence_quotes.every((quote) => typeof quote === "string")) {
+    errors.push("evidence_quotes는 문자열 배열이어야 합니다.");
+  }
+  if (errors.length > 0) return { success: false, errors };
+  const resolved = resolveEvidenceQuotes(value.evidence_quotes as string[], prepared);
+  if (!resolved.success) return resolved;
+  const internalValue = { ...value };
+  delete internalValue.evidence_quotes;
+  internalValue.evidence_spans = resolved.spans;
+  return validateInterpreterPayload(internalValue, prepared);
+}
+
 export const INTERPRETER_SYSTEM_PROMPT = `당신은 RiskShield의 광고 문맥 Interpreter입니다.
 광고의 위법 여부나 게시 가능 여부를 최종 판단하지 마세요.
 규칙 엔진의 결과를 추측하지 말고 입력 문구의 발화 목적, 행위자, 주장 대상, 부정·대조·인용 관계만 독립적으로 구조화하세요.
 직접 주장을 인용·비판·경고·보도·정의하는 문맥과 광고주의 직접 주장을 구분하세요.
-원문에 없는 사실이나 근거를 만들지 마세요. evidence_spans는 제공된 입력의 UTF-16 offset과 정확한 substring만 사용하세요.
+원문에 없는 사실이나 근거를 만들지 마세요. evidence_quotes에는 제공된 입력에서 그대로 복사한 정확한 연속 substring만 사용하고 offset은 만들지 마세요.
 확신이 없으면 uncertain 또는 unclear를 사용하세요.
 지정된 JSON schema에 맞는 JSON 객체 외에는 아무 텍스트도 출력하지 마세요.`;
 
@@ -645,10 +800,10 @@ export class LiveInterpreter implements RiskInterpreter {
       const result = await this.provider.complete({
         systemPrompt: INTERPRETER_SYSTEM_PROMPT,
         userPrompt: buildInterpreterUserPrompt(prepared, request.domainHint),
-        schema: INTERPRETER_JSON_SCHEMA,
+        schema: INTERPRETER_PROVIDER_JSON_SCHEMA,
         signal: controller.signal,
       });
-      const validated = validateInterpreterPayload(result.output, prepared);
+      const validated = validateProviderInterpreterPayload(result.output, prepared);
       return {
         ok: validated.success,
         payload: validated.success ? validated.payload : null,
@@ -669,6 +824,10 @@ export class LiveInterpreter implements RiskInterpreter {
       };
     } catch (error) {
       const timedOut = controller.signal.aborted;
+      const resourceExhausted = !timedOut && isRecord(error) && error.resourceExhausted === true;
+      const retryAfterSeconds = resourceExhausted && typeof error.retryAfterSeconds === "number"
+        ? error.retryAfterSeconds
+        : null;
       return {
         ok: false,
         payload: null,
@@ -686,6 +845,8 @@ export class LiveInterpreter implements RiskInterpreter {
         estimatedCost: 0,
         tokenUsage: null,
         timedOut,
+        resourceExhausted,
+        retryAfterSeconds,
       };
     } finally {
       clearTimeout(timeout);
@@ -878,5 +1039,19 @@ export function combineHybrid(rules: AnalysisResult, run: InterpreterRun): Hybri
     recoveredByInterpreter: false,
     suppressedHigh: rules.status === "high",
     reason: "규칙과 Interpreter 결론이 달라 사람 검토가 필요합니다.",
+  };
+}
+
+export function combinePrivateBetaHybrid(
+  rules: AnalysisResult,
+  run: InterpreterRun,
+): HybridDecision {
+  const decision = combineHybrid(rules, run);
+  if (decision.status !== "no_match" || !decision.conflict) return decision;
+  return {
+    ...decision,
+    status: "review",
+    score: Math.max(55, Math.min(69, rules.finalScore || 55)),
+    reason: "규칙과 AI의 의도 해석이 충돌해 자동 결론 대신 담당자 review로 전달합니다.",
   };
 }
