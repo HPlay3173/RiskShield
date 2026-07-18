@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": "v0.3.1-local-remediation",
+  "evaluatedAt": "2026-07-18T11:04:52.003Z",
+  "frozenCasesSha256": "49b9316293815832965d29d9f52f4b52976d2307e7d66e827f62edd450c49659",
+  "d1Contract": {
+    "totalSkills": 29,
+    "reviewedSkills": 24,
+    "reviewOnlyRules": [
+      {
+        "id": "risk_v03_privacy_data_access_review",
+        "severityFloor": 55,
+        "dominantRisk": false
+      },
+      {
+        "id": "risk_v03_legal_substantiation",
+        "severityFloor": 58,
+        "dominantRisk": false
+      },
+      {
+        "id": "risk_v03_income_guarantee",
+        "severityFloor": 60,
+        "dominantRisk": false
+      },
+      {
+        "id": "risk_v03_general_urgency",
+        "severityFloor": 55,
+        "dominantRisk": false
+      },
+      {
+        "id": "risk_v03_general_substantiation",
+        "severityFloor": 58,
+        "dominantRisk": false
+      },
+      {
+        "id": "risk_v03_education_substantiation",
+        "severityFloor": 58,
+        "dominantRisk": false
+      }
+    ]
+  },
+  "frozen": {
+    "total": 100,
+    "highConfidenceRisky": 31,
+    "highConfidenceRiskyDetected": 31,
+    "safe": 20,
+    "safeFalsePositiveCaseIds": [],
+    "safeHighFalsePositiveCaseIds": [],
+    "perDomain": {
+      "health": {
+        "risky": 7,
+        "detected": 6,
+        "detectionRate": 0.8571428571428571
+      },
+      "finance": {
+        "risky": 10,
+        "detected": 7,
+        "detectionRate": 0.7
+      },
+      "education": {
+        "risky": 9,
+        "detected": 8,
+        "detectionRate": 0.8888888888888888
+      },
+      "legal": {
+        "risky": 5,
+        "detected": 4,
+        "detectionRate": 0.8
+      },
+      "general": {
+        "risky": 9,
+        "detected": 8,
+        "detectionRate": 0.8888888888888888
+      },
+      "privacy": {
+        "risky": 11,
+        "detected": 8,
+        "detectionRate": 0.7272727272727273
+      }
+    }
+  },
+  "development": {
+    "total": 60,
+    "clear": 50,
+    "clearPassed": 50,
+    "composition": {
+      "risky": 30,
+      "safe": 20,
+      "boundary": 10
+    },
+    "failureCaseIds": []
+  },
+  "gates": {
+    "frozenHighConfidenceRiskyRecall": 1,
+    "frozenSafeFalsePositiveRate": 0,
+    "prohibitionCriticismWarningHighFalsePositives": 0,
+    "allCoreDomainsAtLeast60": true,
+    "developmentClearPassRate": 1,
+    "repeatInconsistencies": 0,
+    "reviewOnlyHighViolations": 0,
+    "exactFrozenDevelopmentOverlap": 0
+  },
+  "localDeployGate": "PASS"
+}

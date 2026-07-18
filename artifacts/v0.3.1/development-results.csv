@@ -1,0 +1,61 @@
+case_id,cluster,domain,case_type,clarity,expected_range,original_text,design_note,actual_status,actual_score,primary_skill_id,matched_skill_ids,class_pass,range_pass,repeat_consistent,verdict
+DEV001,health_side_effect_safety,health,risky,clear,80-100,복용 뒤 부작용은 하나도 없고 누구에게나 완전히 안전합니다.,부작용 없음 활용형과 절대 안전 결합,high,88,risk_v03_health_safety_absolute,risk_v03_health_safety_absolute,PASS,PASS,PASS,PASS
+DEV002,health_side_effect_safety,health,risky,clear,80-100,이 시술은 부작용이 없으며 안전성을 100% 보장합니다.,없으며 활용형과 안전 보장 결합,high,88,risk_v03_health_safety_absolute,risk_v03_health_safety_absolute,PASS,PASS,PASS,PASS
+DEV003,health_side_effect_safety,health,risky,clear,80-100,부작용 없습니다. 모든 체질에 완전 안전한 제품입니다.,부작용 부정과 절대 안전,high,88,risk_v03_health_safety_absolute,risk_v03_health_safety_absolute,PASS,PASS,PASS,PASS
+DEV004,health_side_effect_safety,health,safe,clear,0-44,부작용이 없다고 단정하는 홍보는 금지됩니다.,위험 주장의 금지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV005,health_side_effect_safety,health,safe,clear,0-44,완전 안전하다는 문구는 과장 광고이므로 피해야 합니다.,절대 안전 문구 비판,no_match,0,,,PASS,PASS,PASS,PASS
+DEV006,health_side_effect_safety,health,boundary,boundary,0-69,시험 참여자에게서 부작용 신고가 없었습니다.,관찰 사실과 광고 보장 구분,no_match,0,,,PASS,PASS,PASS,PASS
+DEV007,health_quantitative_growth,health,risky,clear,80-100,성장기 프로그램으로 키가 4cm 더 커집니다.,정량 성장 결과,high,82,risk_v03_health_body_result,risk_v03_health_body_result,PASS,PASS,PASS,PASS
+DEV008,health_quantitative_growth,health,risky,clear,80-100,두 달이면 신장이 3cm 늘어납니다.,기간과 정량 신장 결과,high,82,risk_v03_health_body_result,risk_v03_health_body_result,PASS,PASS,PASS,PASS
+DEV009,health_quantitative_growth,health,risky,clear,80-100,아이 키를 5~7cm 성장시켜 드립니다.,범위형 정량 성장 약속,high,82,risk_v03_health_body_result,risk_v03_health_body_result,PASS,PASS,PASS,PASS
+DEV010,health_quantitative_growth,health,safe,clear,0-44,현재 측정한 키는 168cm입니다.,현재 측정값,no_match,0,,,PASS,PASS,PASS,PASS
+DEV011,health_quantitative_growth,health,safe,clear,0-44,과거 검사에서 신장이 2cm 늘어난 것으로 기록되었습니다.,과거 관찰 기록,no_match,0,,,PASS,PASS,PASS,PASS
+DEV012,health_quantitative_growth,health,boundary,boundary,0-69,성장 목표는 3cm이며 결과는 개인에 따라 달라집니다.,목표와 개인차 고지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV013,finance_return_warning,finance,risky,clear,80-100,투자 원금과 연 18% 수익을 확실히 보장합니다.,원금과 수익 보장,high,87,risk_finance_000001,risk_finance_000001|risk_v03_finance_return_recovery,PASS,PASS,PASS,PASS
+DEV014,finance_return_warning,finance,risky,clear,80-100,이 펀드는 원금 보전과 매달 수익을 약속합니다.,원금 보전 약속,high,89,risk_finance_000001,risk_finance_000001|risk_finance_000002|risk_v03_finance_return_recovery,PASS,PASS,PASS,PASS
+DEV015,finance_return_warning,finance,risky,clear,80-100,고수익을 약속하고 투자 손해는 전액 돌려드립니다.,고수익과 손해 회수,high,85,risk_v03_finance_return_recovery,risk_v03_finance_return_recovery,PASS,PASS,PASS,PASS
+DEV016,finance_return_warning,finance,safe,clear,0-44,원금과 이익을 보장할 수 있는 금융상품은 없습니다.,보장 투자 부정,no_match,0,,,PASS,PASS,PASS,PASS
+DEV017,finance_return_warning,finance,safe,clear,0-44,연 30% 수익 보장이라는 사기 문구를 의심해야 합니다.,사기 경고,no_match,0,,,PASS,PASS,PASS,PASS
+DEV018,finance_return_warning,finance,boundary,boundary,0-69,지난해 펀드 수익률은 12%였으며 미래 결과와 다를 수 있습니다.,과거 실적과 변동 고지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV019,education_outcome,education,risky,clear,80-100,등록생 모두를 대학에 합격시켜 드립니다.,합격 causative,high,86,risk_v03_education_outcome_promise,risk_v03_education_outcome_promise|risk_education_000001,PASS,PASS,PASS,PASS
+DEV020,education_outcome,education,risky,clear,80-100,이 과정 수료자는 특채를 보장받습니다.,특채 보장,high,80,risk_education_000001,risk_education_000001,PASS,PASS,PASS,PASS
+DEV021,education_outcome,education,risky,clear,80-100,수강만 하면 취업이 확정됩니다.,취업 확정,high,84,risk_v03_education_outcome_promise,risk_v03_education_outcome_promise,PASS,PASS,PASS,PASS
+DEV022,education_outcome,education,safe,clear,0-44,전원 합격시켜 준다는 학원 광고는 주의해야 합니다.,합격 보장 경고,no_match,0,,,PASS,PASS,PASS,PASS
+DEV023,education_outcome,education,safe,clear,0-44,취업 확정 문구는 심사 결과를 오도하므로 사용하면 안 됩니다.,미래 결과 문구 금지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV024,education_outcome,education,boundary,boundary,0-69,지난해 수강생 취업률 72%는 조사 기준과 출처를 함께 공개합니다.,출처 있는 과거 통계,no_match,0,,,PASS,PASS,PASS,PASS
+DEV025,legal_probability_authority,legal,risky,clear,80-100,승소 가능성은 88%입니다. 결과까지 책임지겠습니다.,확률과 결과 책임 인접 결합,high,87,risk_v03_legal_outcome_promise,risk_v03_legal_outcome_promise|risk_v03_legal_substantiation,PASS,PASS,PASS,PASS
+DEV026,legal_probability_authority,legal,risky,clear,45-69,판사 출신 변호사의 인맥으로 사건을 해결합니다.,권위와 인맥 REVIEW,review,58,risk_v03_legal_substantiation,risk_v03_legal_substantiation,PASS,PASS,PASS,PASS
+DEV027,legal_probability_authority,legal,risky,clear,45-69,전관예우 로펌이 승소 확률 95%를 제시합니다.,전관과 확률 REVIEW,review,58,risk_v03_legal_substantiation,risk_v03_legal_substantiation,PASS,PASS,PASS,PASS
+DEV028,legal_probability_authority,legal,safe,clear,0-44,승소율 90%를 내세우는 광고는 근거가 없다고 비판합니다.,성과 광고 비판,no_match,0,,,PASS,PASS,PASS,PASS
+DEV029,legal_probability_authority,legal,safe,clear,0-44,전관 인맥을 이용한 사건 해결은 불법이라고 주의해야 합니다.,불법 권위 광고 경고,no_match,0,,,PASS,PASS,PASS,PASS
+DEV030,legal_probability_authority,legal,boundary,boundary,0-69,보험 특약은 벌금 비용과 형사 합의 비용을 보장합니다.,보험 비용 보장 경계,no_match,0,,,PASS,PASS,PASS,PASS
+DEV031,privacy_stealth_mode,privacy,risky,clear,80-100,감시 앱은 숨겨진 모드로 실행됩니다.,숨겨진 모드,high,84,risk_v03_privacy_stealth_install,risk_v03_privacy_stealth_install,PASS,PASS,PASS,PASS
+DEV032,privacy_stealth_mode,privacy,risky,clear,80-100,설치한 프로그램의 아이콘을 숨겨 상대방이 찾지 못합니다.,아이콘 숨김,high,84,risk_v03_privacy_stealth_install,risk_v03_privacy_stealth_install,PASS,PASS,PASS,PASS
+DEV033,privacy_stealth_mode,privacy,risky,clear,80-100,앱 목록에 표시되지 않는 추적 프로그램입니다.,실행 목록 미표시,high,84,risk_v03_privacy_stealth_install,risk_v03_privacy_stealth_install,PASS,PASS,PASS,PASS
+DEV034,privacy_stealth_mode,privacy,safe,clear,0-44,본인 기기에서 사용자가 선택해 앱 아이콘을 감추는 기능입니다.,본인 설정,no_match,0,,,PASS,PASS,PASS,PASS
+DEV035,privacy_stealth_mode,privacy,safe,clear,0-44,숨겨진 감시 앱을 설치하는 행위는 불법이며 사용하면 안 됩니다.,불법 설치 경고,no_match,0,,,PASS,PASS,PASS,PASS
+DEV036,privacy_stealth_mode,privacy,boundary,boundary,0-69,프레젠테이션 모드에서는 앱 목록 표시를 잠시 끌 수 있습니다.,정상 UI 설정,no_match,0,,,PASS,PASS,PASS,PASS
+DEV037,privacy_covert_access,privacy,risky,clear,80-100,상대방이 모르게 채팅방을 읽는 방법을 제공합니다.,상대방 모르게 열람,high,92,risk_v03_privacy_covert_surveillance,risk_v03_privacy_covert_surveillance|risk_v03_privacy_data_access_review,PASS,PASS,PASS,PASS
+DEV038,privacy_covert_access,privacy,risky,clear,80-100,알림 흔적을 삭제하고 상대의 메시지를 원격으로 확인합니다.,알림 삭제와 메시지 접근,high,92,risk_v03_privacy_covert_surveillance,risk_v03_privacy_covert_surveillance|risk_v03_privacy_data_access_review,PASS,PASS,PASS,PASS
+DEV039,privacy_covert_access,privacy,risky,clear,80-100,GPS로 이동을 추적합니다. 당사자는 절대 알 수 없습니다.,추적과 인접 비인지 문장,high,86,risk_v03_privacy_covert_surveillance,risk_v03_privacy_covert_surveillance,PASS,PASS,PASS,PASS
+DEV040,privacy_covert_access,privacy,safe,clear,0-44,몰래 메시지를 읽는 기능은 사생활 침해이므로 피해야 합니다.,침해 기능 비판,no_match,0,,,PASS,PASS,PASS,PASS
+DEV041,privacy_covert_access,privacy,safe,clear,0-44,비동의 GPS 추적은 불법이고 피해 예방 교육이 필요합니다.,불법과 피해 예방,no_match,0,,,PASS,PASS,PASS,PASS
+DEV042,privacy_covert_access,privacy,boundary,boundary,0-69,보호자 동의를 받은 뒤 가족의 위치를 공유합니다.,동의 기반 위치 공유,no_match,0,,,PASS,PASS,PASS,PASS
+DEV043,general_adjacent_urgency,general,risky,clear,45-69,48시간만 한정 판매합니다. 바로 구매하세요.,한정과 구매 인접 결합,review,55,risk_v03_general_urgency,risk_v03_general_urgency,PASS,PASS,PASS,PASS
+DEV044,general_adjacent_urgency,general,risky,clear,45-69,오늘이 마지막 기회입니다. 지금 신청 가능합니다.,마지막과 신청 인접 결합,review,55,risk_v03_general_urgency,risk_v03_general_urgency,PASS,PASS,PASS,PASS
+DEV045,general_adjacent_urgency,general,risky,clear,45-69,재고는 10개 한정입니다. 서둘러 등록하세요.,한정과 등록 인접 결합,review,55,risk_v03_general_urgency,risk_v03_general_urgency,PASS,PASS,PASS,PASS
+DEV046,general_adjacent_urgency,general,safe,clear,0-44,한정 판매로 구매를 재촉하는 광고는 과장이라고 비판합니다.,긴급성 광고 비판,no_match,0,,,PASS,PASS,PASS,PASS
+DEV047,general_adjacent_urgency,general,safe,clear,0-44,접수 마감일은 다음 달 3일이라는 일정 안내입니다.,정상 일정 안내,no_match,0,,,PASS,PASS,PASS,PASS
+DEV048,general_adjacent_urgency,general,boundary,boundary,0-69,한정 수량은 재고 현황에 따라 달라집니다.,재고 조건 고지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV049,income_guarantee,income,risky,clear,80-100,재택 부업 수입은 누구나 월 250만원을 보장합니다.,보편 소득 보장,high,88,risk_v03_income_universal_guarantee,risk_v03_income_universal_guarantee|risk_v03_income_guarantee,PASS,PASS,PASS,PASS
+DEV050,income_guarantee,income,risky,clear,80-100,성과와 무관하게 부업 소득을 최소 180만원으로 확정합니다.,최소 소득 확정,high,88,risk_v03_income_universal_guarantee,risk_v03_income_universal_guarantee|risk_v03_income_guarantee,PASS,PASS,PASS,PASS
+DEV051,income_guarantee,income,risky,clear,80-100,초보자도 재택 수입을 무조건 보장받습니다.,재택 수입 절대 보장,high,82,risk_v03_income_universal_guarantee,risk_v03_income_universal_guarantee,PASS,PASS,PASS,PASS
+DEV052,income_guarantee,income,safe,clear,0-44,부업 소득 보장 광고는 사기일 수 있으니 주의해야 합니다.,부업 광고 사기 경고,no_match,0,,,PASS,PASS,PASS,PASS
+DEV053,income_guarantee,income,safe,clear,0-44,재택 수입은 실적에 따라 달라지며 보장되지 않습니다.,변동과 비보장 고지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV054,income_guarantee,income,boundary,boundary,45-69,지난 참여자의 월 평균 부업 수입은 140만원입니다.,과거 평균 실적 REVIEW,review,60,risk_v03_income_guarantee,risk_v03_income_guarantee,PASS,PASS,PASS,PASS
+DEV055,common_context_guard,mixed,risky,clear,80-100,불법이라고들 하지만 사용자 모르게 위치를 추적해 드립니다.,불법 언급 뒤 역전 판촉,high,88,risk_v03_privacy_covert_surveillance,risk_v03_privacy_covert_surveillance|risk_privacy_000001,PASS,PASS,PASS,PASS
+DEV056,common_context_guard,mixed,risky,clear,80-100,사기라고 의심받지만 투자 원금은 반드시 보장됩니다.,사기 의심 뒤 역전 보장,high,87,risk_finance_000001,risk_finance_000001|risk_v03_finance_return_recovery,PASS,PASS,PASS,PASS
+DEV057,common_context_guard,mixed,risky,clear,80-100,금지 문구라는 비판도 있지만 부업 수익은 누구나 확정됩니다.,비판 뒤 역전 소득 확정,high,93,risk_finance_000001,risk_finance_000001|risk_v03_income_universal_guarantee,PASS,PASS,PASS,PASS
+DEV058,common_context_guard,mixed,safe,clear,0-44,“원금과 고수익을 보장합니다”라는 표현은 사용 금지입니다.,인용 위험 문구 금지,no_match,0,,,PASS,PASS,PASS,PASS
+DEV059,common_context_guard,mixed,safe,clear,0-44,몰래 위치를 추적한다는 광고는 피해 예방을 위해 의심해야 합니다.,추적 피해 예방,no_match,0,,,PASS,PASS,PASS,PASS
+DEV060,common_context_guard,mixed,boundary,boundary,0-69,보장이라는 단어가 약관의 보장 범위 설명에 사용되었습니다.,단어 언급과 실제 보장 구분,no_match,0,,,PASS,PASS,PASS,PASS

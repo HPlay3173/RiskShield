@@ -687,9 +687,11 @@ function sentenceRanges(text: string): SentenceRange[] {
     const character = text[index];
     const previous = text[index - 1] ?? "";
     const next = text[index + 1] ?? "";
-    const decimalPoint = character === "." && /\d/u.test(previous) && /\d/u.test(next);
+    const intraTokenPoint = character === "."
+      && isWordCharacter(previous)
+      && isWordCharacter(next);
 
-    if (!decimalPoint && /[.!?。！？]/u.test(character)) {
+    if (!intraTokenPoint && /[.!?。！？]/u.test(character)) {
       push(index + 1);
       continue;
     }
@@ -710,21 +712,21 @@ function sentenceRanges(text: string): SentenceRange[] {
   return ranges;
 }
 
-function paragraphRanges(text: string): SentenceRange[] {
+function adjacentSentenceRanges(text: string): SentenceRange[] {
+  const sentences = sentenceRanges(text);
   const ranges: SentenceRange[] = [];
-  const separator = /\n\s*\n/gu;
-  let start = 0;
 
-  for (let match = separator.exec(text); match; match = separator.exec(text)) {
-    if (text.slice(start, match.index).trim()) {
-      ranges.push({ index: ranges.length, start, end: match.index });
-    }
-    start = match.index + match[0].length;
+  for (let index = 0; index < sentences.length; index += 1) {
+    const current = sentences[index];
+    ranges.push({ index: ranges.length, start: current.start, end: current.end });
+
+    const next = sentences[index + 1];
+    if (!next) continue;
+    const separator = text.slice(current.end, next.start);
+    if (/\n\s*\n/u.test(separator)) continue;
+    ranges.push({ index: ranges.length, start: current.start, end: next.end });
   }
 
-  if (text.slice(start).trim()) {
-    ranges.push({ index: ranges.length, start, end: text.length });
-  }
   return ranges;
 }
 
@@ -751,7 +753,8 @@ function isWordCharacter(character: string) {
 
 const KOREAN_SUFFIXES = [
   "으로", "에서", "에게", "까지", "부터", "처럼", "보다",
-  "합니다", "하며", "하고", "하지", "하다", "할", "됩니다", "되는", "된다",
+  "이라고", "입니다", "이었다", "합니다", "하며", "하고", "하지", "하다", "할", "하세요",
+  "됩니다", "되는", "된다", "이다",
   "을", "를", "은", "는", "이", "가", "도", "만", "의", "에", "와", "과", "로",
 ].sort((left, right) => right.length - left.length);
 
@@ -787,6 +790,110 @@ function compilePattern(pattern: string) {
   } catch {
     return null;
   }
+}
+
+function normalizedPatternVariants(
+  skill: RiskSkill,
+  role: "trigger" | "context",
+) {
+  const additions: string[] = [];
+  const type = skill.patternType;
+
+  if (type === "health_safety + absolute_absence") {
+    if (role === "trigger") {
+      additions.push("re:안전(?:성|한|하다|합니다|하다고)?");
+    } else {
+      additions.push(
+        "re:(?:하나도|전혀|절대|조금도)?\\s*없(?:습니다|어요|다|음|고|는|다고)",
+        "re:(?:완전(?:히)?|100\\s*%)",
+        "re:보장(?:합니다|한다|해|됨|된다)?",
+      );
+    }
+  }
+
+  if (type === "body_or_weight_result + certainty_or_period") {
+    if (role === "trigger") {
+      additions.push("re:(?:키|신장|성장|체형|몸매)");
+    } else {
+      additions.push(
+        "re:\\d+(?:[.]\\d+)?\\s*cm\\s*(?:까지|씩|이상|더)?[^.!?\\n]{0,16}(?:자라|자랍|커지|커집|큽|큰다|늘|성장)",
+        "re:\\d+(?:[.]\\d+)?\\s*(?:~|-|∼)\\s*\\d+(?:[.]\\d+)?\\s*cm[^.!?\\n]{0,16}(?:키|신장|자라|커지|늘|성장)",
+        "re:(?:자라|커지|큰다|늘|성장)[^.!?\\n]{0,16}\\d+(?:[.]\\d+)?\\s*cm",
+      );
+    }
+  }
+
+  if (type === "education_outcome + universal_promise" || type === "education_outcome + guarantee") {
+    if (role === "trigger") {
+      additions.push("re:(?:특채|채용|입사)");
+    } else {
+      additions.push(
+        "re:시켜\\s*(?:드립|드립니다|드려|드리|줍|준다|드립니다)",
+        "re:(?:전원|모두|누구나)",
+        "re:확정(?:됩니다|된다|함|이다|입니다)?",
+      );
+    }
+  }
+
+  if (type === "education_superlative_or_metric + service_subject") {
+    if (role === "trigger") additions.push("re:(?:합격률|진학률|취업률)");
+    else additions.push("re:(?:재원생|수강생|대학|진학|합격자)");
+  }
+
+  if (type === "legal_outcome + certainty_or_promise") {
+    if (role === "trigger") additions.push("re:승소");
+    else additions.push(
+      "re:(?:결과(?:를|은|까지)?[^.!?\\n]{0,18})?(?:책임지|책임집|책임질|약속하)",
+    );
+  }
+
+  if (type === "financial_return_or_loss + guarantee_or_recovery" && role === "context") {
+    additions.push("re:전액[^.!?\\n]{0,12}돌려\\s*드(?:립|립니다|려요|림)");
+  }
+
+  if (type === "legal_superlative_or_authority + substantiation_signal") {
+    if (role === "trigger") additions.push("re:(?:승소|전관예우|전관)");
+    else additions.push(
+      "re:(?:승소\\s*)?(?:가능성|예상|확률)",
+      "re:(?:판사|검사|전관)[^.!?\\n]{0,18}(?:출신|경력|인맥|영향력|직접|해결)",
+      "re:(?:인맥|영향력|출신|변호사|법무법인|로펌)",
+    );
+  }
+
+  if (type === "app_installation + concealment_signal") {
+    if (role === "trigger") additions.push("re:(?:앱|애플리케이션|프로그램|설치)");
+    else additions.push(
+      "re:(?:숨겨진|은밀한|비밀)\\s*모드",
+      "re:아이콘(?:을|이|은|는)?[^.!?\\n]{0,18}(?:숨기|숨겨|숨김|표시되지|보이지)",
+      "re:(?:실행\\s*중인\\s*)?앱\\s*목록(?:에|에서)?[^.!?\\n]{0,24}(?:표시되지|보이지|나타나지)",
+    );
+  }
+
+  if (type === "personal_data_asset + covert_surveillance") {
+    if (role === "trigger") additions.push("re:(?:메신저|채팅|채팅방|알림|추적|감시)");
+    else additions.push(
+      "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:모르게|알지\\s*못하게|눈치채지\\s*못하게)",
+      "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:절대\\s*)?알\\s*수\\s*없",
+      "re:(?:들키지|발각되지|눈치채지)\\s*않게",
+      "re:몰래[^.!?\\n]{0,24}(?:보는|읽는|확인하는)\\s*방법",
+      "re:(?:알림|통보|표시)[^.!?\\n]{0,20}(?:삭제|숨기|남지|표시되지)",
+    );
+  }
+
+  if (type === "privacy_tracking + lack_of_consent") {
+    if (role === "trigger") additions.push(
+      "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:모르게|알지\\s*못하게)",
+      "re:(?:들키지|발각되지)\\s*않게",
+    );
+  }
+
+  if (type === "data_asset + access_or_export") {
+    if (role === "trigger") additions.push("re:(?:대화|채팅|채팅방|메신저)");
+    else additions.push("re:(?:보는|읽는|열어보는)\\s*방법");
+  }
+
+  const base = role === "trigger" ? skill.triggerPatterns : skill.contextPatterns;
+  return [...new Set([...base, ...additions])];
 }
 
 function findPatternHits(
@@ -857,7 +964,7 @@ const CONTRAST_MARKERS = [
   "반면", "그래도", "인데도", "이지만", "지만", "인데",
 ];
 
-function candidateClause(
+function candidateClauseRange(
   scopeText: string,
   evidenceStart: number,
   evidenceEnd: number,
@@ -875,7 +982,11 @@ function candidateClause(
     }
   }
 
-  return scopeText.slice(clauseStart, clauseEnd).trim();
+  return {
+    start: clauseStart,
+    end: clauseEnd,
+    text: scopeText.slice(clauseStart, clauseEnd).trim(),
+  };
 }
 
 function isExplicitlyDenied(sentence: string) {
@@ -883,12 +994,20 @@ function isExplicitlyDenied(sentence: string) {
     /(?:보장|확정|완치|분석|예측|추적|수집|환불)(?:을|를|은|는|이|가)?\s*(?:하지\s*않|할\s*수\s*없|되지\s*않|아니(?:다|며|고|므로|습니다)|불가)/u,
     /(?:보장|확정|완치|분석|예측|추적|수집|환불)하지(?:는|도|를)?\s*않/u,
     /(?:100\s*%|전액)(?:가|은|는)?\s*아니/u,
-    /(?:표현|문구|주장|사례)(?:은|는|을|를|이|가)?[^.!?\n]{0,24}(?:금지|사용하지|피해야|과장)/u,
+    /(?:표현|문구|주장|사례|광고)(?:은|는|을|를|이|가)?[^.!?\n]{0,32}(?:금지|사용하지|피해야|주의해야|과장|비판)/u,
     /(?:없(?:다|습니다)?|보장(?:한다|합니다)?)(?:고|라고)[^.!?\n]{0,30}(?:말|주장|표현)(?:할|해서는)?\s*수?\s*없/u,
     /부작용(?:이|은|는)?[^.!?\n]{0,20}(?:전혀|절대)?\s*없(?:다|습니다)?(?:고|다고)[^.!?\n]{0,24}(?:말|단정)(?:할|해서는)?\s*수\s*없/u,
     /(?:동의\s*필수|동의를\s*받(?:은|고|아야)|동의한\s*경우에만)/u,
-    /(?:금지|불법|위반|사용하면\s*안\s*됩니다|사용해서는\s*안|하지\s*마세요|해서는\s*안\s*됩니다)/u,
+    /(?:금지(?:된|된다|됩니다)?|불법(?:이|입니다|이다)|위반|사용하면\s*안\s*(?:된다|됩니다)|사용해서는\s*안|하지\s*마세요|해서는\s*안\s*됩니다)/u,
     /과도한\s*(?:장담|보장)[^.!?\n]{0,48}(?:신뢰할\s*수\s*없|믿기\s*어렵|위험|문제)/u,
+    /(?:보장|확정|약속)(?:할\s*수\s*있는|하는)?[^.!?\n]{0,36}(?:투자|상품|수익|결과)(?:은|는|이|가)?[^.!?\n]{0,18}없(?:습니다|어요|다|음)/u,
+    /(?:보장|확정|약속)(?:은|는|이|가)?\s*없(?:습니다|어요|다|음|다고)/u,
+    /(?:사기|피해|과장\s*광고|허위\s*광고|불법\s*행위)[^.!?\n]{0,64}(?:주의|의심|피해야|피하|예방|방지|경고|비판)/u,
+    /(?:주의|의심|피해야|피하|예방|방지|경고|비판)[^.!?\n]{0,64}(?:사기|피해|과장\s*광고|허위\s*광고|불법\s*행위)/u,
+    /(?:보장|수익|고수익|원금|부업\s*소득|몰래|추적)[^.!?\n]{0,56}(?:광고|앱|사기|피해)[^.!?\n]{0,32}(?:주의|피해야|피하기|피하|예방|의심)/u,
+    /(?:없(?:습니다|어요|다|음|다고))[^.!?\n]{0,36}(?:말|단정|주장|표현)[^.!?\n]{0,18}(?:안\s*됩|해서는\s*안|할\s*수\s*없)/u,
+    /(?:과장|허위|부당)\s*광고(?:입니다|이다|라고|에\s*해당)/u,
+    /(?:사생활\s*)?침해[^.!?\n]{0,36}(?:피해야|피하기|주의|예방|금지|불법)/u,
   ];
   return denialPatterns.some((pattern) => pattern.test(sentence));
 }
@@ -900,13 +1019,88 @@ function isMetalinguisticContext(scopeText: string) {
   return hasQuotedRiskDiscussion || hasExplicitDiscussionFrame;
 }
 
+function guardScopesForHits(input: string, hits: readonly PatternHit[]) {
+  if (!hits.length) return [];
+  const ranges = sentenceRanges(input);
+  const evidenceStart = Math.min(...hits.map((hit) => hit.start));
+  const evidenceEnd = Math.max(...hits.map((hit) => hit.end));
+  const evidenceIndexes = ranges
+    .map((range, index) => ({ range, index }))
+    .filter(({ range }) => range.start < evidenceEnd && evidenceStart < range.end)
+    .map(({ index }) => index);
+  if (!evidenceIndexes.length) return [{ start: 0, end: input.length }];
+
+  const first = evidenceIndexes[0];
+  const last = evidenceIndexes[evidenceIndexes.length - 1];
+  const candidates: Array<{ start: number; end: number }> = [
+    { start: ranges[first].start, end: ranges[last].end },
+  ];
+
+  if (first === last) {
+    const previous = ranges[first - 1];
+    const current = ranges[first];
+    const next = ranges[first + 1];
+    if (previous && !/\n\s*\n/u.test(input.slice(previous.end, current.start))) {
+      candidates.push({ start: previous.start, end: current.end });
+    }
+    if (next && !/\n\s*\n/u.test(input.slice(current.end, next.start))) {
+      candidates.push({ start: current.start, end: next.end });
+    }
+  }
+
+  return candidates;
+}
+
+function isPostMatchContextGuarded(
+  input: string,
+  skill: RiskSkill,
+  hits: readonly PatternHit[],
+) {
+  const evidenceStart = Math.min(...hits.map((hit) => hit.start));
+  const evidenceEnd = Math.max(...hits.map((hit) => hit.end));
+
+  for (const scope of guardScopesForHits(input, hits)) {
+    const scopeText = input.slice(scope.start, scope.end);
+    const normalizedScope = normalizeText(scopeText);
+    const normalizedEvidenceStart = normalizeText(input.slice(scope.start, evidenceStart)).length;
+    const normalizedEvidenceEnd = normalizeText(input.slice(scope.start, evidenceEnd)).length;
+    const clause = candidateClauseRange(
+      normalizedScope,
+      normalizedEvidenceStart,
+      normalizedEvidenceEnd,
+    ).text;
+    if (isExplicitlyDenied(clause) || isMetalinguisticContext(clause)) return true;
+  }
+
+  const normalizedInput = normalizeText(input);
+  const insuranceCoverageBoundary = skill.patternType === "legal_outcome + certainty_or_promise"
+    && /(?:보험|특약|담보|보험금|보장\s*항목|보장\s*범위|벌금\s*비용|벌금비용)/u.test(normalizedInput)
+    && !/(?:승소|무죄|불기소|감형|집행유예|사건\s*결과|변호|법률\s*서비스)/u.test(normalizedInput);
+  const installationArtBoundary = skill.patternType === "app_installation + concealment_signal"
+    && /(?:설치\s*미술|미술\s*작품|전시\s*작품)/u.test(normalizedInput);
+  return insuranceCoverageBoundary || installationArtBoundary;
+}
+
+function supportsAdjacentSentenceMatching(skill: RiskSkill) {
+  if (skill.conditionScope === "paragraph") return true;
+  return [
+    "urgency_signal + purchase_or_application",
+    "legal_outcome + certainty_or_promise",
+    "personal_data_asset + covert_surveillance",
+    "app_installation + concealment_signal",
+    "education_outcome + universal_promise",
+  ].includes(skill.patternType);
+}
+
 function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
   if (!skill.triggerPatterns.length || !skill.contextPatterns.length) return null;
   const normalized = normalizeWithMap(input);
-  const ranges = skill.conditionScope === "paragraph"
-    ? paragraphRanges(normalized.text)
+  const ranges = supportsAdjacentSentenceMatching(skill)
+    ? adjacentSentenceRanges(normalized.text)
     : sentenceRanges(normalized.text);
   const maxDistance = clamp(Math.round(skill.maxDistance), 0, 2_000);
+  const triggerPatterns = normalizedPatternVariants(skill, "trigger");
+  const contextPatterns = normalizedPatternVariants(skill, "context");
 
   type Candidate = {
     trigger: InternalHit;
@@ -919,8 +1113,8 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
   const candidates: Candidate[] = [];
 
   for (const range of ranges) {
-    const triggerHits = findPatternHits(input, normalized, range, skill.triggerPatterns, "trigger");
-    const contextHits = findPatternHits(input, normalized, range, skill.contextPatterns, "context");
+    const triggerHits = findPatternHits(input, normalized, range, triggerPatterns, "trigger");
+    const contextHits = findPatternHits(input, normalized, range, contextPatterns, "context");
     if (!triggerHits.length || !contextHits.length) continue;
     const supportHits = findPatternHits(
       input,
@@ -939,7 +1133,6 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
       "context",
     );
     const scopedText = normalized.text.slice(range.start, range.end);
-    if (exclusionHits.length) continue;
 
     for (const trigger of triggerHits) {
       for (const context of contextHits) {
@@ -955,8 +1148,15 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
           if (gap > maxDistance) continue;
           const start = Math.min(...selectedHits.map((hit) => hit.normalizedStart));
           const end = Math.max(...selectedHits.map((hit) => hit.normalizedEnd));
-          const clause = candidateClause(scopedText, start - range.start, end - range.start);
-          if (isExplicitlyDenied(clause) || isMetalinguisticContext(clause)) continue;
+          const clause = candidateClauseRange(scopedText, start - range.start, end - range.start);
+          const clauseStart = range.start + clause.start;
+          const clauseEnd = range.start + clause.end;
+          const outcomeResponsibility = skill.patternType === "legal_outcome + certainty_or_promise"
+            && /(?:책임|약속)/u.test(context.text);
+          if (exclusionHits.some((hit) =>
+            hit.normalizedStart >= clauseStart
+            && hit.normalizedEnd <= clauseEnd
+            && !(outcomeResponsibility && /가능성/u.test(hit.text)))) continue;
           candidates.push({ trigger, context, support, gap, envelope: end - start, start });
         }
       }
@@ -970,30 +1170,33 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
       || compareText(left.trigger.pattern, right.trigger.pattern)
       || compareText(left.context.pattern, right.context.pattern));
 
-  const selected = candidates[0];
-  if (!selected) return null;
   const normalizedInput = normalizeText(input);
   const looksLikeBareGuaranteedMonthlyAmount = /월\s*\d{1,5}\s*(?:만\s*)?원[^.!?\n]{0,18}보장/u.test(normalizedInput)
     && !/(?:투자|수익|원금|손실|손해|이익|배당|주식|펀드)/u.test(normalizedInput)
     && !/(?:누구나|벌\s*수|소득|수입|부업|재택)/u.test(normalizedInput);
   if (skill.riskDomain.includes("금융") && looksLikeBareGuaranteedMonthlyAmount) return null;
-  const hits = [selected.trigger, selected.context, selected.support]
-    .filter((hit): hit is InternalHit => Boolean(hit))
-    .sort((left, right) => left.start - right.start || left.end - right.end)
-    .map((hit): PatternHit => ({
-      pattern: hit.pattern,
-      role: hit.role,
-      start: hit.start,
-      end: hit.end,
-      text: hit.text,
-      sentenceIndex: hit.sentenceIndex,
-    }));
 
-  return {
-    skill,
-    hits,
-    score: clamp(Math.round(skill.severityFloor), 0, 100),
-  };
+  for (const selected of candidates) {
+    const hits = [selected.trigger, selected.context, selected.support]
+      .filter((hit): hit is InternalHit => Boolean(hit))
+      .sort((left, right) => left.start - right.start || left.end - right.end)
+      .map((hit): PatternHit => ({
+        pattern: hit.pattern,
+        role: hit.role,
+        start: hit.start,
+        end: hit.end,
+        text: hit.text,
+        sentenceIndex: hit.sentenceIndex,
+      }));
+    if (isPostMatchContextGuarded(input, skill, hits)) continue;
+    return {
+      skill,
+      hits,
+      score: clamp(Math.round(skill.severityFloor), 0, 100),
+    };
+  }
+
+  return null;
 }
 
 export function gradeForScore(
@@ -1058,7 +1261,7 @@ export function analyzeText(
   const rawMatches = usableSkills.flatMap((skill) => {
     const match = bestSkillMatch(input, skill);
     return match ? [match] : [];
-  });
+  }).filter((match) => !isPostMatchContextGuarded(input, match.skill, match.hits));
   const normalizedInput = normalizeText(input);
   const hasIncomeSpecificMatch = rawMatches.some((match) => match.skill.riskDomain.includes("구인·부업"));
   const hasPayrollContext = /(?:정규직|근로계약|기본급|연봉|세전|급여\s*조건)/u.test(normalizedInput);
