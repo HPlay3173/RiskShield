@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": "v0.3.0",
+  "evaluatedAt": "2026-07-18T08:52:44.494Z",
+  "evaluatorProcess": "evaluation-v0.3.0-post-freeze",
+  "frozenCasesSha256": "49b9316293815832965d29d9f52f4b52976d2307e7d66e827f62edd450c49659",
+  "frozenAt": "2026-07-18T17:52:21.7503099+09:00",
+  "deployment": {
+    "sitesVersion": 10,
+    "sourceCommit": "1e978059d6abdb97c1408e84dbb362399b132f22",
+    "url": "https://riskshield-studio.horari.chatgpt.site/",
+    "d1Snapshot": "artifacts/v0.3-final/postmerge-d1-snapshot.json",
+    "reviewedSkills": 24,
+    "totalSkills": 29
+  },
+  "composition": {
+    "public_ad": 70,
+    "public_safe": 20,
+    "public_boundary": 10
+  },
+  "expectedClasses": {
+    "boundary": 29,
+    "risky": 51,
+    "safe": 20
+  },
+  "domains": {
+    "health": 23,
+    "general": 18,
+    "finance": 15,
+    "education": 17,
+    "legal": 11,
+    "privacy": 16
+  },
+  "uniqueUrls": 49,
+  "maxCasesPerSource": 10,
+  "total": 100,
+  "risky": 51,
+  "safe": 20,
+  "boundary": 29,
+  "highConfidenceRisky": 31,
+  "highConfidenceRiskyDetected": 23,
+  "highConfidenceHighRisk": 24,
+  "highConfidenceHighRiskDetectedHigh": 18,
+  "safeFalsePositives": 5,
+  "safeHighFalsePositives": 5,
+  "perDomain": {
+    "health": {
+      "risky": 7,
+      "detected": 3,
+      "detectionRate": 0.42857142857142855
+    },
+    "finance": {
+      "risky": 10,
+      "detected": 7,
+      "detectionRate": 0.7
+    },
+    "education": {
+      "risky": 9,
+      "detected": 5,
+      "detectionRate": 0.5555555555555556
+    },
+    "legal": {
+      "risky": 5,
+      "detected": 2,
+      "detectionRate": 0.4
+    },
+    "general": {
+      "risky": 9,
+      "detected": 7,
+      "detectionRate": 0.7777777777777778
+    },
+    "privacy": {
+      "risky": 11,
+      "detected": 2,
+      "detectionRate": 0.18181818181818182
+    }
+  },
+  "reviewOnlyHighViolationCaseIds": [],
+  "noMatchSafeLabelViolationCaseIds": [],
+  "repeatInconsistencyCaseIds": [],
+  "failureCaseIds": [
+    "FB002",
+    "FB003",
+    "FB010",
+    "FB015",
+    "FB020",
+    "FB024",
+    "FB025",
+    "FB034",
+    "FB035",
+    "FB036",
+    "FB038",
+    "FB043",
+    "FB044",
+    "FB045",
+    "FB051",
+    "FB052",
+    "FB053",
+    "FB054",
+    "FB055",
+    "FB056",
+    "FB057",
+    "FB058",
+    "FB060",
+    "FB065",
+    "FB066",
+    "FB068",
+    "FB075",
+    "FB076",
+    "FB077",
+    "FB078",
+    "FB090",
+    "FB098"
+  ],
+  "caseVerdictFailures": 32,
+  "gates": {
+    "highConfidenceRiskyRecall": 0.7419354838709677,
+    "highConfidenceHighRiskRecall": 0.75,
+    "safeFalsePositiveRate": 0.25,
+    "prohibitionCriticismIllegalGuidanceHighFalsePositives": 5,
+    "allCoreDomainsAtLeast60": false,
+    "noMatchSafeLabelViolations": 0,
+    "reviewOnlyHighViolations": 0,
+    "repeatInconsistencies": 0,
+    "criticalUiErrors": 0
+  },
+  "finalVerdict": "FAIL",
+  "uiEvidence": [
+    "artifacts/v0.3-final/screenshots/smoke-high.png",
+    "artifacts/v0.3-final/screenshots/smoke-review-only.png",
+    "artifacts/v0.3-final/screenshots/smoke-no-match.png",
+    "artifacts/v0.3-final/screenshots/persistence-refresh.png",
+    "artifacts/v0.3-final/screenshots/persistence-new-tab.png"
+  ]
+}

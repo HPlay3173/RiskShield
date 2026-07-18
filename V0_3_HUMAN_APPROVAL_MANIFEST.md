@@ -32,7 +32,8 @@
 |---|---|
 | `V0_3_SKILL_REVIEW_PACKET_V2.md` | `393a051ae14bb303cfff8bb0b57923a9cd8111ff67064e6e10906cc48e20b78f` |
 | `artifacts/v0.3/candidate-risk-skills-v0.3.1.jsonl` | `7e7f40094d781e652e0b7dfe40cc24b25e09fc95f11a4877bc6a06b4d05add98` |
-| 사전 D1 백업 `artifacts/v0.3-final/predeploy-d1-backup.json` | `0400677a4943e38a1e908bfb267f05aa6788bfbfd9a86a95b35daef4f65daa13` |
+| 사전 D1 백업 `artifacts/v0.3-final/predeploy-d1-backup.json` | `37c9ee1604dfc26acb5f896fc331e1295d94b353bcdf8a8beb49bf038ea78b8d` |
+| 운영 병합 요청 `artifacts/v0.3-final/v0.3-approved-merge-request.json` | `81603f3caec215cc5270be6e3805a83ff323e7dab1dfe4c3c0eb39416e876c61` |
 
 ## 고지
 

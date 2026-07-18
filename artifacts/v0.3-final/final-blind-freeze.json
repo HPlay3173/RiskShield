@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": "v0.3.0",
+  "frozenAt": "2026-07-18T17:52:21.7503099+09:00",
+  "casesPath": "artifacts/v0.3-final/final-blind-cases.csv",
+  "casesSha256": "49b9316293815832965d29d9f52f4b52976d2307e7d66e827f62edd450c49659",
+  "builderPath": "scripts/build-v0-3-final-blind.mjs",
+  "builderSha256": "9fbaaf19457513779a0405d996e56c6499b772d1f2e4fb2addbb7f73934336a9",
+  "evaluatorPath": "scripts/evaluate-v0-3-final-blind.mjs",
+  "evaluatorSha256": "b5647272dcda33bef5bc6081018cc7a546301d96b7d6bfc30c0a967183987df7",
+  "composition": {
+    "public_ad": 70,
+    "public_safe": 20,
+    "public_boundary": 10
+  },
+  "uniqueUrls": 49,
+  "maxCasesPerSource": 11,
+  "domains": [
+    "health",
+    "finance",
+    "education",
+    "legal",
+    "general",
+    "privacy"
+  ],
+  "labelsFrozen": true,
+  "analyzerRunBeforeFreeze": false,
+  "deploymentSourceCommit": "1e978059d6abdb97c1408e84dbb362399b132f22",
+  "sitesVersion": 10,
+  "d1Snapshot": "artifacts/v0.3-final/postmerge-d1-snapshot.json"
+}

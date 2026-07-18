@@ -1,0 +1,1083 @@
+{
+  "mode": "merge",
+  "skills": [
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_health_safety_absolute",
+      "category": "의료·건강 광고",
+      "subcategory": "부작용·안전성 절대 보장",
+      "patternType": "health_safety + absolute_absence",
+      "triggerPatterns": [
+        "부작용",
+        "안전성",
+        "위해성",
+        "re:위해(?=가|를|는|도|조차|\\s)"
+      ],
+      "contextPatterns": [
+        "re:(?:전혀|절대|조금도)[^.!?\\n]{0,16}(?:없|않)",
+        "re:제로",
+        "re:100\\s*%[^.!?\\n]{0,10}안전",
+        "완전 안전",
+        "re:보장"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "전문가와 상담",
+        "개인차",
+        "가능성이 있습니다",
+        "주의사항"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 72,
+      "surfaceMeaning": "제품·시술의 부작용이나 위해 가능성이 전혀 없다고 단정합니다.",
+      "riskSummary": "건강 관련 안전성을 절대 보장해 합리적인 판단을 방해할 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "부작용·안전성 대상과 절대적 부재 표현이 결합합니다.",
+      "severityFloor": 88,
+      "dominantRisk": true,
+      "confidence": 0.94,
+      "riskDomain": "의료·건강·뷰티 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "부작용 가능성과 개인차가 있으므로 사용 전 전문가와 상담하고 주의사항을 확인해 주세요."
+      ],
+      "falsePositiveNote": "부작용 가능성을 경고하거나 ‘없다고 말할 수 없다’고 부정하는 문맥은 제외합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "의료법 제56조(의료광고의 금지 등)",
+        "url": "https://www.law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1032849723",
+        "date": "2026-04-07",
+        "sourceId": "law_medical_service_act_article_56",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_health_disease_effect",
+      "category": "의료·건강 광고",
+      "subcategory": "질환·증상 효능 주장",
+      "patternType": "disease_or_symptom + efficacy_claim",
+      "triggerPatterns": [
+        "re:(?:종양|항암|암|당뇨|혈당|변비|숙취|통증|질환|뼈건강)(?=[^.!?\\n]{0,28}(?:효능|치료|개선|완화|예방|배출|제거|조절|완치|없애|고쳐|낫게))"
+      ],
+      "contextPatterns": [
+        "re:100\\s*%",
+        "re:무조건",
+        "re:반드시",
+        "re:확실(?:히|하게)?",
+        "re:완전(?:히|하게)?",
+        "re:보장",
+        "re:누구나",
+        "re:모든\\s*(?:사람|환자|경우)",
+        "re:틀림없이",
+        "re:완치",
+        "re:(?:질환|증상|통증)[^.!?\\n]{0,18}(?:없애|고쳐|낫게)[^.!?\\n]{0,8}(?:드립니다|합니다|보장)"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "연구",
+        "논문",
+        "가능성",
+        "개인차",
+        "상담",
+        "검진",
+        "과거",
+        "통계",
+        "비판",
+        "금지",
+        "불법",
+        "보장하지",
+        "단정할 수 없"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 96,
+      "surfaceMeaning": "질환·증상 효능에 절대성, 확정성, 보장 또는 적용 범위 과장을 더합니다.",
+      "riskSummary": "제품 범위와 근거를 넘어 의학적 효능으로 오인될 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "질환·증상 대상과 효능·치료 주장에 확정 또는 과장 신호가 함께 나타납니다.",
+      "severityFloor": 82,
+      "dominantRisk": true,
+      "confidence": 0.9,
+      "riskDomain": "의료·건강·식품 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "확인된 근거와 적용 범위를 밝히고, 질환이 있는 경우 전문가와 상담하도록 안내합니다."
+      ],
+      "falsePositiveNote": "단순 효능 설명, 제한적 연구 결과, 가능성·개인차 고지는 high가 아니라 REVIEW 또는 미탐지로 구분합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "식품 등의 표시ㆍ광고에 관한 법률 제8조",
+        "url": "https://www.law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1029093705",
+        "date": "2025-09-19",
+        "sourceId": "law_food_labeling_advertising_article_8",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_health_body_result",
+      "category": "허위·과장 광고",
+      "subcategory": "단기간 신체·외모 결과 보장",
+      "patternType": "body_or_weight_result + certainty_or_period",
+      "triggerPatterns": [
+        "다이어트",
+        "감량",
+        "체중",
+        "체지방",
+        "몸무게",
+        "허리둘레",
+        "뱃살",
+        "체형",
+        "re:(?<![가-힣])살(?![가-힣])"
+      ],
+      "contextPatterns": [
+        "re:\\d+(?:[.]\\d+)?\\s*kg",
+        "re:(?:하루|이틀|사흘|일주일|7일|\\d+개월)",
+        "re:(?:100\\s*%|확실|반드시|무조건)",
+        "만들어 줌",
+        "책임"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "개인차",
+        "목표",
+        "계획",
+        "희망",
+        "과거",
+        "지난",
+        "기록",
+        "측정",
+        "현재 체중",
+        "상담"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 96,
+      "surfaceMeaning": "체중·체형·외모 변화의 결과를 짧은 기간이나 수치로 확정합니다.",
+      "riskSummary": "개인차와 건강 위험을 숨긴 비현실적 결과 약속일 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "신체 결과 대상과 절대성·기간·정량 표현이 결합합니다.",
+      "severityFloor": 82,
+      "dominantRisk": true,
+      "confidence": 0.9,
+      "riskDomain": "다이어트·뷰티 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "생활 습관 개선을 지원하는 프로그램이며 결과와 기간은 개인에 따라 달라질 수 있습니다."
+      ],
+      "falsePositiveNote": "같은 kg 한 번만으로 두 의미 그룹을 충족하지 않으며, 과거 체중 기록·현재 측정값·목표 수치는 제외합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "표시ㆍ광고의 공정화에 관한 법률 시행령 제3조",
+        "url": "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lspttninfSeq=65001",
+        "date": "2025-10-01",
+        "sourceId": "law_fair_labeling_advertising_decree_article_3",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_legal_outcome_promise",
+      "category": "고위험 전문서비스 광고",
+      "subcategory": "법률 결과·합의금 보장",
+      "patternType": "legal_outcome + certainty_or_promise",
+      "triggerPatterns": [
+        "re:승소",
+        "re:합의금",
+        "re:무죄",
+        "re:불기소",
+        "re:감형",
+        "re:집행유예",
+        "re:허가"
+      ],
+      "contextPatterns": [
+        "보장",
+        "무조건",
+        "확정",
+        "반드시",
+        "100%",
+        "결과를 약속",
+        "결과가 나온다고 단정",
+        "re:(?<=승소)(?:합니다|한다|됩니다|된다|할\\s*것입니다)",
+        "re:(?<=무죄)(?:입니다|가\\s*나옵니다|를\\s*받습니다)",
+        "re:(?<=불기소)(?:됩니다|처분을\\s*받습니다)",
+        "re:(?<=감형)(?:됩니다|을\\s*받습니다)"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "결과는 달라",
+        "보장하지",
+        "증명하지 못",
+        "과장 광고",
+        "가능성",
+        "받을 수 있",
+        "될 수 있",
+        "과거",
+        "통계",
+        "비판",
+        "금지",
+        "불법",
+        "허용되지",
+        "오도",
+        "사용해서는",
+        "문구"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 110,
+      "surfaceMeaning": "통제하기 어려운 법률·행정 결과를 확정하거나 약속합니다.",
+      "riskSummary": "사건별 변수와 판단 절차를 숨겨 의뢰인을 오인시킬 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "법률·행정 결과와 확정·보장·약속 표현이 결합합니다.",
+      "severityFloor": 85,
+      "dominantRisk": true,
+      "confidence": 0.93,
+      "riskDomain": "법률·행정 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "사건별 사실관계와 절차에 따라 결과가 달라질 수 있으며, 가능한 대응 범위를 안내합니다."
+      ],
+      "falsePositiveNote": "가능성 설명인 ‘받을 수 있다’·‘될 수 있다’, 과거 결과, 보장 비판 문맥은 제외합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "변호사법 제23조(광고)",
+        "url": "https://www.law.go.kr/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=900175869",
+        "date": "2021-01-05",
+        "sourceId": "law_attorney_at_law_act_article_23",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_legal_substantiation",
+      "category": "고위험 전문서비스 광고",
+      "subcategory": "법률 최상급·권위·성과 입증 필요",
+      "patternType": "legal_superlative_or_authority + substantiation_signal",
+      "triggerPatterns": [
+        "최고",
+        "유일",
+        "제일",
+        "1위",
+        "승소율",
+        "판사",
+        "검사",
+        "전관"
+      ],
+      "contextPatterns": [
+        "국내",
+        "전국",
+        "전문",
+        "출신",
+        "직접",
+        "잘한다",
+        "re:\\d{1,3}\\s*%",
+        "사건"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "금지",
+        "허위",
+        "증명",
+        "기준",
+        "평가하세요"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 96,
+      "surfaceMeaning": "법률서비스의 최상급·성과·경력 영향력을 객관적 근거 없이 암시할 수 있습니다.",
+      "riskSummary": "사실 확인이 필요한 비교·성과 표현이므로 즉시 고위험보다 입증 검토가 필요합니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "법률 분야의 최상급·성과·권위 표현과 비교 또는 경력 신호가 결합합니다.",
+      "severityFloor": 58,
+      "dominantRisk": false,
+      "confidence": 0.72,
+      "riskDomain": "법률 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "비교 기준, 산정 기간과 객관적 근거를 함께 제시하고 사건 결과를 보장하지 않음을 안내합니다."
+      ],
+      "falsePositiveNote": "검증 가능한 경력 사실이나 출처가 명확한 과거 통계는 사람 검토 후 허용할 수 있습니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "변호사법 제23조(광고)",
+        "url": "https://www.law.go.kr/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=900175869",
+        "date": "2021-01-05",
+        "sourceId": "law_attorney_at_law_act_article_23",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_general_substantiation",
+      "category": "일반 광고 입증 필요",
+      "subcategory": "완료율·입점·등급·우선권 주장",
+      "patternType": "commercial_claim + substantiation_signal",
+      "triggerPatterns": [
+        "re:분양(?=완료|률|\\s|$)",
+        "입점",
+        "계약",
+        "승인",
+        "인증",
+        "re:특급(?=호텔)",
+        "경쟁률",
+        "우선권"
+      ],
+      "contextPatterns": [
+        "완료",
+        "확정",
+        "최고",
+        "전국",
+        "공식",
+        "등급",
+        "특정지역",
+        "re:확정(?:됐|되|적|하|입|임|$)",
+        "re:\\d{1,3}\\s*%",
+        "re:호텔"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "완료 사실",
+        "공식 인증번호",
+        "기준일",
+        "일정 안내",
+        "출처",
+        "통계",
+        "과거",
+        "지난",
+        "비판",
+        "금지",
+        "불법"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 100,
+      "surfaceMeaning": "완료율·입점·등급·우선권을 사실처럼 제시하지만 외부 입증이 필요합니다.",
+      "riskSummary": "원문만으로 진위를 확정할 수 없어 사람의 근거 검토가 필요합니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "상업적 사실 주장과 완료·확정·비교·등급 신호가 결합합니다.",
+      "severityFloor": 58,
+      "dominantRisk": false,
+      "confidence": 0.7,
+      "riskDomain": "부동산·일반 상품·서비스 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "기준일, 비교 범위와 확인 가능한 근거를 함께 제시하고 적용 조건을 명확히 안내합니다."
+      ],
+      "falsePositiveNote": "실제 완료 사실 보고나 공식 인증 표시는 근거를 확인한 뒤 낮은 위험으로 처리할 수 있습니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "표시ㆍ광고의 공정화에 관한 법률 제5조(실증)",
+        "url": "https://www.law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=900553850",
+        "date": "2025-01-21",
+        "sourceId": "law_fair_labeling_advertising_article_5",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_general_urgency",
+      "category": "일반 광고 입증 필요",
+      "subcategory": "희소성·마감 압박",
+      "patternType": "urgency_signal + purchase_or_application",
+      "triggerPatterns": [
+        "선착순",
+        "빨리",
+        "마감",
+        "마지막",
+        "한정"
+      ],
+      "contextPatterns": [
+        "신청",
+        "분양",
+        "구매",
+        "가능",
+        "재고",
+        "기회",
+        "등록",
+        "re:(?:신청|구매|등록)(?:하|해|할|됩|되|하세요|가능)"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "접수 마감일",
+        "일정",
+        "재고 현황"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 72,
+      "surfaceMeaning": "구매·신청 기회가 곧 사라지는 것처럼 압박합니다.",
+      "riskSummary": "실제 제한 조건과 근거가 없으면 기만적 희소성 표현일 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "희소성·긴급성 표현과 구매·신청 행동이 결합합니다.",
+      "severityFloor": 55,
+      "dominantRisk": false,
+      "confidence": 0.68,
+      "riskDomain": "일반 상품·서비스 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "신청 가능 기간과 수량 제한의 실제 조건을 구체적으로 안내합니다."
+      ],
+      "falsePositiveNote": "실제 일정과 재고가 명확한 안내는 근거 확인 후 낮은 위험으로 처리합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "부당한 표시ㆍ광고 시정 제도 안내",
+        "url": "https://www.ftc.go.kr/www/contents.do?key=700",
+        "date": "2026-07-18",
+        "sourceId": "kftc_unfair_labeling_advertising_overview",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_finance_return_recovery",
+      "category": "금융·투자 광고",
+      "subcategory": "수익·원금 회수·손실 환불 약속",
+      "patternType": "financial_return_or_loss + guarantee_or_recovery",
+      "triggerPatterns": [
+        "re:(?:투자|수익|고수익|원금|손실|손해)"
+      ],
+      "contextPatterns": [
+        "re:보장",
+        "re:회수",
+        "re:전액(?:을|은|도)?\\s*환불",
+        "re:수익만",
+        "re:원금\\s*보전",
+        "re:보전(?:하|해|됩|된|되|$)",
+        "re:(?:연간|연)\\s*\\d{2,4}\\s*%",
+        "re:만\\s*드리"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "손실 가능성",
+        "보장되지",
+        "과거 실적",
+        "배송",
+        "결제"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 110,
+      "surfaceMeaning": "투자 수익이나 원금 회수, 손실 보전을 확정합니다.",
+      "riskSummary": "투자의 본질적 손실 가능성을 제거한 것처럼 오인시킬 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "투자·수익·원금·손실 대상과 보장·회수·환불 표현이 결합합니다.",
+      "severityFloor": 85,
+      "dominantRisk": true,
+      "confidence": 0.94,
+      "riskDomain": "금융·투자 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "예상 수익의 산정 근거와 함께 원금 손실 가능성 및 주요 위험을 안내합니다."
+      ],
+      "falsePositiveNote": "정상적인 소비자 환불 정책과 과거 실적·손실 위험 고지는 제외합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "금융소비자 보호에 관한 법률 제22조",
+        "url": "https://www.law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025059417",
+        "date": "2026-01-02",
+        "sourceId": "law_financial_consumer_protection_article_22",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_income_guarantee",
+      "category": "구인·부업 광고 입증 필요",
+      "subcategory": "소득 보장",
+      "patternType": "income_or_side_job + estimate_or_performance_amount",
+      "triggerPatterns": [
+        "소득",
+        "수입",
+        "부업",
+        "재택",
+        "성과급",
+        "인센티브"
+      ],
+      "contextPatterns": [
+        "예상",
+        "평균",
+        "최대",
+        "실적",
+        "성과",
+        "re:월\\s*\\d{1,5}\\s*(?:만\\s*)?원",
+        "re:약\\s*\\d{1,5}\\s*(?:만\\s*)?원"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "정규직",
+        "근로계약",
+        "기본급",
+        "연봉",
+        "세전",
+        "급여 조건",
+        "월급",
+        "고정급"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 96,
+      "surfaceMeaning": "부업·성과형 수입의 예상액이나 실적 수치를 제시해 산정 근거 확인이 필요합니다.",
+      "riskSummary": "정상 급여 안내와 구분해 산정 조건과 실적 변동을 확인해야 합니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "성과형 소득 대상과 예상·평균·실적·금액 표현이 결합합니다.",
+      "severityFloor": 60,
+      "dominantRisk": false,
+      "confidence": 0.76,
+      "riskDomain": "구인·부업·소득 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "소득 산정 조건, 실제 실적의 변동 범위와 지급 기준을 구체적으로 안내합니다."
+      ],
+      "falsePositiveNote": "금액만으로 high가 되지 않으며, 확정 기본급·연봉·월급은 제외하고 예상 소득은 REVIEW로 유지합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "한국소비자원 민간자격증 광고 실태조사",
+        "url": "https://www.kca.go.kr/home/sub.do?menukey=4002&mode=view&no=1004003291&searchKeyword=%EB%AF%BC%EA%B0%84%EC%9E%90%EA%B2%A9&searchKeywordType=1",
+        "date": "2026-02-11",
+        "sourceId": "kca_private_qualification_ad_survey_2026",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_income_universal_guarantee",
+      "category": "구인·부업 광고",
+      "subcategory": "구인·부업 소득 결과 보장",
+      "patternType": "income_or_side_job + universal_guarantee",
+      "triggerPatterns": [
+        "소득",
+        "수입",
+        "부업",
+        "재택",
+        "성과급",
+        "인센티브"
+      ],
+      "contextPatterns": [
+        "re:누구나",
+        "re:무조건",
+        "re:보장",
+        "re:확정",
+        "re:최소[^.!?\\n]{0,16}보장",
+        "re:보장[^.!?\\n]{0,16}최소"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "정규직",
+        "근로계약",
+        "기본급",
+        "연봉",
+        "세전",
+        "급여 조건",
+        "월급",
+        "고정급",
+        "실적에 따라",
+        "성과에 따라",
+        "달라질 수",
+        "예상",
+        "평균"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 100,
+      "surfaceMeaning": "구인·부업에서 누구나 일정 소득을 얻는다고 확정적으로 약속합니다.",
+      "riskSummary": "실적과 업무 조건에 따른 변동을 숨겨 구직자를 오인시킬 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "성과형 소득·부업 대상과 누구나·무조건·보장·확정·최소 보장 신호가 결합합니다.",
+      "severityFloor": 82,
+      "dominantRisk": true,
+      "confidence": 0.9,
+      "riskDomain": "구인·부업·소득 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "소득 산정 조건, 업무 시간, 실제 실적 범위와 지급 기준을 구체적으로 안내합니다."
+      ],
+      "falsePositiveNote": "금액이나 예상액만으로 high가 되지 않으며 정상 채용 급여와 실적 변동 고지는 제외합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "한국소비자원 민간자격증 광고 실태조사",
+        "url": "https://www.kca.go.kr/home/sub.do?menukey=4002&mode=view&no=1004003291&searchKeyword=%EB%AF%BC%EA%B0%84%EC%9E%90%EA%B2%A9&searchKeywordType=1",
+        "date": "2026-02-11",
+        "sourceId": "kca_private_qualification_ad_survey_2026",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_education_outcome_promise",
+      "category": "교육·입시 광고",
+      "subcategory": "합격·진학·취업 결과 보장",
+      "patternType": "education_outcome + universal_promise",
+      "triggerPatterns": [
+        "re:합\\s*격",
+        "진학",
+        "성적",
+        "취업",
+        "입시"
+      ],
+      "contextPatterns": [
+        "보장",
+        "전원",
+        "무조건",
+        "반드시",
+        "re:약속(?:하|했|할|합니다|했다)",
+        "re:100\\s*%[^.!?\\n]{0,16}(?:보장|합격시|취업시|진학시)"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "합격자 발표",
+        "과거",
+        "지난",
+        "지원",
+        "심사",
+        "목표",
+        "통계",
+        "집계",
+        "기록",
+        "출처",
+        "비판",
+        "금지",
+        "불법"
+      ],
+      "conditionScope": "paragraph",
+      "maxDistance": 150,
+      "surfaceMeaning": "합격·진학·취업 같은 외부 결과를 전원 또는 확정적으로 약속합니다.",
+      "riskSummary": "학생과 보호자의 불안을 이용해 통제할 수 없는 결과를 보장할 수 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "합격·진학·취업 결과와 전원·보장·약속·반드시 같은 미래 확정 신호가 결합합니다.",
+      "severityFloor": 84,
+      "dominantRisk": true,
+      "confidence": 0.93,
+      "riskDomain": "교육·입시·취업 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "결과 보장 대신 준비 과정, 지원 범위와 개인별 학습 목표를 안내합니다."
+      ],
+      "falsePositiveNote": "해결책, 과거 합격 통계와 비율만으로는 high가 되지 않으며 미래 결과 확정 신호를 별도로 요구합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "한국소비자원 민간자격증 광고 실태조사",
+        "url": "https://www.kca.go.kr/home/sub.do?menukey=4002&mode=view&no=1004003291&searchKeyword=%EB%AF%BC%EA%B0%84%EC%9E%90%EA%B2%A9&searchKeywordType=1",
+        "date": "2026-02-11",
+        "sourceId": "kca_private_qualification_ad_survey_2026",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_education_substantiation",
+      "category": "교육 광고 입증 필요",
+      "subcategory": "교육 최상급·성과 통계",
+      "patternType": "education_superlative_or_metric + service_subject",
+      "triggerPatterns": [
+        "최고",
+        "가장 큰",
+        "1위",
+        "독보적",
+        "압도적",
+        "합격률"
+      ],
+      "contextPatterns": [
+        "강사",
+        "학원",
+        "교육",
+        "입시",
+        "정보",
+        "re:\\d{1,3}\\s*%",
+        "통계"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "출처",
+        "기준",
+        "과거 합격자",
+        "분석",
+        "위반",
+        "부당 광고"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 100,
+      "surfaceMeaning": "교육서비스의 최상급이나 성과 수치를 제시하지만 입증 자료가 필요합니다.",
+      "riskSummary": "즉시 고위험으로 단정하기보다 비교 기준과 산식을 확인해야 합니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "교육 최상급·성과 표현과 서비스 대상 또는 수치가 결합합니다.",
+      "severityFloor": 58,
+      "dominantRisk": false,
+      "confidence": 0.7,
+      "riskDomain": "교육·입시 광고",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "비교 기준, 조사 기간과 확인 가능한 출처를 함께 제시합니다."
+      ],
+      "falsePositiveNote": "출처가 명확한 과거 통계와 개인적 의견은 사람 검토 후 구분합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "표시ㆍ광고의 공정화에 관한 법률 제5조(실증)",
+        "url": "https://www.law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsJoLnkSeq=900553850",
+        "date": "2025-01-21",
+        "sourceId": "law_fair_labeling_advertising_article_5",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_privacy_covert_surveillance",
+      "category": "개인정보·사생활 침해 위험",
+      "subcategory": "비동의 감시·통신 열람",
+      "patternType": "personal_data_asset + covert_surveillance",
+      "triggerPatterns": [
+        "위치",
+        "gps",
+        "메시지",
+        "통화",
+        "마이크",
+        "사진",
+        "파일",
+        "대화",
+        "re:톡"
+      ],
+      "contextPatterns": [
+        "감청",
+        "원격 녹음",
+        "몰래",
+        "다시 보기",
+        "들키지",
+        "비동의",
+        "모르게"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "동의받",
+        "동의를 받은",
+        "동의 필수",
+        "불법",
+        "금지",
+        "차단",
+        "보안 교육",
+        "비판"
+      ],
+      "conditionScope": "paragraph",
+      "maxDistance": 170,
+      "surfaceMeaning": "개인 위치·통신·파일을 상대방 모르게 추적하거나 열람합니다.",
+      "riskSummary": "정보주체 동의와 권한 범위를 숨긴 감시 기능은 중대한 사생활 침해 위험이 있습니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "개인정보 자산과 감청·추적·몰래 열람 같은 침해 행위가 결합합니다.",
+      "severityFloor": 86,
+      "dominantRisk": true,
+      "confidence": 0.95,
+      "riskDomain": "개인정보·감시 앱",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "명시적 동의를 받은 정보만 정해진 권한과 보관 기간 안에서 처리합니다."
+      ],
+      "falsePositiveNote": "동의 기반 가족 위치 공유, 보안 차단, 불법 행위 경고 문맥은 제외합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "위치정보의 보호 및 이용 등에 관한 법률 제15조",
+        "url": "https://law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joBrNo=00&joNo=0015&lsiSeq=277359&urlMode=lsScJoRltInfoR",
+        "date": "2025-10-01",
+        "sourceId": "law_location_information_article_15",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_privacy_stealth_install",
+      "category": "개인정보·사생활 침해 위험",
+      "subcategory": "은폐 설치·작동",
+      "patternType": "app_installation + concealment_signal",
+      "triggerPatterns": [
+        "앱",
+        "설치",
+        "프로그램"
+      ],
+      "contextPatterns": [
+        "피감시자",
+        "비동의",
+        "상대방 몰래",
+        "동의 없이",
+        "원격 감시",
+        "원격 추적",
+        "원격 녹음",
+        "re:(?:감시|추적|녹음)[^.!?\\n]{0,24}(?:몰래|모르게|숨기|숨김|은폐|표시되지)",
+        "re:(?:몰래|모르게|숨기|숨김|은폐|표시되지)[^.!?\\n]{0,24}(?:감시|추적|녹음)",
+        "re:(?<=설치)\\s*사실(?:을|이)?[^.!?\\n]{0,12}(?:숨기|숨깁|숨김|은폐|표시되지)",
+        "re:(?:배우자|상대방|직원|자녀|대상자)[^.!?\\n]{0,24}(?:몰래|모르게|숨기|은폐)"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "동의",
+        "관리자",
+        "보안",
+        "접근성",
+        "자기 기기",
+        "본인 기기",
+        "사용자 설정",
+        "불법",
+        "금지",
+        "차단",
+        "비판"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 110,
+      "surfaceMeaning": "앱 설치나 작동 사실을 사용자가 알아보기 어렵게 숨깁니다.",
+      "riskSummary": "감시 대상에게 고지하지 않는 은폐 기능은 비동의 처리 위험을 높입니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "앱 설치·작동과 피감시자·비동의·은밀성·감시 목적·설치 은폐·원격 감시 신호가 결합합니다.",
+      "severityFloor": 84,
+      "dominantRisk": true,
+      "confidence": 0.9,
+      "riskDomain": "개인정보·감시 앱",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "앱의 작동 상태, 권한과 수집 범위를 사용자에게 명확히 표시합니다."
+      ],
+      "falsePositiveNote": "아이콘 숨김이나 접근성·보안 설정만으로는 high가 아니며 감시·비동의·은폐 목적 신호를 추가로 요구합니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "위치정보의 보호 및 이용 등에 관한 법률 제15조",
+        "url": "https://law.go.kr/LSW/lsSideInfoP.do?docCls=jo&joBrNo=00&joNo=0015&lsiSeq=277359&urlMode=lsScJoRltInfoR",
+        "date": "2025-10-01",
+        "sourceId": "law_location_information_article_15",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    },
+    {
+      "schemaVersion": "2.0.0",
+      "revision": 2,
+      "id": "risk_v03_privacy_data_access_review",
+      "category": "개인정보 처리 입증 필요",
+      "subcategory": "데이터 열람·저장·반출",
+      "patternType": "data_asset + access_or_export",
+      "triggerPatterns": [
+        "데이터",
+        "메시지",
+        "사진",
+        "파일",
+        "기록"
+      ],
+      "contextPatterns": [
+        "열람",
+        "저장",
+        "다운로드",
+        "내려받",
+        "전송",
+        "확인"
+      ],
+      "anyOfPatterns": [],
+      "exclusionPatterns": [
+        "동의",
+        "권한",
+        "고지",
+        "백업",
+        "관리자",
+        "불법",
+        "금지",
+        "비판",
+        "과거",
+        "통계",
+        "익명"
+      ],
+      "conditionScope": "sentence",
+      "maxDistance": 110,
+      "surfaceMeaning": "데이터를 열람·저장·반출하지만 동의와 권한 정보가 원문에 없습니다.",
+      "riskSummary": "정상 기능일 수도 있어 즉시 고위험보다 추가 문맥과 권한 확인이 필요합니다.",
+      "socialContext": "v0.2 실사용 평가의 반복 실패 군집에서 도출한 사람 검토 전 후보입니다.",
+      "legalOrEthicIssue": "객관적 근거, 개인차, 결과 불확실성 또는 정보주체 동의를 숨기면 소비자 오인과 권리 침해 위험이 있습니다.",
+      "riskReason": "정보 자산과 열람·저장·반출 행위가 결합해 처리 근거 확인이 필요합니다.",
+      "severityFloor": 55,
+      "dominantRisk": false,
+      "confidence": 0.66,
+      "riskDomain": "개인정보·앱 기능",
+      "recentContextTags": [
+        "사람 검토 필요",
+        "실사용 커버리지",
+        "v0.3 후보",
+        "v0.3.1 사전 승인 보강"
+      ],
+      "safeRewrite": [
+        "열람 가능한 데이터, 사용자 권한, 보관 기간과 외부 전송 여부를 명확히 안내합니다."
+      ],
+      "falsePositiveNote": "사용자 본인의 백업·다운로드와 권한이 명확한 관리자 기능은 허용될 수 있습니다.",
+      "notes": "운영 미반영 v0.3.1 사전 승인 후보. 공식 출처 검증 및 적대·블라인드 검증 후 사람 승인 필요.",
+      "source": {
+        "title": "개인정보 보호법 제15조(개인정보의 수집ㆍ이용)",
+        "url": "https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1020398929",
+        "date": "2025-10-02",
+        "sourceId": "law_personal_information_protection_article_15",
+        "provenanceStatus": "verified"
+      },
+      "createdAt": "2026-07-18T00:00:00.000Z",
+      "updatedAt": "2026-07-18T12:00:00.000Z",
+      "reviewStatus": "reviewed"
+    }
+  ],
+  "severityRules": {
+    "schemaVersion": "1.0.0",
+    "scoringStrategy": "dominant_risk",
+    "noMatchScore": 0,
+    "categoryCorroborationPerPattern": 2,
+    "maxCategoryCorroboration": 6,
+    "secondaryCategoryWeight": 0.1,
+    "tertiaryCategoryWeight": 0.05,
+    "maxCrossCategorySupport": 10,
+    "gradeThresholds": [
+      {
+        "grade": "미탐지",
+        "min": 0,
+        "max": 0
+      },
+      {
+        "grade": "낮음",
+        "min": 1,
+        "max": 44
+      },
+      {
+        "grade": "유의",
+        "min": 45,
+        "max": 69
+      },
+      {
+        "grade": "주의",
+        "min": 70,
+        "max": 79
+      },
+      {
+        "grade": "높음",
+        "min": 80,
+        "max": 100
+      }
+    ]
+  }
+}
