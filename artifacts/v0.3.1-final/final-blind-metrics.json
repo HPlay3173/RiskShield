@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": "v0.3.1-final-blind",
+  "evaluatedAt": "2026-07-18T11:31:51.823Z",
+  "sourceCommit": "439e306b2adfd5051beaa7bea8ae22abb4a1a4de",
+  "casesSha256": "6349089a6073b593eb017aff8ef535b8f49fabd002c8fdcfff1fc2b5c5a474b2",
+  "labelFreezeVerified": true,
+  "composition": {
+    "risky": 20,
+    "safe": 20,
+    "ambiguous": 10
+  },
+  "total": 50,
+  "uniquePublicUrlCount": 25,
+  "priorEvaluationExactUrlOverlap": 0,
+  "priorEvaluationExactTextOverlap": 0,
+  "risky": {
+    "total": 20,
+    "detected": 11,
+    "recall": 0.55,
+    "missCaseIds": [
+      "V031FB002",
+      "V031FB003",
+      "V031FB004",
+      "V031FB005",
+      "V031FB006",
+      "V031FB008",
+      "V031FB018",
+      "V031FB019",
+      "V031FB020"
+    ]
+  },
+  "safe": {
+    "total": 20,
+    "falsePositives": 5,
+    "falsePositiveRate": 0.25,
+    "falsePositiveCaseIds": [
+      "V031FB022",
+      "V031FB027",
+      "V031FB031",
+      "V031FB033",
+      "V031FB037"
+    ],
+    "warningCriticismHighFalsePositives": 2,
+    "warningCriticismHighFalsePositiveCaseIds": [
+      "V031FB022",
+      "V031FB031"
+    ]
+  },
+  "ambiguous": {
+    "total": 10,
+    "noMatch": 5,
+    "review": 0,
+    "high": 5
+  },
+  "perDomain": {
+    "health": {
+      "risky": 6,
+      "detected": 1,
+      "detectionRate": 0.16666666666666666
+    },
+    "finance": {
+      "risky": 4,
+      "detected": 4,
+      "detectionRate": 1
+    },
+    "education": {
+      "risky": 4,
+      "detected": 3,
+      "detectionRate": 0.75
+    },
+    "legal": {
+      "risky": 2,
+      "detected": 2,
+      "detectionRate": 1
+    },
+    "general": {
+      "risky": 2,
+      "detected": 0,
+      "detectionRate": 0
+    },
+    "privacy": {
+      "risky": 2,
+      "detected": 1,
+      "detectionRate": 0.5
+    }
+  },
+  "repeatInconsistencies": 0,
+  "repeatInconsistencyCaseIds": [],
+  "uiCriticalErrors": 0,
+  "uiNonCriticalConsoleErrors": 1,
+  "gates": {
+    "riskyRecallAtLeast85": false,
+    "safeFalsePositiveRateAtMost5": false,
+    "warningCriticismHighFalsePositivesZero": false,
+    "allCoreDomainsAtLeast60": false,
+    "repeatInconsistenciesZero": true,
+    "uiCriticalErrorsZero": true
+  },
+  "automatedGate": "FAIL",
+  "finalGate": "FAIL"
+}

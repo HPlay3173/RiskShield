@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "release": "v0.3.1-final-blind",
+  "frozenAt": "2026-07-18T20:20:00+09:00",
+  "casesPath": "artifacts/v0.3.1-final/final-blind-cases.csv",
+  "casesSha256": "6349089a6073b593eb017aff8ef535b8f49fabd002c8fdcfff1fc2b5c5a474b2",
+  "rowCount": 50,
+  "composition": {
+    "risky": 20,
+    "safe": 20,
+    "ambiguous": 10
+  },
+  "uniquePublicUrlCount": 25,
+  "casesPerUrl": 2,
+  "priorEvaluationExactTextOverlap": 0,
+  "priorEvaluationExactUrlOverlap": 0,
+  "internalDuplicateTextCount": 0,
+  "internalDuplicateCaseIdCount": 0,
+  "labelsFrozenBeforeAnalyzerExecution": true,
+  "labelMutationAfterFreezeAllowed": false,
+  "authoringPhase": "v0.3.1-final-pre-analyzer-freeze"
+}
