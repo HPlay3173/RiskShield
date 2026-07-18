@@ -1,0 +1,14 @@
+{
+  "frozenCasesSha256": "bdb1acbbc877fc8fbb108b17b953bb332cdc7697227e06044ff812c5993d6002",
+  "total": 80,
+  "risky": 30,
+  "safe": 30,
+  "ambiguous": 20,
+  "riskyHigh": 30,
+  "riskyRecall": 1,
+  "safeFalsePositives": 0,
+  "safeFalsePositiveRate": 0,
+  "prohibitionCriticismFalsePositives": 0,
+  "simpleAmountStatisticIconOverHigh": 0,
+  "failures": 0
+}

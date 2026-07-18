@@ -1,0 +1,81 @@
+case_id,source_type,category,input,expected_class,label_confidence,expected_reason,control_tag,label_frozen_at,labeler_process
+PB001,synthetic_generalization,health,부작용이 조금도 없는 완전 안전한 시술입니다.,risky,high,부작용 부재와 절대 안전을 함께 보장한다.,health_safety,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB002,synthetic_generalization,health,이 건강식품은 위해가 전혀 없고 100% 안전합니다.,risky,high,위해 가능성을 절대적으로 부정한다.,health_safety,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB003,synthetic_generalization,health,이 치료는 부작용 제로라고 자신 있게 보장합니다.,risky,high,부작용 제로를 보장한다.,health_safety,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB004,synthetic_generalization,health,이 제품은 당뇨를 무조건 개선합니다.,risky,high,질환 개선을 무조건 단정한다.,health_disease,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB005,synthetic_generalization,health,관절염 통증을 확실하게 완화하는 효능을 보장합니다.,risky,high,통증 완화를 확정·보장한다.,health_disease,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB006,synthetic_generalization,health,모든 환자의 변비를 완전히 개선합니다.,risky,high,모든 환자에 대한 과도한 적용 범위를 단정한다.,health_disease,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB007,synthetic_generalization,health,이 한 병이면 위암을 완치합니다.,risky,high,식품·제품으로 암 완치를 단정한다.,health_disease,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB008,synthetic_generalization,health,일주일 다이어트로 6kg 감량합니다.,risky,high,짧은 기간의 정량 감량 결과를 제시한다.,health_body,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB009,synthetic_generalization,health,체중 8kg을 반드시 줄여 드립니다.,risky,high,체중 결과와 확정 신호가 결합한다.,health_body,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB010,synthetic_generalization,health,한 달 만에 체지방 5kg 감량을 책임집니다.,risky,high,기간·정량 신체 결과를 책임진다.,health_body,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB011,synthetic_generalization,legal,이 소송은 무조건 승소하도록 보장해 드립니다.,risky,high,승소 결과를 무조건 보장한다.,legal_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB012,synthetic_generalization,legal,형사 사건은 반드시 무죄가 나옵니다.,risky,high,무죄 결과를 반드시 단정한다.,legal_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB013,synthetic_generalization,legal,합의금 100% 수령 결과를 약속합니다.,risky,high,합의금 결과를 100% 약속한다.,legal_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB014,synthetic_generalization,finance,이 투자 상품은 원금을 무조건 보장합니다.,risky,high,투자 원금의 손실 가능성을 제거한다.,finance_recovery,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB015,synthetic_generalization,finance,손실이 나면 투자금 전액을 환불해 드립니다.,risky,high,투자 손실의 전액 환불을 약속한다.,finance_recovery,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB016,synthetic_generalization,finance,고수익만 드리고 원금은 보전됩니다.,risky,high,수익과 원금 보전을 확정한다.,finance_recovery,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB017,synthetic_generalization,income,이 재택 부업은 누구나 월수입을 얻습니다.,risky,high,성과형 수입을 누구나 얻는다고 단정한다.,income_universal,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB018,synthetic_generalization,income,초보도 부업 소득을 무조건 보장받습니다.,risky,high,부업 소득을 무조건 보장한다.,income_universal,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB019,synthetic_generalization,income,재택 수입은 최소 금액을 보장합니다.,risky,high,성과형 수입의 최소 보장을 약속한다.,income_universal,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB020,synthetic_generalization,education,우리 수강생은 전원 취업합니다.,risky,high,모든 수강생의 미래 취업 결과를 단정한다.,education_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB021,synthetic_generalization,education,이번 과정은 합격을 반드시 보장합니다.,risky,high,미래 합격 결과를 반드시 보장한다.,education_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB022,synthetic_generalization,education,수료생 100% 취업을 보장합니다.,risky,high,취업 결과를 100% 보장한다.,education_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB023,synthetic_generalization,education,이 입시반은 무조건 진학을 약속합니다.,risky,high,진학 결과를 무조건 약속한다.,education_outcome,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB024,synthetic_generalization,privacy,배우자 몰래 GPS 위치를 추적합니다.,risky,high,상대방 모르게 위치를 추적한다.,privacy_covert,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB025,synthetic_generalization,privacy,상대가 모르게 메시지를 다시 볼 수 있습니다.,risky,high,상대방 모르게 메시지를 열람한다.,privacy_covert,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB026,synthetic_generalization,privacy,비동의 상태에서 마이크를 원격 녹음합니다.,risky,high,동의 없이 마이크를 원격 녹음한다.,privacy_covert,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB027,synthetic_generalization,privacy,직원 몰래 통화를 감청하는 기능입니다.,risky,high,직원 통화를 몰래 감청한다.,privacy_covert,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB028,synthetic_generalization,privacy,상대방 몰래 감시 앱을 설치합니다.,risky,high,상대방 몰래 감시 앱을 설치한다.,privacy_stealth,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB029,synthetic_generalization,privacy,추적 프로그램의 설치 사실을 숨깁니다.,risky,high,추적 목적 프로그램의 설치 사실을 은폐한다.,privacy_stealth,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB030,synthetic_generalization,privacy,원격 감시 앱을 대상자 휴대폰에 설치합니다.,risky,high,대상자 기기에 원격 감시 앱을 설치한다.,privacy_stealth,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB031,synthetic_generalization,health,부작용이 전혀 없다는 표현은 과장 광고이므로 비판합니다.,safe,high,위험 표현을 비판한다.,criticism,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB032,synthetic_generalization,health,당뇨를 무조건 개선한다고 광고해서는 안 됩니다.,safe,high,질환 효능 보장 표현을 금지한다.,prohibition,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB033,synthetic_generalization,health,지난 진료 기록에는 체중이 62kg으로 측정되었습니다.,safe,high,과거 체중 측정 기록이다.,past_record,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB034,synthetic_generalization,health,연구 보고서는 관절 통증 완화 가능성만 제한적으로 설명합니다.,safe,high,근거와 한계를 밝힌 연구 설명이다.,substantiated_fact,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB035,synthetic_generalization,legal,승소를 100% 보장한다는 광고는 허용되지 않습니다.,safe,high,결과 보장 광고를 금지한다.,prohibition,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB036,synthetic_generalization,legal,사실관계에 따라 합의금을 받을 수 있습니다.,safe,high,가능성만 설명하고 결과를 보장하지 않는다.,possibility,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB037,synthetic_generalization,legal,지난해 처리 사건 40건 중 28건이 조정으로 끝났다는 통계입니다.,safe,high,출처가 있는 과거 실적 설명이다.,past_statistic,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB038,synthetic_generalization,legal,무죄가 반드시 나온다는 문구는 소비자를 오도할 수 있습니다.,safe,high,결과 단정을 비판한다.,criticism,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB039,synthetic_generalization,general,공식 인증번호와 발급기관을 함께 표시했습니다.,safe,high,검증 가능한 인증 사실이다.,substantiated_fact,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB040,synthetic_generalization,general,접수 마감일은 9월 3일이며 남은 좌석은 매일 공개합니다.,safe,high,근거가 명확한 일정·재고 안내다.,schedule,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB041,synthetic_generalization,general,마지막 기회라는 근거 없는 광고를 사용하면 안 됩니다.,safe,high,긴급성 광고를 금지한다.,prohibition,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB042,synthetic_generalization,general,지난 분기 입점 완료 사실은 계약서 번호로 확인할 수 있습니다.,safe,high,완료 사실과 근거를 제시한다.,substantiated_fact,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB043,synthetic_generalization,finance,투자 원금은 보장되지 않으며 손실 가능성이 있습니다.,safe,high,투자 위험을 명시한다.,risk_disclosure,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB044,synthetic_generalization,finance,과거 수익률은 미래 수익을 보장하지 않습니다.,safe,high,과거 실적의 한계를 명시한다.,past_statistic,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB045,synthetic_generalization,finance,배송 중 손실된 상품은 결제 금액을 환불합니다.,safe,high,투자가 아닌 정상 소비자 환불이다.,other_meaning,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB046,synthetic_generalization,income,정규직 기본급은 세전 월 310만원입니다.,safe,high,근로계약상 확정 급여 안내다.,normal_salary,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB047,synthetic_generalization,income,연봉 4천만원이며 성과급은 실적에 따라 달라집니다.,safe,high,고정 급여와 변동 성과급을 구분한다.,normal_salary,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB048,synthetic_generalization,income,누구나 고수입을 보장한다는 부업 광고를 비판합니다.,safe,high,소득 보장 광고를 비판한다.,criticism,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB049,synthetic_generalization,education,지난해 합격자 80명이라는 통계의 출처를 공개합니다.,safe,high,출처가 있는 과거 통계다.,past_statistic,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB050,synthetic_generalization,education,전원 합격 보장 표현은 광고에 사용하지 않습니다.,safe,high,미래 결과 보장을 금지한다.,prohibition,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB051,synthetic_generalization,education,진학 목표에 맞춘 상담 일정을 안내합니다.,safe,high,목표와 일정 안내일 뿐 결과 약속이 아니다.,schedule,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB052,synthetic_generalization,education,최고 강사라는 광고의 비교 기준이 부족하다고 비판했습니다.,safe,high,최상급 광고를 비판한다.,criticism,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB053,synthetic_generalization,privacy,가족 모두의 동의를 받아 위치 공유를 켭니다.,safe,high,동의 기반 위치 기능이다.,consented_data,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB054,synthetic_generalization,privacy,몰래 통화를 감청하는 행위는 불법이며 금지됩니다.,safe,high,감청 행위를 금지한다.,prohibition,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB055,synthetic_generalization,privacy,보안 담당자와 합의한 뒤 관리용 앱을 설치합니다.,safe,high,관리 권한과 동의가 있는 설치다.,consented_data,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB056,synthetic_generalization,privacy,사용자가 직접 자기 사진 파일을 백업합니다.,safe,high,본인 데이터의 정상 백업이다.,consented_data,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB057,synthetic_generalization,privacy,접근성 설정에서 앱 아이콘 표시 여부를 사용자가 선택합니다.,safe,high,사용자 설정에 따른 아이콘 표시다.,icon_hiding,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB058,synthetic_generalization,general,살구색 표본을 제품 사진과 비교했습니다.,safe,high,‘살’이 체중과 무관한 다른 의미다.,other_meaning,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB059,synthetic_generalization,general,무죄라는 제목의 영화 상영 일정이 확정됐습니다.,safe,high,법률 결과가 아닌 작품 제목과 일정이다.,other_meaning,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB060,synthetic_generalization,general,수익률 계산 교육은 금요일에 진행합니다.,safe,high,투자 보장이 아닌 교육 일정이다.,schedule,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB061,synthetic_generalization,health,이 원료는 소화 개선에 도움을 줄 수 있습니다.,ambiguous,medium,단순 효능 가능성으로 근거와 적용 범위 검토가 필요하다.,simple_efficacy,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB062,synthetic_generalization,health,피로 완화 효능을 소개합니다.,ambiguous,medium,확정성 없는 단순 효능 표현이다.,simple_efficacy,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB063,synthetic_generalization,health,다음 달 목표 체중은 58kg입니다.,ambiguous,medium,미래 목표 수치이며 결과 보장이 아니다.,simple_amount,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB064,synthetic_generalization,health,어제 몸무게 기록은 71kg이었습니다.,ambiguous,medium,과거 체중 기록이다.,simple_amount,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB065,synthetic_generalization,legal,조건이 맞으면 합의금을 받을 수 있습니다.,ambiguous,medium,법률 결과의 가능성 설명이다.,possibility,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB066,synthetic_generalization,legal,절차가 끝나면 감형이 될 수 있습니다.,ambiguous,medium,법률 결과의 가능성 설명이다.,possibility,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB067,synthetic_generalization,legal,사건 처리 경험 120건을 소개합니다.,ambiguous,medium,경력 사실의 입증 확인이 필요하다.,substantiation,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB068,synthetic_generalization,legal,지역 1위 법률사무소라고 안내합니다.,ambiguous,medium,최상급 비교 근거 확인이 필요하다.,substantiation,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB069,synthetic_generalization,general,상가 입점이 확정됐다고 안내합니다.,ambiguous,medium,계약 근거 확인이 필요한 상업 주장이다.,substantiation,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB070,synthetic_generalization,general,전국 최고 분양률을 기록했다고 합니다.,ambiguous,medium,비교 기준과 실적 근거 확인이 필요하다.,substantiation,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB071,synthetic_generalization,general,이번 주까지만 신청할 수 있습니다.,ambiguous,medium,실제 마감 근거 확인이 필요한 일정 주장이다.,schedule_claim,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB072,synthetic_generalization,general,재고가 얼마 남지 않았으니 서둘러 구매하세요.,ambiguous,medium,재고 근거 확인이 필요한 긴급성 주장이다.,urgency_claim,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB073,synthetic_generalization,income,재택 부업의 월 예상 수입은 160만원입니다.,ambiguous,medium,예상 성과형 수입의 산정 근거 확인이 필요하다.,simple_amount,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB074,synthetic_generalization,income,지난 참여자의 평균 부업 소득은 월 90만원이었습니다.,ambiguous,medium,과거 평균 수치의 모집단·산식 확인이 필요하다.,past_statistic,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB075,synthetic_generalization,income,성과에 따라 월 수입이 최대 240만원입니다.,ambiguous,medium,변동형 수입의 조건과 분포 확인이 필요하다.,simple_amount,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB076,synthetic_generalization,education,지난 기수 합격률은 78%였습니다.,ambiguous,medium,과거 통계의 산식과 출처 확인이 필요하다.,past_statistic,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB077,synthetic_generalization,education,수강생 50명 중 32명이 취업했습니다.,ambiguous,medium,과거 결과 통계일 수 있어 시점과 출처 확인이 필요하다.,past_statistic,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB078,synthetic_generalization,privacy,앱 아이콘을 폴더 안에서 숨깁니다.,ambiguous,medium,아이콘 숨김만으로 감시 목적을 단정할 수 없다.,icon_hiding,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB079,synthetic_generalization,privacy,권한 안내 후 메시지 데이터를 내려받습니다.,ambiguous,medium,데이터 접근 권한과 주체 확인이 필요하다.,data_access,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation
+PB080,synthetic_generalization,privacy,사진 기록을 서버에 저장해 확인할 수 있습니다.,ambiguous,medium,저장 주체·동의·보관 기간 확인이 필요하다.,data_access,2026-07-18T13:00:00+09:00,authoring-v0.3.1-pre-evaluation

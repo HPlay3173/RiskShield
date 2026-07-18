@@ -22,6 +22,8 @@ import {
   type SkillImportPreview,
   type SkillImportMode,
 } from "@/lib/riskshield";
+import { candidateSkillsV03 } from "@/lib/v0-3-candidate-skills";
+import { activateDraftCandidatesForTest } from "@/lib/v0-3-test-adapter";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type ViewId = "builder" | "import" | "library" | "analyzer" | "export";
@@ -170,11 +172,11 @@ function profileName(profile: CsvSummary["profile"]) {
   return "일반 CSV";
 }
 
-function gradeTone(grade: AnalysisResult["grade"]) {
-  if (grade === "높음") return "critical";
-  if (grade === "주의") return "warning";
-  if (grade === "유의") return "notice";
-  return "safe";
+function statusTone(status: AnalysisResult["status"]) {
+  if (status === "high") return "critical";
+  if (status === "attention") return "warning";
+  if (status === "review") return "notice";
+  return "neutral";
 }
 
 function ChipEditor({
@@ -293,7 +295,7 @@ function AnalysisPanel({
   compact?: boolean;
 }) {
   const primary = result.primaryMatch;
-  const tone = gradeTone(result.grade);
+  const tone = statusTone(result.status);
 
   return (
     <section className={cx("analysisPanel", compact && "analysisPanelCompact")} aria-labelledby="analysis-result-title" data-testid="analyzer-result">
@@ -303,7 +305,7 @@ function AnalysisPanel({
           <h2 id="analysis-result-title">{title}</h2>
         </div>
         <span className={cx("statusBadge", "statusBadge-" + tone)}>
-          {result.grade} · {result.finalScore}점
+          {result.statusLabel} · {result.finalScore}점
         </span>
       </div>
 
@@ -314,7 +316,7 @@ function AnalysisPanel({
           <span className="scoreUnit">/ 100</span>
         </div>
         <div className="scoreMeta">
-          <span className={cx("gradePill", "gradePill-" + tone)}>{result.grade}</span>
+          <span className={cx("gradePill", "gradePill-" + tone)}>{result.statusLabel}</span>
           <span>{result.recommendation}</span>
         </div>
       </div>
@@ -358,21 +360,23 @@ function AnalysisPanel({
               <span>판단 근거</span>
               {primary.skill.dominantRisk && <span className="dominantBadge">Dominant Risk</span>}
             </div>
-            <p>{primary.skill.riskReason}</p>
+            <p>{result.reason ?? primary.skill.riskReason}</p>
             <code>{primary.skill.patternType}</code>
           </div>
 
-          <div className="rewriteCard">
-            <span>안전한 대체 문구</span>
-            <p>{primary.skill.safeRewrite[0]}</p>
-          </div>
+          {result.suggestedRewrite && (
+            <div className="rewriteCard">
+              <span>검토용 대체 문구</span>
+              <p>{result.suggestedRewrite}</p>
+            </div>
+          )}
         </>
       ) : (
         <div className="emptyEvidence">
           <span className="emptySymbol" aria-hidden="true">○</span>
           <div>
-            <strong>강한 조합 패턴이 탐지되지 않았습니다.</strong>
-            <p>낮은 점수도 자동 승인을 뜻하지 않습니다. 실제 배포 맥락은 담당자가 확인해 주세요.</p>
+            <strong>규칙 미일치 또는 판단 불가</strong>
+            <p>현재 reviewed 스킬과 일치하지 않았을 뿐 안전 판정이 아닙니다. 필요한 경우 추가 문맥을 입력하고 담당자가 검토해 주세요.</p>
           </div>
         </div>
       )}
@@ -397,10 +401,12 @@ export function RiskShieldWorkbench() {
     memo: "제공된 handoff 기대 사례",
   });
   const [builderStep, setBuilderStep] = useState(1);
+  const [analyzerStep, setAnalyzerStep] = useState<1 | 2>(1);
   const [severityRules, setSeverityRules] = useState<SeverityRules>(DEFAULT_SEVERITY_RULES);
   const [analysisInput, setAnalysisInput] = useState("15초만에 형량 분석");
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [analysisError, setAnalysisError] = useState("");
+  const [candidatePreviewEnabled, setCandidatePreviewEnabled] = useState(false);
   const [showReviewErrors, setShowReviewErrors] = useState(false);
   const [storageLabel, setStorageLabel] = useState("저장소 연결 확인 중");
   const [saving, setSaving] = useState(false);
@@ -421,6 +427,14 @@ export function RiskShieldWorkbench() {
   const bundleInputRef = useRef<HTMLInputElement>(null);
   const builderStageRef = useRef<HTMLDivElement>(null);
   const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    const host = window.location.hostname;
+    const localHost = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+    const requested = new URLSearchParams(window.location.search).get("candidate-preview") === "v0.3";
+    const timer = window.setTimeout(() => setCandidatePreviewEnabled(localHost && requested), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -504,6 +518,12 @@ export function RiskShieldWorkbench() {
     () => skills.filter((skill) => skill.reviewStatus === "reviewed"),
     [skills],
   );
+  const analyzerSkills = useMemo(
+    () => candidatePreviewEnabled
+      ? [...reviewedSkills, ...activateDraftCandidatesForTest(candidateSkillsV03)]
+      : reviewedSkills,
+    [candidatePreviewEnabled, reviewedSkills],
+  );
   const exportBundle = useMemo(
     () => buildExportBundle(skills, new Date(), severityRules),
     [severityRules, skills],
@@ -578,15 +598,23 @@ export function RiskShieldWorkbench() {
     setAnalysisError("");
     setAnalysisResult(analyzeText(
       text,
-      includeDrafts ? testSkillSet : reviewedSkills,
+      includeDrafts ? testSkillSet : analyzerSkills,
       { includeDrafts, severityRules },
     ));
-    if (includeDrafts) setBuilderStep(6);
+    if (includeDrafts) {
+      setBuilderStep(6);
+    } else {
+      setAnalyzerStep(2);
+    }
   }
 
   function changeView(nextView: ViewId) {
     setActiveView(nextView);
-    if (nextView === "analyzer") runAnalysis(analysisInput, false);
+    if (nextView === "analyzer") {
+      setAnalyzerStep(1);
+      setAnalysisResult(null);
+      setAnalysisError("");
+    }
   }
 
   async function saveSkill(status: RiskSkill["reviewStatus"]) {
@@ -1637,62 +1665,74 @@ export function RiskShieldWorkbench() {
             <section className="pageHeading editorialHero">
               <div>
                 <span className="editorialEyebrow">ANALYZER V4</span>
-                <h1 id="analyzer-title">광고 문구 분석</h1>
-                <p>단어 하나가 아닌 표현의 조합과 사용 맥락을 읽고, 가장 지배적인 위험을 중심으로 판단합니다.</p>
-                <div className="breadcrumb"><span>Analyzer v4</span><b>/</b><span>Live test</span></div>
+                <h1 id="analyzer-title">{analyzerStep === 1 ? "광고 문구 입력" : "분석 결과 검토"}</h1>
+                <p>{analyzerStep === 1
+                  ? "검토할 문구를 먼저 입력하세요. 결과와 근거는 다음 화면에서 확인합니다."
+                  : "가장 지배적인 위험과 근거를 확인한 뒤 사람이 최종 판단합니다."}</p>
+                <div className="breadcrumb"><span>Analyzer v4</span><b>/</b><span>{analyzerStep} / 2</span></div>
               </div>
-              <span className="engineBadge"><i />검토 완료 {reviewedSkills.length}개만 로드</span>
+              <span className={cx("engineBadge", candidatePreviewEnabled && "engineBadgeCandidate")}>
+                <i />
+                {candidatePreviewEnabled
+                  ? `로컬 후보 검증 ${analyzerSkills.length}개`
+                  : `검토 완료 ${reviewedSkills.length}개만 로드`}
+              </span>
             </section>
-            <div className="analyzerWorkspace productTileLight featureSection">
-              <section className="workspaceCard analyzerInputCard storeUtilityCard">
-                <span className="sectionNumber">TEST COPY</span>
-                <h2>검토할 광고 문구</h2>
-                <p>검토 완료된 스킬과 현재 점수 정책만 사용합니다. 초안과 반려 스킬은 분석에서 제외됩니다.</p>
-                <label htmlFor="full-analysis-input">광고 문구</label>
-                <textarea
-                  id="full-analysis-input"
-                  rows={7}
-                  value={analysisInput}
-                  onChange={(event) => {
-                    setAnalysisInput(event.target.value);
-                    if (event.target.value.trim()) setAnalysisError("");
-                  }}
-                  placeholder="광고 문구를 입력해 주세요."
-                  data-testid="analyzer-input"
-                />
-                <div className="quickTests" aria-label="빠른 테스트 예시">
-                  {QUICK_TESTS.map((value) => (
-                    <button type="button" key={value} onClick={() => runAnalysis(value, false)}>{value}</button>
-                  ))}
-                </div>
-                {analysisError && <p className="formError" role="alert">{analysisError}</p>}
-                <button type="button" className="primaryButton wideButton" onClick={() => runAnalysis(analysisInput, false)} data-testid="analyzer-submit-button">
-                  Dominant Risk 분석
-                </button>
-              </section>
-              {analysisResult ? (
-                <AnalysisPanel result={analysisResult} title="분석 결과" />
-              ) : (
-                <div className="analysisPanel analysisEmptyState">
-                  <strong>{analysisError || "분석할 문구를 입력해 주세요."}</strong>
-                  <p>검토 완료 스킬만 사용하는 분석 결과가 여기에 표시됩니다.</p>
-                </div>
-              )}
-            </div>
-            <section className="workspaceCard categoryCard productTileParchment featureSection">
-              <div className="cardHeading">
-                <div><span className="sectionNumber">EVIDENCE</span><h2>카테고리별 점수</h2></div>
-                <span className="requiredNote">평균 대신 최고 위험 중심</span>
-              </div>
-              <div className="categoryBars">
-                {analysisResult?.categoryScores.length ? analysisResult.categoryScores.map((category) => (
-                  <div key={category.category}>
-                    <div><span>{category.category}</span><b>{category.score}</b></div>
-                    <span className="barTrack"><i style={{ width: category.score + "%" }} /></span>
+            {analyzerStep === 1 ? (
+              <div className="analyzerStage analyzerInputStage productTileLight featureSection">
+                <section className="workspaceCard analyzerInputCard storeUtilityCard">
+                  <span className="sectionNumber">STEP 1 · TEST COPY</span>
+                  <h2>검토할 광고 문구</h2>
+                  <p>{candidatePreviewEnabled
+                    ? "운영 D1을 변경하지 않는 로컬 후보 검증 모드입니다. draft 후보를 메모리에서만 가상 reviewed로 실행합니다."
+                    : "검토 완료된 스킬과 현재 점수 정책만 사용합니다. 초안과 반려 스킬은 분석에서 제외됩니다."}</p>
+                  <label htmlFor="full-analysis-input">광고 문구</label>
+                  <textarea
+                    id="full-analysis-input"
+                    rows={7}
+                    value={analysisInput}
+                    onChange={(event) => {
+                      setAnalysisInput(event.target.value);
+                      if (event.target.value.trim()) setAnalysisError("");
+                    }}
+                    placeholder="광고 문구를 입력해 주세요."
+                    data-testid="analyzer-input"
+                  />
+                  <div className="quickTests" aria-label="빠른 테스트 예시">
+                    {QUICK_TESTS.map((value) => (
+                      <button type="button" key={value} onClick={() => setAnalysisInput(value)}>{value}</button>
+                    ))}
                   </div>
-                )) : <p className="mutedText">표시할 카테고리 점수가 없습니다.</p>}
+                  {analysisError && <p className="formError" role="alert">{analysisError}</p>}
+                  <button type="button" className="primaryButton wideButton" onClick={() => runAnalysis(analysisInput, false)} data-testid="analyzer-submit-button">
+                    결과 화면으로
+                  </button>
+                </section>
               </div>
-            </section>
+            ) : analysisResult ? (
+              <div className="analyzerStage analyzerResultStage featureSection">
+                <div className="analyzerStageActions">
+                  <button type="button" className="secondaryButton" onClick={() => setAnalyzerStep(1)} data-testid="analyzer-back-button">
+                    다른 문구 분석
+                  </button>
+                </div>
+                <AnalysisPanel result={analysisResult} title="분석 결과" />
+                <section className="workspaceCard categoryCard productTileParchment">
+                  <div className="cardHeading">
+                    <div><span className="sectionNumber">EVIDENCE</span><h2>카테고리별 점수</h2></div>
+                    <span className="requiredNote">평균 대신 최고 위험 중심</span>
+                  </div>
+                  <div className="categoryBars">
+                    {analysisResult.categoryScores.length ? analysisResult.categoryScores.map((category) => (
+                      <div key={category.category}>
+                        <div><span>{category.category}</span><b>{category.score}</b></div>
+                        <span className="barTrack"><i style={{ width: category.score + "%" }} /></span>
+                      </div>
+                    )) : <p className="mutedText">표시할 카테고리 점수가 없습니다.</p>}
+                  </div>
+                </section>
+              </div>
+            ) : null}
           </section>
         )}
 

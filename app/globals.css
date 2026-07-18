@@ -613,6 +613,22 @@ code {
   color: var(--neutral-text);
 }
 
+.gradePill-neutral {
+  border-color: var(--neutral-border);
+  background: var(--neutral-bg);
+  color: var(--neutral-text);
+}
+
+.engineBadgeCandidate {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.engineBadgeCandidate i {
+  background: var(--warning-text);
+}
+
 .engineBadge i {
   width: 8px;
   height: 8px;
@@ -1757,6 +1773,12 @@ textarea:disabled {
   background: var(--safe-text);
 }
 
+.riskMeter-neutral::-webkit-meter-optimum-value,
+.riskMeter-neutral::-webkit-meter-suboptimum-value,
+.riskMeter-neutral::-webkit-meter-even-less-good-value {
+  background: var(--neutral-text);
+}
+
 .riskMeter::-moz-meter-bar {
   border-radius: 999px;
   background: var(--neutral-text);
@@ -1773,6 +1795,10 @@ textarea:disabled {
 
 .riskMeter-safe::-moz-meter-bar {
   background: var(--safe-text);
+}
+
+.riskMeter-neutral::-moz-meter-bar {
+  background: var(--neutral-text);
 }
 
 .highlightSentence {
@@ -1956,25 +1982,25 @@ textarea:disabled {
   gap: 12px;
   margin-top: 16px;
   padding: 16px;
-  border: 1px solid var(--safe-border);
+  border: 1px solid var(--neutral-border);
   border-radius: 10px;
-  background: var(--safe-bg);
+  background: var(--neutral-bg);
 }
 
 .emptySymbol {
-  color: var(--safe-text);
+  color: var(--neutral-text);
   font-size: 20px;
   line-height: 1;
 }
 
 .emptyEvidence strong {
-  color: var(--safe-text);
+  color: var(--ink);
   font-size: 14px;
 }
 
 .emptyEvidence p {
   margin: 4px 0 0;
-  color: var(--safe-text);
+  color: var(--neutral-text);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -2464,6 +2490,27 @@ textarea:disabled {
 }
 
 /* Analyzer workspace */
+.analyzerStage {
+  width: 100%;
+  display: grid;
+  gap: 20px;
+  margin: 0 auto;
+}
+
+.analyzerInputStage {
+  max-width: 720px;
+}
+
+.analyzerResultStage {
+  max-width: 960px;
+}
+
+.analyzerResultStage > .analyzerStageActions {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0;
+}
+
 .analyzerWorkspace {
   grid-template-columns: 380px minmax(0, 1fr);
   align-items: start;

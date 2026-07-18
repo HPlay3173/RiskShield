@@ -87,7 +87,12 @@ export interface AnalysisResult {
   input: string;
   finalScore: number;
   grade: "미탐지" | "낮음" | "유의" | "주의" | "높음";
+  status: "no_match" | "review" | "attention" | "high";
+  statusLabel: "규칙 미일치" | "추가 검토" | "주의 필요" | "높은 위험";
+  speechAct: "promotion" | "statement" | "criticism" | "warning" | "quotation" | "condition";
   recommendation: string;
+  reason: string | null;
+  suggestedRewrite: string | null;
   dominantFloor: number;
   topCategoryScore: number;
   categoryScores: CategoryScore[];
@@ -847,6 +852,32 @@ function gapBetween(left: InternalHit, right: InternalHit) {
   return 0;
 }
 
+const CONTRAST_MARKERS = [
+  "그럼에도", "그런데도", "일 수 있지만", "하지만", "그러나", "그런데", "다만",
+  "반면", "그래도", "인데도", "이지만", "지만", "인데",
+];
+
+function candidateClause(
+  scopeText: string,
+  evidenceStart: number,
+  evidenceEnd: number,
+) {
+  let clauseStart = 0;
+  let clauseEnd = scopeText.length;
+
+  for (const marker of CONTRAST_MARKERS) {
+    let cursor = scopeText.indexOf(marker);
+    while (cursor >= 0) {
+      const after = cursor + marker.length;
+      if (after <= evidenceStart && after > clauseStart) clauseStart = after;
+      if (cursor >= evidenceEnd && cursor < clauseEnd) clauseEnd = cursor;
+      cursor = scopeText.indexOf(marker, cursor + marker.length);
+    }
+  }
+
+  return scopeText.slice(clauseStart, clauseEnd).trim();
+}
+
 function isExplicitlyDenied(sentence: string) {
   const denialPatterns = [
     /(?:보장|확정|완치|분석|예측|추적|수집|환불)(?:을|를|은|는|이|가)?\s*(?:하지\s*않|할\s*수\s*없|되지\s*않|아니(?:다|며|고|므로|습니다)|불가)/u,
@@ -854,6 +885,10 @@ function isExplicitlyDenied(sentence: string) {
     /(?:100\s*%|전액)(?:가|은|는)?\s*아니/u,
     /(?:표현|문구|주장|사례)(?:은|는|을|를|이|가)?[^.!?\n]{0,24}(?:금지|사용하지|피해야|과장)/u,
     /(?:없(?:다|습니다)?|보장(?:한다|합니다)?)(?:고|라고)[^.!?\n]{0,30}(?:말|주장|표현)(?:할|해서는)?\s*수?\s*없/u,
+    /부작용(?:이|은|는)?[^.!?\n]{0,20}(?:전혀|절대)?\s*없(?:다|습니다)?(?:고|다고)[^.!?\n]{0,24}(?:말|단정)(?:할|해서는)?\s*수\s*없/u,
+    /(?:동의\s*필수|동의를\s*받(?:은|고|아야)|동의한\s*경우에만)/u,
+    /(?:금지|불법|위반|사용하면\s*안\s*됩니다|사용해서는\s*안|하지\s*마세요|해서는\s*안\s*됩니다)/u,
+    /과도한\s*(?:장담|보장)[^.!?\n]{0,48}(?:신뢰할\s*수\s*없|믿기\s*어렵|위험|문제)/u,
   ];
   return denialPatterns.some((pattern) => pattern.test(sentence));
 }
@@ -904,7 +939,7 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
       "context",
     );
     const scopedText = normalized.text.slice(range.start, range.end);
-    if (exclusionHits.length || isExplicitlyDenied(scopedText) || isMetalinguisticContext(scopedText)) continue;
+    if (exclusionHits.length) continue;
 
     for (const trigger of triggerHits) {
       for (const context of contextHits) {
@@ -920,6 +955,8 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
           if (gap > maxDistance) continue;
           const start = Math.min(...selectedHits.map((hit) => hit.normalizedStart));
           const end = Math.max(...selectedHits.map((hit) => hit.normalizedEnd));
+          const clause = candidateClause(scopedText, start - range.start, end - range.start);
+          if (isExplicitlyDenied(clause) || isMetalinguisticContext(clause)) continue;
           candidates.push({ trigger, context, support, gap, envelope: end - start, start });
         }
       }
@@ -935,6 +972,11 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
 
   const selected = candidates[0];
   if (!selected) return null;
+  const normalizedInput = normalizeText(input);
+  const looksLikeBareGuaranteedMonthlyAmount = /월\s*\d{1,5}\s*(?:만\s*)?원[^.!?\n]{0,18}보장/u.test(normalizedInput)
+    && !/(?:투자|수익|원금|손실|손해|이익|배당|주식|펀드)/u.test(normalizedInput)
+    && !/(?:누구나|벌\s*수|소득|수입|부업|재택)/u.test(normalizedInput);
+  if (skill.riskDomain.includes("금융") && looksLikeBareGuaranteedMonthlyAmount) return null;
   const hits = [selected.trigger, selected.context, selected.support]
     .filter((hit): hit is InternalHit => Boolean(hit))
     .sort((left, right) => left.start - right.start || left.end - right.end)
@@ -964,6 +1006,44 @@ export function gradeForScore(
   return threshold?.grade ?? (score <= 0 ? "미탐지" : "높음");
 }
 
+function statusForScore(score: number): Pick<AnalysisResult, "status" | "statusLabel"> {
+  if (score >= 80) return { status: "high", statusLabel: "높은 위험" };
+  if (score >= 70) return { status: "attention", statusLabel: "주의 필요" };
+  if (score > 0) return { status: "review", statusLabel: "추가 검토" };
+  return { status: "no_match", statusLabel: "규칙 미일치" };
+}
+
+export function detectSpeechAct(input: string): AnalysisResult["speechAct"] {
+  const text = normalizeText(input);
+  const hasQuotation = /["'“”‘’「」『』]/u.test(input);
+  if (/(?:하지만|지만|그러나|그럼에도|그래도|인데(?:도)?)[^.!?\n]{0,80}(?:지금|신청|구매|가입|등록|보장|추적|감청|녹음|해\s*드립니다|가능)/u.test(text)) return "promotion";
+  if (hasQuotation && /(?:문구|표현|주장|기사|제목|사례|인용|분석|검토)/u.test(text)) return "quotation";
+  if (/(?:문제점|문제\s*광고|비판|허위·?과장|위험을\s*검토)/u.test(text)) return "criticism";
+  if (/(?:금지|불법|위반|사용하면\s*안|해서는\s*안|하지\s*마세요|주의해야|동의\s*필수)/u.test(text)) return "warning";
+  if (/(?:경우|조건|약관|기준|따라|한해|기간|수수료|제외한\s*후)/u.test(text)) return "condition";
+  if (/(?:지금|신청|구매|가입|등록|드리|제공|보장|약속|추천)/u.test(text)) return "promotion";
+  return "statement";
+}
+
+function outputCopy(
+  primary: SkillMatch | null,
+  speechAct: AnalysisResult["speechAct"],
+) {
+  if (!primary) return { reason: null, suggestedRewrite: null };
+  if (speechAct === "warning" || speechAct === "criticism" || speechAct === "quotation") {
+    return { reason: null, suggestedRewrite: null };
+  }
+  const reasonPrefix = speechAct === "condition"
+    ? "조건 안내에 포함된 주장으로, 적용 근거를 함께 확인해야 합니다. "
+    : speechAct === "statement"
+      ? "사실 설명 형식이므로 객관적 근거와 적용 범위를 확인해야 합니다. "
+      : "";
+  return {
+    reason: `${reasonPrefix}${primary.skill.riskReason}`.trim(),
+    suggestedRewrite: primary.skill.safeRewrite[0] ?? null,
+  };
+}
+
 export function analyzeText(
   input: string,
   skills: RiskSkill[],
@@ -975,10 +1055,17 @@ export function analyzeText(
       ? skill.reviewStatus !== "rejected"
       : skill.reviewStatus === "reviewed")
     .sort((left, right) => compareText(left.id, right.id));
-  const matches = usableSkills.flatMap((skill) => {
+  const rawMatches = usableSkills.flatMap((skill) => {
     const match = bestSkillMatch(input, skill);
     return match ? [match] : [];
   });
+  const normalizedInput = normalizeText(input);
+  const hasIncomeSpecificMatch = rawMatches.some((match) => match.skill.riskDomain.includes("구인·부업"));
+  const hasPayrollContext = /(?:정규직|근로계약|기본급|연봉|세전|급여\s*조건)/u.test(normalizedInput);
+  const hasInvestmentContext = /(?:투자|수익|원금|손실|손해|이익|배당|주식|펀드)/u.test(normalizedInput);
+  const matches = !hasInvestmentContext && (hasIncomeSpecificMatch || hasPayrollContext)
+    ? rawMatches.filter((match) => !match.skill.riskDomain.includes("금융"))
+    : rawMatches;
 
   matches.sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
@@ -1034,16 +1121,23 @@ export function analyzeText(
   const finalScore = matches.length
     ? clamp(Math.max(topCategoryScore, dominantFloor) + crossCategoryBonus, 0, 100)
     : clamp(Math.round(severityRules.noMatchScore), 0, 100);
+  const speechAct = detectSpeechAct(input);
+  const status = statusForScore(finalScore);
+  const copy = outputCopy(matches[0] ?? null, speechAct);
 
   return {
     input,
     finalScore,
     grade: gradeForScore(finalScore, severityRules),
+    ...status,
+    speechAct,
     recommendation: matches.length
       ? finalScore >= 70
         ? "배포 전 담당자의 검토와 표현 수정을 권장합니다. 이 결과는 자동 금지 판단이 아닙니다."
         : "탐지된 조합의 맥락과 근거를 담당자가 확인해 주세요."
       : "현재 검토된 조합 규칙에서는 위험 패턴이 탐지되지 않았습니다. 이는 자동 승인이나 안전 보장을 의미하지 않습니다.",
+    reason: copy.reason,
+    suggestedRewrite: copy.suggestedRewrite,
     dominantFloor,
     topCategoryScore,
     categoryScores,

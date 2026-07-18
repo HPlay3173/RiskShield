@@ -303,7 +303,13 @@ async function seedIfEmpty() {
   const db = await getDatabase();
   const existing = await db.select({ id: riskSkills.id }).from(riskSkills).limit(1);
   if (existing.length) return;
-  await db.insert(riskSkills).values(starterSkills.map(rowForSkill)).onConflictDoNothing();
+  // D1/SQLite caps the number of bound variables in a statement. Inserting the
+  // full starter bundle at once crosses that cap because every skill has eight
+  // persisted columns. Seed one row per statement so the production Worker
+  // preview and a fresh D1 database behave the same regardless of bundle size.
+  for (const skill of starterSkills) {
+    await db.insert(riskSkills).values(rowForSkill(skill)).onConflictDoNothing();
+  }
 }
 
 async function upgradeUnmodifiedBundledRules() {
@@ -434,13 +440,26 @@ export async function PUT(request: Request) {
     const preview = previewSkillImport(currentSkills, incoming, mode);
     const now = new Date().toISOString();
     const d1 = await getD1();
-    const statements = [d1.prepare("DELETE FROM risk_skills")];
-    for (const skill of preview.finalSkills) {
+    const changedIds = new Set([...preview.newIds, ...preview.updateIds]);
+    const skillsToPersist = mode === "replace"
+      ? preview.finalSkills
+      : preview.finalSkills.filter((skill) => changedIds.has(skill.id));
+    const statements = mode === "replace"
+      ? [d1.prepare("DELETE FROM risk_skills")]
+      : [];
+    for (const skill of skillsToPersist) {
       const row = rowForSkill(skill);
       statements.push(d1.prepare(`
         INSERT INTO risk_skills
           (id, category, review_status, severity_floor, dominant_risk, payload, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          category = excluded.category,
+          review_status = excluded.review_status,
+          severity_floor = excluded.severity_floor,
+          dominant_risk = excluded.dominant_risk,
+          payload = excluded.payload,
+          updated_at = excluded.updated_at
       `).bind(
         row.id,
         row.category,
