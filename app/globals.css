@@ -1,9 +1,9 @@
 :root {
-  --canvas: #f5f5f7;
+  --canvas: #f7f8fa;
   --surface: #ffffff;
   --ink: #1d1d1f;
   --muted: #6e6e73;
-  --border: #d2d2d7;
+  --border: #dfe3e8;
   --field-border: #86868b;
   --primary: #0066cc;
   --focus: #0071e3;
@@ -136,7 +136,9 @@ code {
   height: var(--header-height);
   min-height: var(--header-height);
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 1px 10px rgba(15, 23, 42, 0.04);
+  backdrop-filter: saturate(160%) blur(18px);
 }
 
 .skipLink {
@@ -313,7 +315,8 @@ code {
 .navItemActive,
 .appNavItemActive,
 .appNavItem[aria-current="page"] {
-  background: var(--neutral-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 12%, transparent);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
   color: var(--primary);
   font-weight: 600;
 }
@@ -380,21 +383,32 @@ code {
 .primaryButton {
   border: 1px solid var(--primary);
   background: var(--primary);
+  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.18);
   color: var(--surface);
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .primaryButton:hover:not(:disabled) {
   border-color: var(--focus);
   background: var(--focus);
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.24);
+  transform: translateY(-1px);
+}
+
+.primaryButton:active:not(:disabled) {
+  box-shadow: 0 1px 4px rgba(0, 102, 204, 0.2);
+  transform: translateY(0);
 }
 
 .secondaryButton {
   border: 1px solid var(--field-border);
   background: var(--surface);
   color: var(--ink);
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
 .secondaryButton:hover:not(:disabled) {
+  border-color: var(--neutral-text);
   background: var(--neutral-bg);
 }
 
@@ -642,8 +656,9 @@ code {
 .storeUtilityCard {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 15px;
   background: var(--surface);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.035);
   color: var(--ink);
 }
 
@@ -748,6 +763,20 @@ textarea {
   color: var(--ink);
   font-size: 15px;
   line-height: 1.5;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+input:hover:not(:disabled),
+select:hover:not(:disabled),
+textarea:hover:not(:disabled) {
+  border-color: var(--neutral-text);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 14%, transparent);
 }
 
 input,
@@ -796,7 +825,7 @@ textarea:disabled {
   margin: 24px -24px -24px;
   padding: 16px 24px;
   border-top: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--canvas) 62%, var(--surface));
 }
 
 .cardFooter p,
@@ -903,7 +932,7 @@ textarea:disabled {
 .simpleWizardHeader {
   max-width: 760px;
   margin: 0 auto;
-  padding: 40px 0 8px;
+  padding: 30px 0 8px;
 }
 
 .simpleWizardMeta {
@@ -927,7 +956,7 @@ textarea:disabled {
 
 .simpleWizardHeader p {
   max-width: 620px;
-  margin: 12px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 16px;
   line-height: 1.6;
@@ -936,7 +965,7 @@ textarea:disabled {
 .simpleProgressTrack {
   height: 4px;
   overflow: hidden;
-  margin-top: 24px;
+  margin-top: 18px;
   border-radius: 999px;
   background: var(--border);
 }
@@ -957,7 +986,7 @@ textarea:disabled {
 .wizardBuilder .workspaceCard,
 .wizardBuilder .wizardAnalyzerStage {
   border-color: var(--border);
-  box-shadow: none;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.055);
 }
 
 .simpleCompletion {
@@ -2369,6 +2398,7 @@ textarea:disabled {
   border-radius: 10px;
   padding: 14px;
   background: var(--surface);
+  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.03);
 }
 
 .metricStrip span,
@@ -2480,12 +2510,16 @@ textarea:disabled {
 }
 
 .filterBar {
+  position: sticky;
+  z-index: 10;
+  top: var(--header-height);
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: saturate(150%) blur(14px);
 }
 
 .filterBar label {
@@ -2514,6 +2548,24 @@ textarea:disabled {
 
 .searchField input {
   padding-left: 38px;
+}
+
+.libraryResultMeta {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--canvas) 54%, var(--surface));
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.libraryResultMeta strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .tableScroll {
@@ -2554,7 +2606,11 @@ textarea:disabled {
 }
 
 .skillTable tbody tr:hover td {
-  background: var(--neutral-bg);
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+}
+
+.skillTable tbody tr:focus-within td {
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
 }
 
 .skillTable td > strong,
@@ -2590,6 +2646,33 @@ textarea:disabled {
   color: var(--critical-text);
   font-size: 13px;
   font-weight: 600;
+}
+
+.libraryPagination {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.libraryPagination span {
+  min-width: 92px;
+  text-align: center;
+}
+
+.libraryPagination strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.libraryPagination .secondaryButton {
+  min-width: 76px;
 }
 
 .libraryEmpty {
@@ -3337,7 +3420,7 @@ textarea:disabled {
   }
 
   .simpleWizardHeader {
-    padding-top: 28px;
+    padding-top: 24px;
   }
 
   .simpleWizardHeader h1 {
@@ -3488,6 +3571,14 @@ textarea:disabled {
     grid-template-columns: 1fr 1fr;
   }
 
+  .libraryResultMeta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
   .searchField {
     grid-column: 1 / -1;
   }
@@ -3554,6 +3645,17 @@ textarea:disabled {
 
   .searchField {
     grid-column: auto;
+  }
+
+  .libraryPagination {
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .libraryPagination .secondaryButton {
+    min-width: 70px;
+    padding-right: 12px;
+    padding-left: 12px;
   }
 
   .skillTable th:nth-child(4),

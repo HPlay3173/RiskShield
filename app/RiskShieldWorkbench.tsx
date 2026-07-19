@@ -67,6 +67,7 @@ const BUILDER_STEPS = [
 ] as const;
 
 const ONBOARDING_STORAGE_KEY = "riskshield:onboarding:v0.4.1";
+const LIBRARY_PAGE_SIZE = 20;
 
 type OnboardingTarget = "navigation" | "new-skill" | "copy-input" | "next-action" | "analyzer-nav";
 
@@ -717,6 +718,7 @@ export function RiskShieldWorkbench() {
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryStatus, setLibraryStatus] = useState<"all" | RiskSkill["reviewStatus"]>("all");
   const [libraryCategory, setLibraryCategory] = useState("all");
+  const [libraryPage, setLibraryPage] = useState(1);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [onboardingRect, setOnboardingRect] = useState<{
@@ -892,6 +894,16 @@ export function RiskShieldWorkbench() {
       return matchesStatus && matchesCategory && (!query || haystack.includes(query));
     });
   }, [libraryCategory, libraryQuery, libraryStatus, skills]);
+  const libraryPageCount = Math.max(1, Math.ceil(filteredSkills.length / LIBRARY_PAGE_SIZE));
+  const currentLibraryPage = Math.min(libraryPage, libraryPageCount);
+  const visibleLibrarySkills = filteredSkills.slice(
+    (currentLibraryPage - 1) * LIBRARY_PAGE_SIZE,
+    currentLibraryPage * LIBRARY_PAGE_SIZE,
+  );
+  const libraryRangeStart = filteredSkills.length
+    ? ((currentLibraryPage - 1) * LIBRARY_PAGE_SIZE) + 1
+    : 0;
+  const libraryRangeEnd = Math.min(currentLibraryPage * LIBRARY_PAGE_SIZE, filteredSkills.length);
 
   const reviewedSkills = useMemo(
     () => skills.filter((skill) => skill.reviewStatus === "reviewed"),
@@ -2098,11 +2110,24 @@ export function RiskShieldWorkbench() {
                 <label className="searchField">
                   <span className="visuallyHidden">스킬 검색</span>
                   <span aria-hidden="true">⌕</span>
-                  <input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="스킬 ID, 패턴, 카테고리 검색" />
+                  <input
+                    value={libraryQuery}
+                    onChange={(event) => {
+                      setLibraryQuery(event.target.value);
+                      setLibraryPage(1);
+                    }}
+                    placeholder="스킬 ID, 패턴, 카테고리 검색"
+                  />
                 </label>
                 <label>
                   <span className="visuallyHidden">검토 상태</span>
-                  <select value={libraryStatus} onChange={(event) => setLibraryStatus(event.target.value as typeof libraryStatus)}>
+                  <select
+                    value={libraryStatus}
+                    onChange={(event) => {
+                      setLibraryStatus(event.target.value as typeof libraryStatus);
+                      setLibraryPage(1);
+                    }}
+                  >
                     <option value="all">모든 상태</option>
                     <option value="reviewed">검토 완료</option>
                     <option value="draft">초안</option>
@@ -2111,55 +2136,86 @@ export function RiskShieldWorkbench() {
                 </label>
                 <label>
                   <span className="visuallyHidden">카테고리</span>
-                  <select value={libraryCategory} onChange={(event) => setLibraryCategory(event.target.value)}>
+                  <select
+                    value={libraryCategory}
+                    onChange={(event) => {
+                      setLibraryCategory(event.target.value);
+                      setLibraryPage(1);
+                    }}
+                  >
                     <option value="all">모든 카테고리</option>
                     {categories.map((category) => <option key={category}>{category}</option>)}
                   </select>
                 </label>
               </div>
               {filteredSkills.length ? (
-                <div className="tableScroll">
-                  <table className="skillTable">
-                    <caption className="visuallyHidden">RiskShield 스킬 목록</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">상태</th>
-                        <th scope="col">스킬 / 조합 패턴</th>
-                        <th scope="col">카테고리</th>
-                        <th scope="col">최소 점수</th>
-                        <th scope="col">Dominant</th>
-                        <th scope="col">신뢰도</th>
-                        <th scope="col"><span className="visuallyHidden">작업</span></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSkills.map((skill) => (
-                        <tr key={skill.id}>
-                          <td>
-                            <span className={cx(
-                              "tableStatus",
-                              skill.reviewStatus === "reviewed" && "tableStatusReviewed",
-                              skill.reviewStatus === "rejected" && "tableStatusRejected",
-                            )}>
-                              {reviewStatusLabel(skill.reviewStatus)}
-                            </span>
-                          </td>
-                          <td><strong title={skill.id}>{skill.id}</strong><code title={skill.patternType}>{skill.patternType}</code></td>
-                          <td>{skill.category}</td>
-                          <td><b className="scoreCell">{skill.severityFloor}</b></td>
-                          <td>{skill.dominantRisk ? <span className="dominantDot">적용</span> : <span className="mutedText">미적용</span>}</td>
-                          <td>{Math.round(skill.confidence * 100)}%</td>
-                          <td><button type="button" className="rowButton" onClick={() => openSkill(skill)} aria-label={skill.id + " 열기"}>열기</button></td>
+                <>
+                  <div className="libraryResultMeta" aria-live="polite">
+                    <span>검색 결과 <strong>{filteredSkills.length.toLocaleString("ko-KR")}</strong>개</span>
+                    <span>{libraryRangeStart.toLocaleString("ko-KR")}–{libraryRangeEnd.toLocaleString("ko-KR")} 표시</span>
+                  </div>
+                  <div className="tableScroll">
+                    <table className="skillTable">
+                      <caption className="visuallyHidden">RiskShield 스킬 목록</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">상태</th>
+                          <th scope="col">스킬 / 조합 패턴</th>
+                          <th scope="col">카테고리</th>
+                          <th scope="col">최소 점수</th>
+                          <th scope="col">Dominant</th>
+                          <th scope="col">신뢰도</th>
+                          <th scope="col"><span className="visuallyHidden">작업</span></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {visibleLibrarySkills.map((skill) => (
+                          <tr key={skill.id}>
+                            <td>
+                              <span className={cx(
+                                "tableStatus",
+                                skill.reviewStatus === "reviewed" && "tableStatusReviewed",
+                                skill.reviewStatus === "rejected" && "tableStatusRejected",
+                              )}>
+                                {reviewStatusLabel(skill.reviewStatus)}
+                              </span>
+                            </td>
+                            <td><strong title={skill.id}>{skill.id}</strong><code title={skill.patternType}>{skill.patternType}</code></td>
+                            <td>{skill.category}</td>
+                            <td><b className="scoreCell">{skill.severityFloor}</b></td>
+                            <td>{skill.dominantRisk ? <span className="dominantDot">적용</span> : <span className="mutedText">미적용</span>}</td>
+                            <td>{Math.round(skill.confidence * 100)}%</td>
+                            <td><button type="button" className="rowButton" onClick={() => openSkill(skill)} aria-label={skill.id + " 열기"}>열기</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <nav className="libraryPagination" aria-label="스킬 목록 페이지">
+                    <button
+                      type="button"
+                      className="secondaryButton"
+                      disabled={currentLibraryPage === 1}
+                      onClick={() => setLibraryPage((page) => Math.max(1, page - 1))}
+                    >
+                      이전
+                    </button>
+                    <span><strong>{currentLibraryPage}</strong> / {libraryPageCount} 페이지</span>
+                    <button
+                      type="button"
+                      className="secondaryButton"
+                      disabled={currentLibraryPage === libraryPageCount}
+                      onClick={() => setLibraryPage((page) => Math.min(libraryPageCount, page + 1))}
+                    >
+                      다음
+                    </button>
+                  </nav>
+                </>
               ) : (
                 <div className="libraryEmpty">
                   <span aria-hidden="true">⌕</span>
                   <h2>조건과 일치하는 스킬이 없습니다.</h2>
-                  <button type="button" className="secondaryButton" onClick={() => { setLibraryQuery(""); setLibraryStatus("all"); setLibraryCategory("all"); }}>필터 초기화</button>
+                  <button type="button" className="secondaryButton" onClick={() => { setLibraryQuery(""); setLibraryStatus("all"); setLibraryCategory("all"); setLibraryPage(1); }}>필터 초기화</button>
                 </div>
               )}
             </section>
