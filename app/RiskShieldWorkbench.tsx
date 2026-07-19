@@ -66,6 +66,72 @@ const BUILDER_STEPS = [
   },
 ] as const;
 
+const ONBOARDING_STORAGE_KEY = "riskshield:onboarding:v0.4.1";
+
+type OnboardingTarget = "navigation" | "new-skill" | "copy-input" | "next-action" | "analyzer-nav";
+
+const ONBOARDING_STEPS: Array<{
+  eyebrow: string;
+  title: string;
+  description: string;
+  target?: OnboardingTarget;
+  details: string[];
+}> = [
+  {
+    eyebrow: "처음 오셨나요?",
+    title: "RiskShield 사용 흐름을 1분 안에 살펴볼게요",
+    description: "화면을 둘러보기만 하며 스킬이나 분석 결과는 저장하지 않습니다.",
+    details: ["문구 입력", "위험 맥락 검토", "사람의 최종 판단"],
+  },
+  {
+    eyebrow: "전체 메뉴",
+    title: "위쪽 메뉴로 작업 화면을 옮겨요",
+    description: "필요한 작업만 골라 순서대로 진행할 수 있습니다.",
+    target: "navigation",
+    details: [
+      "스킬 만들기 · 위험 패턴을 단계별로 작성",
+      "CSV 가져오기 · 외부 자료를 검토용으로 불러오기",
+      "스킬 라이브러리 · 저장된 스킬 검색과 상태 확인",
+      "Analyzer 테스트 · 광고 문구를 빠르게 분석",
+      "내보내기 · 검토 완료 자료를 파일로 받기",
+    ],
+  },
+  {
+    eyebrow: "새 작업",
+    title: "새로운 위험 패턴은 여기서 시작해요",
+    description: "‘새 스킬’을 누르면 빈 초안이 열립니다. 작성 중인 내용이 있다면 먼저 저장하세요.",
+    target: "new-skill",
+    details: ["새 스킬 버튼은 저장을 실행하지 않습니다.", "초안·검토 완료·반려 상태는 마지막 검토 단계에서 선택합니다."],
+  },
+  {
+    eyebrow: "1단계 · 자료 입력",
+    title: "먼저 검토할 문구를 입력하세요",
+    description: "논란 문구는 필수이고, 분야·출처·메모는 판단에 필요한 만큼만 추가하면 됩니다.",
+    target: "copy-input",
+    details: ["원문 그대로 입력해야 근거 위치를 정확히 확인할 수 있습니다.", "개인정보가 포함된 문구는 입력하지 않는 것을 권장합니다."],
+  },
+  {
+    eyebrow: "다음 단계",
+    title: "주요 버튼이 다음 할 일을 안내해요",
+    description: "‘해석하고 다음’을 누르면 맥락 해석으로 이동하고, 이후에는 이전·다음 버튼으로 검토 단계를 오갑니다.",
+    target: "next-action",
+    details: ["5단계에서 사람이 근거와 출처를 최종 확인합니다.", "6단계에서는 만든 스킬을 실제 문구로 시험합니다."],
+  },
+  {
+    eyebrow: "빠른 분석",
+    title: "스킬을 만들지 않고 문구만 확인할 수도 있어요",
+    description: "‘Analyzer 테스트’에서 광고 문구를 입력하면 규칙 결과와 AI 문맥 보조 결과를 다음 화면에서 확인합니다.",
+    target: "analyzer-nav",
+    details: ["결과는 자동 승인이나 자동 차단이 아닙니다.", "high·review·no_match와 근거를 보고 담당자가 최종 판단합니다."],
+  },
+  {
+    eyebrow: "안내 완료",
+    title: "이제 필요한 작업부터 시작해 보세요",
+    description: "안내를 닫아도 헤더의 ‘사용 안내’ 버튼으로 언제든 다시 볼 수 있습니다.",
+    details: ["새 패턴 작성 · 스킬 만들기", "기존 패턴 확인 · 스킬 라이브러리", "문구 즉시 분석 · Analyzer 테스트"],
+  },
+];
+
 const QUICK_TESTS = [
   "15초만에 형량 분석",
   "기각 시 100% 환불",
@@ -651,11 +717,95 @@ export function RiskShieldWorkbench() {
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryStatus, setLibraryStatus] = useState<"all" | RiskSkill["reviewStatus"]>("all");
   const [libraryCategory, setLibraryCategory] = useState("all");
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const [onboardingRect, setOnboardingRect] = useState<{
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
   const builderStageRef = useRef<HTMLDivElement>(null);
+  const onboardingDialogRef = useRef<HTMLDivElement>(null);
+  const onboardingOriginRef = useRef<{ activeView: ViewId; builderStep: number; analyzerStep: 1 | 2 } | null>(null);
+  const onboardingReturnFocusRef = useRef<HTMLElement | null>(null);
   const hasMountedRef = useRef(false);
   const analysisRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      let completed = false;
+      try {
+        completed = window.localStorage.getItem(ONBOARDING_STORAGE_KEY) === "complete";
+      } catch {
+        completed = false;
+      }
+      if (completed) return;
+      onboardingOriginRef.current = { activeView: "builder", builderStep: 1, analyzerStep: 1 };
+      setOnboardingStep(0);
+      setOnboardingOpen(true);
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!onboardingOpen) return;
+
+    const target = ONBOARDING_STEPS[onboardingStep]?.target;
+    if (!target) {
+      const timer = window.setTimeout(() => {
+        setOnboardingRect(null);
+        onboardingDialogRef.current?.focus({ preventScroll: true });
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    const selector = target === "navigation"
+      ? window.matchMedia("(max-width: 767px)").matches ? '[data-tour="mobile-navigation"]' : '[data-tour="main-navigation"]'
+      : target === "analyzer-nav" && window.matchMedia("(max-width: 767px)").matches
+        ? '[data-tour="mobile-navigation"]'
+        : target === "analyzer-nav"
+          ? '[data-view="analyzer"]'
+          : `[data-tour="${target}"]`;
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) {
+      const timer = window.setTimeout(() => setOnboardingRect(null), 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    const measure = () => {
+      const rect = element.getBoundingClientRect();
+      const padding = 8;
+      setOnboardingRect({
+        top: Math.max(8, rect.top - padding),
+        right: Math.min(window.innerWidth - 8, rect.right + padding),
+        bottom: Math.min(window.innerHeight - 8, rect.bottom + padding),
+        left: Math.max(8, rect.left - padding),
+        width: Math.min(window.innerWidth - 16, rect.width + (padding * 2)),
+        height: Math.min(window.innerHeight - 16, rect.height + (padding * 2)),
+      });
+    };
+
+    const initialRect = element.getBoundingClientRect();
+    if (initialRect.top < 72 || initialRect.bottom > window.innerHeight - 24) {
+      element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+    }
+    const timer = window.setTimeout(() => {
+      measure();
+      onboardingDialogRef.current?.focus({ preventScroll: true });
+    }, 220);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [onboardingOpen, onboardingStep]);
 
   useEffect(() => {
     const host = window.location.hostname;
@@ -915,6 +1065,42 @@ export function RiskShieldWorkbench() {
     }
   }
 
+  function startOnboarding() {
+    onboardingOriginRef.current = { activeView, builderStep, analyzerStep };
+    onboardingReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setActiveView("builder");
+    setBuilderStep(1);
+    setOnboardingStep(0);
+    setOnboardingOpen(true);
+  }
+
+  function closeOnboarding() {
+    try {
+      window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "complete");
+    } catch {
+      // 브라우저 저장소를 사용할 수 없어도 안내 종료는 계속합니다.
+    }
+    const origin = onboardingOriginRef.current;
+    setOnboardingOpen(false);
+    setOnboardingRect(null);
+    if (origin) {
+      setActiveView(origin.activeView);
+      setBuilderStep(origin.builderStep);
+      setAnalyzerStep(origin.analyzerStep);
+    }
+    window.setTimeout(() => onboardingReturnFocusRef.current?.focus({ preventScroll: true }), 0);
+  }
+
+  function moveOnboarding(direction: -1 | 1) {
+    const nextStep = onboardingStep + direction;
+    if (nextStep < 0) return;
+    if (nextStep >= ONBOARDING_STEPS.length) {
+      closeOnboarding();
+      return;
+    }
+    setOnboardingStep(nextStep);
+  }
+
   async function saveSkill(status: RiskSkill["reviewStatus"]) {
     const nextSkill: RiskSkill = {
       ...activeSkill,
@@ -1164,6 +1350,23 @@ export function RiskShieldWorkbench() {
     },
   ];
 
+  const currentOnboardingStep = ONBOARDING_STEPS[onboardingStep];
+  const onboardingDialogStyle = onboardingRect && typeof window !== "undefined"
+    ? (() => {
+        const cardWidth = Math.min(380, window.innerWidth - 24);
+        const left = Math.max(12, Math.min(
+          onboardingRect.left + (onboardingRect.width / 2) - (cardWidth / 2),
+          window.innerWidth - cardWidth - 12,
+        ));
+        const estimatedHeight = Math.min(420, window.innerHeight - 24);
+        const below = onboardingRect.bottom + 14;
+        const top = below + estimatedHeight <= window.innerHeight
+          ? below
+          : Math.max(12, onboardingRect.top - estimatedHeight - 14);
+        return { left, top };
+      })()
+    : undefined;
+
   return (
     <div className="appShell appleShell">
       <a className="skipLink" href="#main-content">본문으로 건너뛰기</a>
@@ -1174,7 +1377,7 @@ export function RiskShieldWorkbench() {
             <strong>RiskShield Studio</strong>
           </button>
 
-          <nav className="appNav" aria-label="RiskShield Studio 작업 메뉴">
+          <nav className="appNav" aria-label="RiskShield Studio 작업 메뉴" data-tour="main-navigation">
             {NAV_ITEMS.map((item) => (
               <button
                 type="button"
@@ -1188,7 +1391,7 @@ export function RiskShieldWorkbench() {
               </button>
             ))}
           </nav>
-          <label className="mobileNavSelect">
+          <label className="mobileNavSelect" data-tour="mobile-navigation">
             <span>화면 선택</span>
             <select
               value={activeView}
@@ -1201,8 +1404,11 @@ export function RiskShieldWorkbench() {
 
           <div className="appHeaderActions">
             <span className="visuallyHidden" aria-live="polite">{storageLabel}</span>
+            <button type="button" className="secondaryButton compactButton guideButton" onClick={startOnboarding}>
+              사용 안내
+            </button>
             {(activeView === "builder" || activeView === "library") && (
-              <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button">
+              <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button" data-tour="new-skill">
                 {activeView === "library" ? "새 스킬 만들기" : "새 스킬"}
               </button>
             )}
@@ -1253,6 +1459,7 @@ export function RiskShieldWorkbench() {
                   </div>
                   <textarea
                     id="case-text"
+                    data-tour="copy-input"
                     value={caseInput.text}
                     maxLength={500}
                     rows={3}
@@ -1324,6 +1531,7 @@ export function RiskShieldWorkbench() {
                     className="primaryButton"
                     onClick={interpretCase}
                     data-testid="builder-interpret-button"
+                    data-tour="next-action"
                   >
                     해석하고 다음
                   </button>
@@ -2091,6 +2299,71 @@ export function RiskShieldWorkbench() {
           </section>
         )}
       </main>
+
+      {onboardingOpen && currentOnboardingStep && (
+        <div
+          className="onboardingLayer"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") closeOnboarding();
+            if (event.key === "ArrowRight") moveOnboarding(1);
+            if (event.key === "ArrowLeft") moveOnboarding(-1);
+          }}
+        >
+          <div className={cx("onboardingShield", !onboardingRect && "onboardingShieldSolid")} aria-hidden="true" />
+          {onboardingRect && (
+            <div
+              className="onboardingSpotlight"
+              aria-hidden="true"
+              style={{
+                top: onboardingRect.top,
+                left: onboardingRect.left,
+                width: onboardingRect.width,
+                height: onboardingRect.height,
+              }}
+            />
+          )}
+          <div
+            ref={onboardingDialogRef}
+            className={cx("onboardingDialog", onboardingRect && "onboardingDialogAnchored")}
+            style={onboardingDialogStyle}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboarding-title"
+            aria-describedby="onboarding-description"
+            tabIndex={-1}
+          >
+            <div className="onboardingTopRow">
+              <span>{currentOnboardingStep.eyebrow}</span>
+              <button type="button" onClick={closeOnboarding} aria-label="사용 안내 닫기">×</button>
+            </div>
+            <p className="onboardingProgress" aria-label={`사용 안내 ${onboardingStep + 1}/${ONBOARDING_STEPS.length}단계`}>
+              {ONBOARDING_STEPS.map((step, index) => (
+                <span key={step.title} className={index === onboardingStep ? "onboardingProgressActive" : ""} />
+              ))}
+            </p>
+            <h2 id="onboarding-title">{currentOnboardingStep.title}</h2>
+            <p id="onboarding-description" className="onboardingDescription">{currentOnboardingStep.description}</p>
+            <ul className="onboardingDetails">
+              {currentOnboardingStep.details.map((detail) => <li key={detail}>{detail}</li>)}
+            </ul>
+            <div className="onboardingActions">
+              {onboardingStep === 0 ? (
+                <button type="button" className="textButton" onClick={closeOnboarding}>건너뛰기</button>
+              ) : (
+                <button type="button" className="secondaryButton" onClick={() => moveOnboarding(-1)}>이전</button>
+              )}
+              <button type="button" className="primaryButton" onClick={() => moveOnboarding(1)}>
+                {onboardingStep === 0
+                  ? "안내 시작"
+                  : onboardingStep === ONBOARDING_STEPS.length - 1
+                    ? "안내 끝내기"
+                    : "다음"}
+              </button>
+            </div>
+            <span className="onboardingKeyboardHint">Esc로 닫기 · ← →로 이동</span>
+          </div>
+        </div>
+      )}
 
       <footer className="siteFooter compactFooter">
         <div className="siteFooterInner">
