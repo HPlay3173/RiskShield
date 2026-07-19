@@ -1,6 +1,13 @@
-export { controlPlaneUnavailableResponse as GET } from "../../../../lib/control-plane-unavailable";
-export { controlPlaneUnavailableResponse as HEAD } from "../../../../lib/control-plane-unavailable";
-export { controlPlaneUnavailableResponse as POST } from "../../../../lib/control-plane-unavailable";
-export { controlPlaneUnavailableResponse as PUT } from "../../../../lib/control-plane-unavailable";
-export { controlPlaneUnavailableResponse as PATCH } from "../../../../lib/control-plane-unavailable";
-export { controlPlaneUnavailableResponse as DELETE } from "../../../../lib/control-plane-unavailable";
+import { controlApi } from "../../../../lib/auth/control-api";
+
+export function GET(request: Request) {
+  return controlApi(request, "principal:manage");
+}
+
+export function POST(request: Request) {
+  return controlApi(request, "principal:manage", true);
+}
+
+export const PUT = POST;
+export const PATCH = POST;
+export const DELETE = POST;
