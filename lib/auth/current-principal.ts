@@ -7,6 +7,7 @@ export const CAPABILITIES = [
   "skill:read_admin",
   "skill:propose_revision",
   "dataset:manage",
+  "training:run",
   "evaluation:run",
   "model:manage",
   "prompt:manage",
@@ -23,7 +24,8 @@ export type CurrentPrincipal = {
   userId: string;
   externalSubject: string;
   normalizedEmail: string;
-  identityIssuer: "https://accounts.google.com";
+  identityIssuer: "https://accounts.google.com" | "riskshield:local-development";
+  authSource: "google_oidc" | "development_fixture";
   role: Role;
   roleVersion: number;
   capabilities: ReadonlySet<Capability>;

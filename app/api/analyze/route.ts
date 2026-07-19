@@ -6,6 +6,7 @@ import {
   type AnalysisResult,
   type RiskSkill,
   type SeverityRules,
+  starterSkills,
 } from "../../../lib/riskshield";
 import { GoogleGenAiProvider } from "../../../lib/v0-4/google-genai-provider";
 import {
@@ -29,6 +30,14 @@ const DAILY_REQUEST_LIMIT = 40;
 const DAILY_PROVIDER_CALL_LIMIT = 250;
 const MAX_RETRY_AFTER_SECONDS = 2;
 
+const ANALYSIS_PROFILES = {
+  balanced: "균형 분석",
+  advertising: "광고·주장",
+  context: "문맥 우선",
+} as const;
+
+type AnalysisProfile = keyof typeof ANALYSIS_PROFILES;
+
 type CacheEntry = {
   expiresAt: number;
   run: InterpreterRun;
@@ -49,13 +58,26 @@ let providerBudget = { day: utcDay(), calls: 0 };
 
 async function getRuntimeEnvironment() {
   const { env } = await import("cloudflare:workers");
-  return env as typeof env & { RISKSHIELD_INTERPRETER_API_KEY?: string };
+  return env as typeof env & {
+    RISKSHIELD_ENABLE_DEV_PRINCIPAL?: string;
+    RISKSHIELD_INTERPRETER_API_KEY?: string;
+  };
 }
 
 type RuntimeEnvironment = Awaited<ReturnType<typeof getRuntimeEnvironment>>;
 
+function developmentRuleFallback(runtime: RuntimeEnvironment) {
+  return process.env.NODE_ENV !== "production" && runtime.RISKSHIELD_ENABLE_DEV_PRINCIPAL === "1";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function analysisProfile(value: unknown): AnalysisProfile {
+  return typeof value === "string" && value in ANALYSIS_PROFILES
+    ? value as AnalysisProfile
+    : "balanced";
 }
 
 function utcDay(date = new Date()) {
@@ -101,30 +123,44 @@ function writeCached(key: string, run: InterpreterRun) {
 }
 
 async function readReviewedSkills(runtime: RuntimeEnvironment): Promise<RiskSkill[]> {
-  if (!runtime.DB) throw new Error("storage_unavailable");
-  const rows = await runtime.DB.prepare(
-    "SELECT payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
-  ).all<{ payload: string }>();
-  return (rows.results ?? []).flatMap((row) => {
-    try {
-      const parsed = JSON.parse(row.payload) as unknown;
-      if (!isRecord(parsed) || parsed.reviewStatus !== "reviewed") return [];
-      const skill = parsed as unknown as RiskSkill;
-      return validateSkill(skill).length === 0 ? [skill] : [];
-    } catch {
-      return [];
+  try {
+    if (!runtime.DB) throw new Error("storage_unavailable");
+    const rows = await runtime.DB.prepare(
+      "SELECT payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
+    ).all<{ payload: string }>();
+    return (rows.results ?? []).flatMap((row) => {
+      try {
+        const parsed = JSON.parse(row.payload) as unknown;
+        if (!isRecord(parsed) || parsed.reviewStatus !== "reviewed") return [];
+        const skill = parsed as unknown as RiskSkill;
+        return validateSkill(skill).length === 0 ? [skill] : [];
+      } catch {
+        return [];
+      }
+    });
+  } catch (error) {
+    if (developmentRuleFallback(runtime)) {
+      return starterSkills.filter(
+        (skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0,
+      );
     }
-  });
+    throw error;
+  }
 }
 
 async function readSeverityRules(runtime: RuntimeEnvironment): Promise<SeverityRules> {
   if (!runtime.DB) return DEFAULT_SEVERITY_RULES;
-  const row = await runtime.DB.prepare(
-    "SELECT payload FROM riskshield_settings WHERE key = 'severity_rules'",
-  ).first<{ payload?: string }>();
-  if (!row?.payload) return DEFAULT_SEVERITY_RULES;
-  const parsed = parseSeverityRules(row.payload);
-  return parsed.issues.length === 0 ? parsed.rules : DEFAULT_SEVERITY_RULES;
+  try {
+    const row = await runtime.DB.prepare(
+      "SELECT payload FROM riskshield_settings WHERE key = 'severity_rules'",
+    ).first<{ payload?: string }>();
+    if (!row?.payload) return DEFAULT_SEVERITY_RULES;
+    const parsed = parseSeverityRules(row.payload);
+    return parsed.issues.length === 0 ? parsed.rules : DEFAULT_SEVERITY_RULES;
+  } catch (error) {
+    if (developmentRuleFallback(runtime)) return DEFAULT_SEVERITY_RULES;
+    throw error;
+  }
 }
 
 async function runInterpreter(text: string, domainHint: ClaimTarget | undefined, apiKey: string) {
@@ -308,6 +344,7 @@ export async function POST(request: Request) {
   }
 
   const text = body.text.trim();
+  const profile = analysisProfile(body.profile);
   try {
     const runtime = await getRuntimeEnvironment();
     const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
@@ -340,8 +377,50 @@ export async function POST(request: Request) {
 
       const hybrid = combinePrivateBetaHybrid(rules, run);
       const payload = run.payload;
+      const uncertainty = !run.ok || hybrid.conflict || hybrid.status === "review"
+        ? {
+            level: "high" as const,
+            reason: !run.ok
+              ? "AI 문맥 해석을 사용할 수 없어 사람의 확인이 더 중요합니다."
+              : "규칙과 문맥 신호가 충돌하거나 검토 경계에 있습니다.",
+          }
+        : hybrid.status === "no_match" || (payload?.confidence ?? 0) < 0.75
+          ? {
+              level: "medium" as const,
+              reason: "직접 위험 근거가 없거나 문맥 신뢰도가 제한적입니다.",
+            }
+          : {
+              level: "low" as const,
+              reason: "규칙 근거와 문맥 신호가 같은 방향을 가리킵니다.",
+            };
+      const exactEvidenceCount = rules.primaryMatch?.hits.length ?? 0;
+      const novelty = exactEvidenceCount > 0
+        ? {
+            state: "known_pattern" as const,
+            label: "알려진 패턴과 연결",
+            reason: "검토된 규칙의 정확한 evidence 구간이 있습니다.",
+            candidateRegistration: "disabled" as const,
+          }
+        : hybrid.status === "no_match"
+          ? {
+              state: "possible_new_expression" as const,
+              label: "새 표현일 수 있음",
+              reason: "현재 검토 지식에서 직접 근거를 찾지 못했습니다. 이는 안전 판정이 아닙니다.",
+              candidateRegistration: "disabled" as const,
+            }
+          : {
+              state: "insufficient_evidence" as const,
+              label: "근거 부족",
+              reason: "신규성이나 기존 패턴 여부를 확정할 근거가 충분하지 않습니다.",
+              candidateRegistration: "disabled" as const,
+            };
       return json({
         beta: "RiskShield v0.5 public beta",
+        profile: {
+          id: profile,
+          label: ANALYSIS_PROFILES[profile],
+          kernel: "v4-compatibility",
+        },
         rules: projectRules(rules),
         ai: {
           state: run.ok ? "ready" : "fallback",
@@ -361,6 +440,8 @@ export async function POST(request: Request) {
           conflict: hybrid.conflict,
           reason: hybrid.reason,
         },
+        uncertainty,
+        novelty,
         notice: hybrid.status === "no_match"
           ? "현재 규칙과 AI 문맥 분석에서 직접 위험 주장이 확인되지 않았습니다. 이는 자동 승인이나 안전 보장을 의미하지 않습니다."
           : "AI 분석은 담당자의 최종 검토를 돕는 보조 신호이며 자동 승인·자동 금지를 의미하지 않습니다.",

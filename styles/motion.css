@@ -1,0 +1,29 @@
+@keyframes routeFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes progressSweep { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+
+.routeContent, .publicAnalyzerMain { animation: routeFade var(--route-duration) ease-out both; }
+
+.indeterminateTrack { position: relative; overflow: hidden; }
+.indeterminateTrack::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 34%;
+  background: currentColor;
+  opacity: 0.28;
+  animation: progressSweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .pressable:active:not(:disabled), .pressable[data-pressed="true"] {
+    transform: none;
+    opacity: 0.82;
+  }
+}

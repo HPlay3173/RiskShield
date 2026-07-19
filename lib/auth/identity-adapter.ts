@@ -3,9 +3,11 @@ import {
   isRole,
   type Capability,
   type CurrentPrincipal,
-} from "./current-principal";
-import { getAuthRuntime } from "./runtime";
-import type { SessionClaims } from "./session";
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "./current-principal.ts";
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+import { getAuthRuntime } from "./runtime.ts";
+import type { SessionClaims } from "./session.ts";
 
 type UserRow = {
   user_id: string;
@@ -26,6 +28,12 @@ function capabilitiesFrom(value: string) {
   }
   if (!Array.isArray(parsed)) return new Set<Capability>();
   return new Set(parsed.filter((item): item is Capability => typeof item === "string" && isCapability(item)));
+}
+
+export function sessionClearsNotBefore(sessionIssuedAt: number, value: string | null) {
+  if (value === null) return true;
+  const notBefore = Date.parse(value);
+  return Number.isFinite(notBefore) && sessionIssuedAt * 1_000 >= notBefore;
 }
 
 async function database() {
@@ -74,10 +82,7 @@ export async function principalForSession(session: SessionClaims): Promise<Curre
     session.sub,
   );
   if (!row || !isRole(row.role_name) || row.role_version !== session.roleVersion) return null;
-  if (row.session_not_before) {
-    const notBefore = Date.parse(row.session_not_before);
-    if (Number.isFinite(notBefore) && session.iat * 1_000 < notBefore) return null;
-  }
+  if (!sessionClearsNotBefore(session.iat, row.session_not_before)) return null;
   const revoked = await (await database()).prepare(
     "SELECT session_id FROM riskshield_session_revocations WHERE session_id = ? AND expires_at > ? LIMIT 1",
   ).bind(session.sid, new Date().toISOString()).first<{ session_id: string }>();
@@ -87,6 +92,7 @@ export async function principalForSession(session: SessionClaims): Promise<Curre
     externalSubject: row.external_subject,
     normalizedEmail: row.normalized_email,
     identityIssuer: "https://accounts.google.com",
+    authSource: "google_oidc",
     role: row.role_name,
     roleVersion: row.role_version,
     capabilities: capabilitiesFrom(row.capabilities),

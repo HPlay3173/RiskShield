@@ -1,8 +1,7 @@
-import { requirePageCapability } from "../../lib/auth/authorize";
+import managementStylesheet from "../../styles/management.css?url";
 
 export const dynamic = "force-dynamic";
 
-export default async function DevLayout({ children }: { children: React.ReactNode }) {
-  await requirePageCapability("/dev", "dataset:manage");
-  return children;
+export default function DevLayout({ children }: { children: React.ReactNode }) {
+  return <><link rel="stylesheet" href={managementStylesheet} />{children}</>;
 }

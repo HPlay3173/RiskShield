@@ -4,6 +4,7 @@ export type AuthRuntime = {
   GOOGLE_OIDC_CLIENT_SECRET?: string;
   RISKSHIELD_SESSION_SIGNING_KEY?: string;
   RISKSHIELD_CANONICAL_ORIGIN?: string;
+  RISKSHIELD_ENABLE_DEV_PRINCIPAL?: string;
 };
 
 export async function getAuthRuntime(): Promise<AuthRuntime> {
