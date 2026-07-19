@@ -10,10 +10,13 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
-const localRuntimeVars: Record<string, string> =
-  process.env.RISKSHIELD_ENABLE_DEV_PRINCIPAL === "1"
+const localRuntimeVars: Record<string, string> = {
+  RISKSHIELD_ACCESS_CODE: process.env.RISKSHIELD_ACCESS_CODE ?? "",
+  RISKSHIELD_SESSION_SIGNING_KEY: process.env.RISKSHIELD_SESSION_SIGNING_KEY ?? "",
+  ...(process.env.RISKSHIELD_ENABLE_DEV_PRINCIPAL === "1"
     ? { RISKSHIELD_ENABLE_DEV_PRINCIPAL: "1" }
-    : {};
+    : {}),
+};
 
 const localBindingConfig = {
   main: "./worker/index.ts",

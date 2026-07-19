@@ -8,6 +8,11 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 import { getAuthRuntime } from "./runtime.ts";
 import type { SessionClaims } from "./session.ts";
+import {
+  accessCodePrincipalForSession,
+  ACCESS_CODE_SUBJECT,
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "./access-code.ts";
 
 type UserRow = {
   user_id: string;
@@ -73,6 +78,9 @@ export async function userForGoogleIdentity(identity: { subject: string; email: 
 }
 
 export async function principalForSession(session: SessionClaims): Promise<CurrentPrincipal | null> {
+  const runtime = await getAuthRuntime();
+  const accessCodePrincipal = accessCodePrincipalForSession(session, runtime);
+  if (accessCodePrincipal) return accessCodePrincipal;
   const row = await rowBy(
     `${USER_SELECT}
      WHERE u.id = ?
@@ -102,6 +110,7 @@ export async function principalForSession(session: SessionClaims): Promise<Curre
 }
 
 export async function revokeSession(session: SessionClaims) {
+  if (session.sub === ACCESS_CODE_SUBJECT) return;
   const db = await database();
   await db.prepare(`
     INSERT INTO riskshield_session_revocations (session_id, user_id, expires_at, revoked_at)

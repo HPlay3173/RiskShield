@@ -1,6 +1,6 @@
 import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from "jose";
 import { OIDC_STATE_COOKIE, SESSION_COOKIE, readCookie } from "./cookies";
-import { getAuthRuntime, requireAuthConfiguration } from "./runtime";
+import { getAuthRuntime, requireSessionConfiguration } from "./runtime";
 
 const SESSION_ISSUER = "riskshield-control";
 const SESSION_AUDIENCE = "riskshield-protected-routes";
@@ -38,7 +38,7 @@ export async function createSessionToken(input: {
   csrfToken: string;
 }) {
   const runtime = await getAuthRuntime();
-  const { signingKey } = requireAuthConfiguration(runtime);
+  const { signingKey } = requireSessionConfiguration(runtime);
   return new SignJWT({
     sid: input.sessionId,
     roleVersion: input.roleVersion,
@@ -55,7 +55,7 @@ export async function createSessionToken(input: {
 
 export async function verifySessionToken(token: string): Promise<SessionClaims> {
   const runtime = await getAuthRuntime();
-  const { signingKey } = requireAuthConfiguration(runtime);
+  const { signingKey } = requireSessionConfiguration(runtime);
   const { payload } = await jwtVerify(token, bytes(signingKey), {
     issuer: SESSION_ISSUER,
     audience: SESSION_AUDIENCE,
@@ -93,7 +93,7 @@ export async function sessionFromRequest(request: Request) {
 
 export async function createOidcStateToken(state: OidcState) {
   const runtime = await getAuthRuntime();
-  const { signingKey } = requireAuthConfiguration(runtime);
+  const { signingKey } = requireSessionConfiguration(runtime);
   return new EncryptJWT(state)
     .setProtectedHeader({ alg: "dir", enc: "A256GCM", typ: "riskshield-oidc-state" })
     .setIssuedAt()
@@ -106,7 +106,7 @@ export async function readOidcState(request: Request): Promise<OidcState | null>
   if (!token) return null;
   try {
     const runtime = await getAuthRuntime();
-    const { signingKey } = requireAuthConfiguration(runtime);
+    const { signingKey } = requireSessionConfiguration(runtime);
     const { payload } = await jwtDecrypt(token, await encryptionKey(signingKey), {
       keyManagementAlgorithms: ["dir"],
       contentEncryptionAlgorithms: ["A256GCM"],

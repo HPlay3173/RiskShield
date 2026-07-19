@@ -24,8 +24,8 @@ export type CurrentPrincipal = {
   userId: string;
   externalSubject: string;
   normalizedEmail: string;
-  identityIssuer: "https://accounts.google.com" | "riskshield:local-development";
-  authSource: "google_oidc" | "development_fixture";
+  identityIssuer: "https://accounts.google.com" | "riskshield:access-code" | "riskshield:local-development";
+  authSource: "google_oidc" | "access_code" | "development_fixture";
   role: Role;
   roleVersion: number;
   capabilities: ReadonlySet<Capability>;

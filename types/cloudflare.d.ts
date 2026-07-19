@@ -22,6 +22,7 @@ declare module "cloudflare:workers" {
     DB?: D1Database;
     GOOGLE_OIDC_CLIENT_ID?: string;
     GOOGLE_OIDC_CLIENT_SECRET?: string;
+    RISKSHIELD_ACCESS_CODE?: string;
     RISKSHIELD_SESSION_SIGNING_KEY?: string;
     RISKSHIELD_CANONICAL_ORIGIN?: string;
     [binding: string]: unknown;

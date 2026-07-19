@@ -100,6 +100,7 @@ test("responsive interaction and accessibility contracts remain present", async 
     "../styles/motion.css",
     "../styles/accessibility.css",
     "../styles/analyzer.css",
+    "../styles/access-code.css",
     "../styles/management.css",
   ];
   const css = (await Promise.all(stylePaths.map((path) => readFile(new URL(path, import.meta.url), "utf8")))).join("\n");

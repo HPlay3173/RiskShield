@@ -12,6 +12,7 @@ const ROLE_LABELS: Record<Role, string> = {
 
 function displayName(principal: CurrentPrincipal) {
   if (principal.authSource === "development_fixture") return "Local development owner";
+  if (principal.authSource === "access_code") return "Access code owner";
   return principal.normalizedEmail.split("@", 1)[0] || "RiskShield user";
 }
 

@@ -7,6 +7,16 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/auth/current-principal.ts";
 import {
+  ACCESS_CODE_SUBJECT,
+  accessCodePrincipalForSession,
+  verifyAccessCode,
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "../lib/auth/access-code.ts";
+import {
+  requireAccessCodeConfiguration,
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "../lib/auth/runtime.ts";
+import {
   developmentPrincipalForRequest,
   developmentPrincipalForHost,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
@@ -95,6 +105,44 @@ test("development owner fixture requires non-production, explicit enablement, an
   assert.equal(developmentPrincipalForHost({ runtime: {}, host: "localhost:3000", nodeEnv: "development" }), null);
   assert.equal(developmentPrincipalForHost({ runtime, host: "riskshield.example", nodeEnv: "development" }), null);
   assert.equal(developmentPrincipalForHost({ runtime, host: "riskshield.example@localhost", nodeEnv: "development" }), null);
+});
+
+test("access-code authentication requires strong server-only secrets and resolves an owner session", async () => {
+  const runtime = {
+    RISKSHIELD_ACCESS_CODE: "correct-horse-battery-staple-2026",
+    RISKSHIELD_SESSION_SIGNING_KEY: "s".repeat(48),
+  };
+  assert.deepEqual(requireAccessCodeConfiguration(runtime), {
+    accessCode: runtime.RISKSHIELD_ACCESS_CODE,
+    signingKey: runtime.RISKSHIELD_SESSION_SIGNING_KEY,
+  });
+  assert.equal(await verifyAccessCode(runtime.RISKSHIELD_ACCESS_CODE, runtime), true);
+  assert.equal(await verifyAccessCode("wrong-code", runtime), false);
+  assert.throws(() => requireAccessCodeConfiguration({
+    RISKSHIELD_ACCESS_CODE: "too-short",
+    RISKSHIELD_SESSION_SIGNING_KEY: "s".repeat(48),
+  }));
+
+  const principal = accessCodePrincipalForSession({
+    sub: ACCESS_CODE_SUBJECT,
+    sid: "session-1",
+    roleVersion: 1,
+    csrf: "csrf-1",
+    iat: 1,
+    exp: 2,
+  }, runtime);
+  assert.ok(principal);
+  assert.equal(principal.role, "owner");
+  assert.equal(principal.authSource, "access_code");
+  assert.deepEqual([...principal.capabilities], [...CAPABILITIES]);
+  assert.equal(accessCodePrincipalForSession({
+    sub: "different-subject",
+    sid: "session-2",
+    roleVersion: 1,
+    csrf: "csrf-2",
+    iat: 1,
+    exp: 2,
+  }, runtime), null);
 });
 
 test("streamed JSON parsing distinguishes oversized, malformed, and non-object JSON", async () => {

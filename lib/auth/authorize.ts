@@ -68,7 +68,7 @@ export async function requirePageCapability(returnTo: string, capability: Capabi
     }
   }
   if (!principal) {
-    redirect(`/api/auth/google/start?return_to=${encodeURIComponent(safeReturnTo(returnTo))}`);
+    redirect(`/access?return_to=${encodeURIComponent(safeReturnTo(returnTo))}`);
   }
   if (!can(principal, capability)) redirect("/?access=denied");
   return principal;

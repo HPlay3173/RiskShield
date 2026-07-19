@@ -85,14 +85,26 @@ test("keeps the management control plane fail-closed when auth is unavailable", 
     const location = response.headers.get("location");
     assert.ok(location, `${path} omitted its authentication redirect`);
     const redirectUrl = new URL(location);
-    assert.equal(redirectUrl.pathname, "/api/auth/google/start");
+    assert.equal(redirectUrl.pathname, "/access");
     assert.equal(redirectUrl.searchParams.get("return_to"), path);
   }
 
-  const authStart = await request("/api/auth/google/start?return_to=%2Fadmin");
-  assert.equal(authStart.status, 503);
-  assert.equal(authStart.headers.get("cache-control"), "private, no-store");
-  assert.deepEqual(await authStart.json(), { error: "authentication_unavailable" });
+  const accessPage = await request("/access?return_to=%2Fadmin");
+  assert.equal(accessPage.status, 200);
+  assert.match(await accessPage.text(), /RiskShield 관리 접근/u);
+
+  const accessLogin = await request("/api/auth/access-code", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "http://localhost",
+      "sec-fetch-site": "same-origin",
+    },
+    body: JSON.stringify({ code: "not-configured", returnTo: "/admin" }),
+  });
+  assert.equal(accessLogin.status, 503);
+  assert.equal(accessLogin.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual(await accessLogin.json(), { error: "authentication_unavailable" });
 
   for (const path of [
     "/api/admin/ping",
@@ -165,6 +177,7 @@ test("keeps public root HTML, hydration, and public JS free of skill and control
     "/api/owner",
     "risk_skills",
     "RISKSHIELD_INTERPRETER_API_KEY",
+    "RISKSHIELD_ACCESS_CODE",
     "RISKSHIELD_GOOGLE_CLIENT_SECRET",
     "RISKSHIELD_SESSION_SECRET",
     "managementShell",
