@@ -56,6 +56,10 @@ import {
   type TrainingRunRecord,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "./contracts.ts";
+import {
+  VERIFIED_REPOSITORY_TEST_RUN,
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "../evaluation/verified-run.ts";
 
 const fixtureOptions = { fixture: true, label: DEVELOPMENT_PRINCIPAL_LABEL } as const;
 const localRevisionProposals = new Map<string, SkillRevisionInput>();
@@ -393,7 +397,7 @@ export function createLocalRepositoryServices(principal: CurrentPrincipal): Repo
     candidates: new LocalCandidateRepository(),
     datasets: new LocalDatasetRepository(),
     training: new LocalTrainingRepository(),
-    evaluation: new LocalEvaluationRepository(),
+    evaluation: new LocalEvaluationRepository([VERIFIED_REPOSITORY_TEST_RUN]),
     models: new LocalModelRepository(),
     audit: new LocalAuditRepository(),
     principals: new LocalPrincipalRepository(principal),
