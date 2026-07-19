@@ -216,6 +216,8 @@ export type TrainingRunRecord = {
 
 export type EvaluationRunRecord = {
   id: string;
+  baselineVersion: string | null;
+  candidateVersion: string | null;
   codeSha: string;
   modelVersion: string;
   promptVersion: string;
@@ -226,6 +228,19 @@ export type EvaluationRunRecord = {
   failed: number;
   status: "passed" | "failed" | "running" | "unavailable";
   measuredAt: string | null;
+  metrics: {
+    falseHigh: number | null;
+    falseNegative: number | null;
+    unnecessaryReview: number | null;
+    noMatch: number | null;
+    jsonSuccessRate: number | null;
+    providerFallbackRate: number | null;
+    latencyP50Ms: number | null;
+    latencyP95Ms: number | null;
+    estimatedCostUsd: number | null;
+  };
+  profileSlices: ReadonlyArray<{ profile: string; passed: number; failed: number }> | null;
+  contextSlices: ReadonlyArray<{ context: string; passed: number; failed: number }> | null;
 };
 
 export type ModelRecord = {
@@ -236,6 +251,11 @@ export type ModelRecord = {
   schemaVersion: string;
   timeoutMs: number;
   maxRetryCount: number;
+  confidenceThreshold: number | null;
+  scoreThreshold: number | null;
+  profiles: readonly string[];
+  candidateVersion: string | null;
+  evaluationStatus: "passed" | "failed" | "not_run" | "unavailable";
   status: "active" | "candidate" | "disabled";
 };
 

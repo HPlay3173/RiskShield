@@ -10,6 +10,7 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../v0-4/google-genai-provider.ts";
 import {
+  HIGH_CONFIDENCE_THRESHOLD,
   INTERPRETER_PROMPT_VERSION,
   INTERPRETER_SCHEMA_VERSION,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
@@ -332,6 +333,11 @@ const CURRENT_MODEL: ModelRecord = {
   schemaVersion: INTERPRETER_SCHEMA_VERSION,
   timeoutMs: 15_000,
   maxRetryCount: 1,
+  confidenceThreshold: HIGH_CONFIDENCE_THRESHOLD,
+  scoreThreshold: 80,
+  profiles: ["balanced", "advertising", "context"],
+  candidateVersion: null,
+  evaluationStatus: "not_run",
   status: "active",
 };
 

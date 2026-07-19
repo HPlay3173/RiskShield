@@ -23,10 +23,11 @@ export function repositoryFailure<T>(result: Exclude<RepositoryResult<T>, { stat
 }
 
 export const JSON_BODY_TOO_LARGE = Symbol("json_body_too_large");
+export const INVALID_JSON_BODY = Symbol("invalid_json_body");
 
-export async function readJsonObject(request: Request, maxBytes = 256 * 1024) {
+export async function readJsonValue(request: Request, maxBytes = 256 * 1024) {
   try {
-    if (!request.body) return null;
+    if (!request.body) return INVALID_JSON_BODY;
     const reader = request.body.getReader();
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
@@ -47,11 +48,16 @@ export async function readJsonObject(request: Request, maxBytes = 256 * 1024) {
       offset += chunk.byteLength;
     }
     const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/u, "");
-    const value = JSON.parse(decoded) as unknown;
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : null;
+    return JSON.parse(decoded) as unknown;
   } catch {
-    return null;
+    return INVALID_JSON_BODY;
   }
+}
+
+export async function readJsonObject(request: Request, maxBytes = 256 * 1024) {
+  const value = await readJsonValue(request, maxBytes);
+  if (value === JSON_BODY_TOO_LARGE) return JSON_BODY_TOO_LARGE;
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }

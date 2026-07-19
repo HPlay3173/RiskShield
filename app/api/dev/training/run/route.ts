@@ -37,6 +37,14 @@ export async function POST(request: Request) {
   if (denied) return denied;
   const integrityFailure = await requireMutationIntegrity(request);
   if (integrityFailure) return integrityFailure;
+  const repositories = await createRepositoryServices({ request });
+  if (!repositories.developmentFixture) {
+    return controlJson({
+      error: "training_runner_unavailable",
+      message: "Production training runner is not configured.",
+      state: "configuration_required",
+    }, 503);
+  }
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
     return controlJson({ error: "training_payload_too_large", message: "한 실행은 10,000행과 3MiB 이하만 지원합니다." }, 413);
@@ -56,7 +64,26 @@ export async function POST(request: Request) {
     return controlJson({ error: "invalid_training_input", message: "검증된 dataset version, SHA-256과 1~10,000개 expression 행이 필요합니다." }, 400);
   }
 
-  const repositories = await createRepositoryServices({ request });
+  const versionMatch = /^(.+)_v([1-9][0-9]*)$/u.exec(datasetVersionId);
+  const datasetId = versionMatch?.[1] ?? "";
+  const versionNumber = Number(versionMatch?.[2] ?? 0);
+  if (!datasetId || !Number.isSafeInteger(versionNumber)) {
+    return controlJson({ error: "invalid_dataset_version", message: "등록된 Dataset Version이 필요합니다." }, 400);
+  }
+  const registeredDataset = await repositories.datasets.getById(datasetId);
+  if (registeredDataset.status !== "ready") return repositoryFailure(registeredDataset);
+  if (
+    !registeredDataset.data
+    || !["staging", "ready"].includes(registeredDataset.data.status)
+    || registeredDataset.data.latestSha256 !== sourceSha256
+    || registeredDataset.data.versionCount !== versionNumber
+  ) {
+    return controlJson({
+      error: "dataset_version_mismatch",
+      message: "Dataset Version과 source SHA-256을 확인할 수 없습니다.",
+    }, 409);
+  }
+
   const reviewed = await repositories.skills.listReviewed();
   if (reviewed.status !== "ready") return repositoryFailure(reviewed);
   let apiKey = "";

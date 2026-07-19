@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -34,6 +35,12 @@ import {
   starterSkills,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/riskshield.ts";
+import {
+  INVALID_JSON_BODY,
+  JSON_BODY_TOO_LARGE,
+  readJsonValue,
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "../lib/http/control-response.ts";
 
 type FakeResponse = {
   all?: unknown[];
@@ -88,6 +95,56 @@ test("development owner fixture requires non-production, explicit enablement, an
   assert.equal(developmentPrincipalForHost({ runtime: {}, host: "localhost:3000", nodeEnv: "development" }), null);
   assert.equal(developmentPrincipalForHost({ runtime, host: "riskshield.example", nodeEnv: "development" }), null);
   assert.equal(developmentPrincipalForHost({ runtime, host: "riskshield.example@localhost", nodeEnv: "development" }), null);
+});
+
+test("streamed JSON parsing distinguishes oversized, malformed, and non-object JSON", async () => {
+  const oversized = await readJsonValue(new Request("http://localhost/api/analyze", {
+    method: "POST",
+    body: JSON.stringify({ text: "x".repeat(64) }),
+  }), 16);
+  assert.equal(oversized, JSON_BODY_TOO_LARGE);
+
+  const malformed = await readJsonValue(new Request("http://localhost/api/analyze", {
+    method: "POST",
+    body: "{broken",
+  }), 64);
+  assert.equal(malformed, INVALID_JSON_BODY);
+
+  const validArray = await readJsonValue(new Request("http://localhost/api/analyze", {
+    method: "POST",
+    body: "[]",
+  }), 64);
+  assert.deepEqual(validArray, []);
+});
+
+test("training UI and API share training:run and production fails before body or provider access", async () => {
+  const pageSource = await readFile(new URL("../app/dev/training/page.tsx", import.meta.url), "utf8");
+  const routeSource = await readFile(new URL("../app/api/dev/training/run/route.ts", import.meta.url), "utf8");
+  assert.match(pageSource, /protectedProductPage\("\/dev\/training",\s*"training:run"\)/u);
+  assert.match(pageSource, /runnerAvailable=\{repositories\.developmentFixture\}/u);
+  assert.match(pageSource, /repositories\.datasets\.list\(\)/u);
+  assert.match(pageSource, /datasetVersions=\{datasetVersions\}/u);
+
+  const productionGate = routeSource.indexOf("if (!repositories.developmentFixture)");
+  const bodyRead = routeSource.indexOf("const body = await readJsonObject");
+  const providerSecret = routeSource.indexOf("RISKSHIELD_INTERPRETER_API_KEY");
+  const datasetLookup = routeSource.indexOf("repositories.datasets.getById(datasetId)");
+  const shaVerification = routeSource.indexOf("registeredDataset.data.latestSha256 !== sourceSha256");
+  assert.ok(productionGate > 0);
+  assert.ok(bodyRead > productionGate);
+  assert.ok(datasetLookup > bodyRead);
+  assert.ok(shaVerification > datasetLookup);
+  assert.ok(providerSecret > productionGate);
+});
+
+test("public analysis profiles change presentation without changing locked v4 scores", async () => {
+  const routeSource = await readFile(new URL("../app/api/analyze/route.ts", import.meta.url), "utf8");
+  const clientSource = await readFile(new URL("../app/PublicAnalyzer.tsx", import.meta.url), "utf8");
+  assert.match(routeSource, /projectRules\(rules, profile\)/u);
+  assert.match(routeSource, /profile === "advertising"/u);
+  assert.match(routeSource, /잠긴 v4 점수는 바꾸지 않고/u);
+  assert.match(clientSource, /result\.profile\.focus/u);
+  assert.match(clientSource, /profile-\$\{result\.profile\.emphasis\}/u);
 });
 
 test("invalid session_not_before values fail closed", () => {

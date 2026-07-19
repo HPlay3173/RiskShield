@@ -18,19 +18,25 @@ const PROFILES = [
   {
     id: "advertising",
     label: "광고·주장",
-    description: "효능, 보장, 비교 우위 표현을 우선해서 읽습니다.",
+    description: "동일한 v4 점수에서 광고·효능·보장 분야를 결과 상단에 배치합니다.",
   },
   {
     id: "context",
     label: "문맥 우선",
-    description: "인용, 비판, 부정 표현의 관계를 자세히 봅니다.",
+    description: "동일한 v4 점수에서 문맥 관계와 불확실성 설명을 먼저 보여줍니다.",
   },
 ] as const;
 
 type ProfileId = (typeof PROFILES)[number]["id"];
 
 type PublicAnalysis = {
-  profile: { id: ProfileId; label: string; kernel: "v4-compatibility" };
+  profile: {
+    id: ProfileId;
+    label: string;
+    focus: string;
+    emphasis: "balanced" | "claims" | "context";
+    kernel: "v4-compatibility";
+  };
   rules: {
     finalScore: number;
     grade: string;
@@ -292,14 +298,19 @@ export function PublicAnalyzer() {
               </strong>
             </div>
 
+            <p className="analysisProfileFocus">
+              <strong>프로필 초점</strong>
+              <span>{result.profile.focus}</span>
+            </p>
+
             <div className="resultSignalStrip" aria-label="결과 보조 신호">
               <div><span>불확실성</span><strong>{uncertaintyCopy(result.uncertainty.level)}</strong><small>{result.uncertainty.reason}</small></div>
               <div><span>신규 표현 가능성</span><strong>{result.novelty.label}</strong><small>{result.novelty.reason}</small></div>
               <div><span>분석 모드</span><strong>{result.ai.state === "ready" ? "규칙 + AI" : "규칙 전용"}</strong><small>AI만으로 높은 위험을 만들지 않습니다.</small></div>
             </div>
 
-            <div className="publicAnalyzerResultGrid">
-              <article className="resultCard">
+            <div className={`publicAnalyzerResultGrid profile-${result.profile.emphasis}`}>
+              <article className="resultCard categoryCard">
                 <h3>주요 분야별 위험</h3>
                 {result.rules.categoryScores.length ? (
                   <ul className="publicAnalyzerScores">
@@ -314,7 +325,7 @@ export function PublicAnalyzer() {
                 ) : <p className="emptyCopy">현재 표시할 분야별 위험 축이 없습니다.</p>}
               </article>
 
-              <article className="resultCard">
+              <article className="resultCard contextCard">
                 <h3>문맥 해석</h3>
                 <dl className="publicAnalyzerContext">
                   <div><dt>발화 유형</dt><dd>{result.ai.speechAct ?? result.rules.speechAct}</dd></div>

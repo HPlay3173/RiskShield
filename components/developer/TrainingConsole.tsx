@@ -32,10 +32,19 @@ export type TrainingConfigurationSet = {
   options: TrainingConfigurationOption[];
 };
 
+export type TrainingDatasetVersionOption = {
+  id: string;
+  name: string;
+  sha256: string;
+  status: "staging" | "ready" | "invalid" | "unavailable";
+};
+
 export type TrainingConsoleProps = {
   endpoint: string;
   csrfToken: string;
   developmentFixture?: boolean;
+  runnerAvailable?: boolean;
+  datasetVersions: TrainingDatasetVersionOption[];
   configurationMessage?: string | null;
   model: TrainingConfigurationSet;
   prompt: TrainingConfigurationSet;
@@ -234,6 +243,8 @@ export function TrainingConsole({
   endpoint,
   csrfToken,
   developmentFixture = false,
+  runnerAvailable = false,
+  datasetVersions,
   configurationMessage,
   model,
   prompt,
@@ -245,6 +256,7 @@ export function TrainingConsole({
   const [modelId, setModelId] = useState(() => initialSelection(model));
   const [promptId, setPromptId] = useState(() => initialSelection(prompt));
   const [schemaId, setSchemaId] = useState(() => initialSelection(schema));
+  const [datasetVersionId, setDatasetVersionId] = useState(() => datasetVersions[0]?.id ?? "");
   const [prepared, setPrepared] = useState<PreparedDataset | null>(null);
   const [datasetLoading, setDatasetLoading] = useState(false);
   const [datasetError, setDatasetError] = useState("");
@@ -256,9 +268,12 @@ export function TrainingConsole({
   const selectedModel = selectedOption(model, modelId);
   const selectedPrompt = selectedOption(prompt, promptId);
   const selectedSchema = selectedOption(schema, schemaId);
+  const selectedDatasetVersion = datasetVersions.find((version) => version.id === datasetVersionId) ?? null;
   const endpointConfigured = Boolean(endpoint.trim() && csrfToken.trim());
   const configurationReady = Boolean(
-    endpointConfigured
+    runnerAvailable
+    && endpointConfigured
+    && Boolean(selectedDatasetVersion)
     && selectedModel?.configured
     && selectedPrompt?.configured
     && selectedSchema?.configured,
@@ -272,6 +287,11 @@ export function TrainingConsole({
 
   async function prepareFile(file: File | undefined) {
     if (!file) return;
+    if (!selectedDatasetVersion) {
+      setPrepared(null);
+      setDatasetError("Dataset Console에서 staging Dataset Version을 먼저 등록하고 선택해 주세요.");
+      return;
+    }
     if (!file.name.toLocaleLowerCase("ko-KR").endsWith(".csv")) {
       setPrepared(null);
       setDatasetError(".csv 파일만 선택할 수 있습니다.");
@@ -295,6 +315,9 @@ export function TrainingConsole({
       if (!dataset.inspection.canStage || !dataset.inspection.mapping.keyword) {
         throw new Error("CSV 검증 또는 keyword mapping을 통과하지 못했습니다. Dataset Console에서 먼저 확인해 주세요.");
       }
+      if (dataset.inspection.sha256 !== selectedDatasetVersion.sha256) {
+        throw new Error("선택한 Dataset Version의 SHA-256과 업로드한 원본이 일치하지 않습니다.");
+      }
       const sourcePrefix = dataset.inspection.sha256.slice(0, 16);
       const rows = dataset.rows.map<TrainingSourceRow>((row) => ({
         id: `${sourcePrefix}:${row.rowNumber}:${row.mapped.id?.trim() || "row"}`,
@@ -310,7 +333,7 @@ export function TrainingConsole({
       setPrepared({
         file,
         inspection: dataset.inspection,
-        datasetVersionId: `dataset_${dataset.inspection.sha256.slice(0, 20)}`,
+        datasetVersionId: selectedDatasetVersion.id,
         rows,
       });
     } catch (error) {
@@ -410,12 +433,37 @@ export function TrainingConsole({
         <StatePanel
           state="configuration-required"
           title="Training 실행 설정이 필요합니다."
-          description={configurationMessage || "same-origin endpoint, CSRF, model, prompt, schema 설정을 확인해 주세요."}
+          description={configurationMessage || (!datasetVersions.length
+            ? "Dataset Console에서 검증한 CSV를 staging Dataset Version으로 먼저 등록해 주세요."
+            : "same-origin endpoint, CSRF, model, prompt, schema 설정을 확인해 주세요.")}
         />
       ) : null}
 
       <section className="trainingDatasetSection" aria-labelledby="training-dataset-title">
         <h3 id="training-dataset-title">Dataset Version</h3>
+        <label className="trainingDatasetVersionPicker">
+          <span>등록된 Dataset Version</span>
+          <select
+            value={datasetVersionId}
+            disabled={requestActive || datasetLoading || !runnerAvailable}
+            onChange={(event) => {
+              setDatasetVersionId(event.target.value);
+              setPrepared(null);
+              setDatasetError("");
+              setResult(null);
+              setRunStatus(null);
+              setRunError("");
+            }}
+          >
+            <option value="">선택 필요</option>
+            {datasetVersions.map((version) => (
+              <option key={version.id} value={version.id} disabled={version.status === "invalid" || version.status === "unavailable"}>
+                {version.name} · {version.id} · {version.status}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!datasetVersions.length ? <p className="configurationNote">Dataset Console에서 검증한 CSV를 staging Dataset Version으로 먼저 등록해야 합니다.</p> : null}
         <label htmlFor="training-csv-file">실행할 검증된 로컬 CSV</label>
         <input
           ref={fileInputRef}
@@ -423,13 +471,13 @@ export function TrainingConsole({
           className="trainingNativeFileInput"
           type="file"
           accept=".csv,text/csv,text/plain"
-          disabled={requestActive || datasetLoading}
+          disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable}
           onChange={(event) => {
             void prepareFile(event.currentTarget.files?.[0]);
             event.currentTarget.value = "";
           }}
         />
-        <Pressable disabled={requestActive || datasetLoading} onClick={() => fileInputRef.current?.click()}>
+        <Pressable disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable} onClick={() => fileInputRef.current?.click()}>
           검증된 CSV 선택
         </Pressable>
         {datasetLoading ? <StatePanel state="loading" title="전체 CSV를 검증하고 있습니다." description="최대 10,000행을 읽고 SHA와 mapping을 확인합니다." compact /> : null}

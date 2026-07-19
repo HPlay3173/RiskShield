@@ -19,6 +19,11 @@ import {
   type ClaimTarget,
   type InterpreterRun,
 } from "../../../lib/v0-4/interpreter";
+import {
+  INVALID_JSON_BODY,
+  JSON_BODY_TOO_LARGE,
+  readJsonValue,
+} from "../../../lib/http/control-response";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -31,9 +36,21 @@ const DAILY_PROVIDER_CALL_LIMIT = 250;
 const MAX_RETRY_AFTER_SECONDS = 2;
 
 const ANALYSIS_PROFILES = {
-  balanced: "균형 분석",
-  advertising: "광고·주장",
-  context: "문맥 우선",
+  balanced: {
+    label: "균형 분석",
+    focus: "위험 점수, 분야, 문맥, 불확실성을 기본 순서로 함께 표시합니다.",
+    emphasis: "balanced",
+  },
+  advertising: {
+    label: "광고·주장",
+    focus: "잠긴 v4 점수는 바꾸지 않고 광고·효능·보장 관련 분야를 결과 상단에 배치합니다.",
+    emphasis: "claims",
+  },
+  context: {
+    label: "문맥 우선",
+    focus: "잠긴 v4 점수는 바꾸지 않고 인용·비판·부정 관계와 불확실성 설명을 먼저 표시합니다.",
+    emphasis: "context",
+  },
 } as const;
 
 type AnalysisProfile = keyof typeof ANALYSIS_PROFILES;
@@ -206,7 +223,15 @@ function domainHintFor(skills: readonly RiskSkill[]): ClaimTarget | undefined {
   return value ? "general" : undefined;
 }
 
-function projectRules(rules: AnalysisResult) {
+function projectRules(rules: AnalysisResult, profile: AnalysisProfile) {
+  const categoryScores = rules.categoryScores.map(({ category, score }) => ({ category, score }));
+  if (profile === "advertising") {
+    categoryScores.sort((left, right) => {
+      const leftPriority = /(광고|효능|보장|과장|의료|건강|금융|투자|수익|비교)/u.test(left.category) ? 1 : 0;
+      const rightPriority = /(광고|효능|보장|과장|의료|건강|금융|투자|수익|비교)/u.test(right.category) ? 1 : 0;
+      return rightPriority - leftPriority || right.score - left.score;
+    });
+  }
   return {
     finalScore: rules.finalScore,
     grade: rules.grade,
@@ -218,7 +243,7 @@ function projectRules(rules: AnalysisResult) {
     suggestedRewrite: rules.suggestedRewrite,
     dominantFloor: rules.dominantFloor,
     topCategoryScore: rules.topCategoryScore,
-    categoryScores: rules.categoryScores.map(({ category, score }) => ({ category, score })),
+    categoryScores,
     evidence: (rules.primaryMatch?.hits ?? []).map(({ start, end, text, role }) => ({
       start,
       end,
@@ -323,14 +348,11 @@ export async function POST(request: Request) {
     return json({ error: "payload_too_large", message: "분석 문구가 너무 깁니다." }, 413);
   }
 
-  let body: unknown;
-  try {
-    const raw = await request.text();
-    if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) {
-      return json({ error: "payload_too_large", message: "분석 문구가 너무 깁니다." }, 413);
-    }
-    body = JSON.parse(raw) as unknown;
-  } catch {
+  const body = await readJsonValue(request, MAX_REQUEST_BYTES);
+  if (body === JSON_BODY_TOO_LARGE) {
+    return json({ error: "payload_too_large", message: "분석 문구가 너무 깁니다." }, 413);
+  }
+  if (body === INVALID_JSON_BODY) {
     return json({ error: "invalid_json", message: "올바른 JSON 요청이 필요합니다." }, 400);
   }
   if (!isRecord(body) || typeof body.text !== "string" || !body.text.trim()) {
@@ -418,10 +440,10 @@ export async function POST(request: Request) {
         beta: "RiskShield v0.5 public beta",
         profile: {
           id: profile,
-          label: ANALYSIS_PROFILES[profile],
+          ...ANALYSIS_PROFILES[profile],
           kernel: "v4-compatibility",
         },
-        rules: projectRules(rules),
+        rules: projectRules(rules, profile),
         ai: {
           state: run.ok ? "ready" : "fallback",
           confidence: payload?.confidence ?? null,
