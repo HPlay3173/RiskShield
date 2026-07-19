@@ -3,6 +3,7 @@ import {
   analyzeText,
   parseSeverityRules,
   validateSkill,
+  type AnalysisResult,
   type RiskSkill,
   type SeverityRules,
 } from "../../../lib/riskshield";
@@ -22,15 +23,29 @@ const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
 const CACHE_TTL_MS = 15 * 60 * 1_000;
 const CACHE_MAX_ENTRIES = 256;
+const BURST_WINDOW_MS = 60 * 1_000;
+const BURST_LIMIT = 6;
+const DAILY_REQUEST_LIMIT = 40;
+const DAILY_PROVIDER_CALL_LIMIT = 250;
+const MAX_RETRY_AFTER_SECONDS = 2;
 
 type CacheEntry = {
   expiresAt: number;
   run: InterpreterRun;
 };
 
+type AbuseBucket = {
+  day: string;
+  dayCount: number;
+  windowStartedAt: number;
+  windowCount: number;
+};
+
 const verifiedResultCache = new Map<string, CacheEntry>();
+const inFlightInterpreterRuns = new Map<string, Promise<InterpreterRun>>();
+const abuseBuckets = new Map<string, AbuseBucket>();
 let serialQueue: Promise<void> = Promise.resolve();
-const operationalMetrics = { providerCalls: 0, resourceExhausted: 0 };
+let providerBudget = { day: utcDay(), calls: 0 };
 
 async function getRuntimeEnvironment() {
   const { env } = await import("cloudflare:workers");
@@ -43,6 +58,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function utcDay(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
   const queued = serialQueue.then(task, task);
   serialQueue = queued.then(() => undefined, () => undefined);
@@ -51,8 +70,9 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 
 function cacheKeyFor(text: string) {
   const prepared = prepareInterpreterInput(text, MAX_INPUT_CHARS);
-  const normalizedMaskedInput = prepared.modelText;
-  return hashInterpreterInput(`${INTERPRETER_SCHEMA_VERSION}:${INTERPRETER_PROMPT_VERSION}:${normalizedMaskedInput}`);
+  return hashInterpreterInput(
+    `${INTERPRETER_SCHEMA_VERSION}:${INTERPRETER_PROMPT_VERSION}:${prepared.modelText}`,
+  );
 }
 
 function readCached(key: string) {
@@ -107,36 +127,37 @@ async function readSeverityRules(runtime: RuntimeEnvironment): Promise<SeverityR
   return parsed.issues.length === 0 ? parsed.rules : DEFAULT_SEVERITY_RULES;
 }
 
-function fallbackKind(run: InterpreterRun) {
-  if (run.timedOut) return "timeout" as const;
-  if (run.resourceExhausted) return "resource_exhausted" as const;
-  if (!run.schemaValid && run.validationMs > 0) return "validation" as const;
-  return "provider_error" as const;
-}
-
-function providerStatus(run: InterpreterRun, cacheHit: boolean) {
-  if (cacheHit) return "cached" as const;
-  if (run.ok) return "ready" as const;
-  if (run.timedOut) return "timeout" as const;
-  if (run.resourceExhausted) return "resource_exhausted" as const;
-  if (run.errors.includes("server_secret_unavailable")) return "secret_unavailable" as const;
-  if (run.validationMs > 0) return "validation_error" as const;
-  return "provider_error" as const;
-}
-
 async function runInterpreter(text: string, domainHint: ClaimTarget | undefined, apiKey: string) {
   const interpreter = new LiveInterpreter(new GoogleGenAiProvider(apiKey));
-  operationalMetrics.providerCalls += 1;
-  let run = await interpreter.interpret({ text, domainHint });
+  providerBudget.calls += 1;
+  const run = await interpreter.interpret({ text, domainHint });
   if (!run.resourceExhausted) return run;
-
-  operationalMetrics.resourceExhausted += 1;
-  if (run.retryAfterSeconds === null || run.retryAfterSeconds === undefined) return run;
+  if (
+    run.retryAfterSeconds === null ||
+    run.retryAfterSeconds === undefined ||
+    run.retryAfterSeconds > MAX_RETRY_AFTER_SECONDS ||
+    !hasProviderBudget()
+  ) {
+    return run;
+  }
   await new Promise((resolve) => setTimeout(resolve, run.retryAfterSeconds! * 1_000));
-  operationalMetrics.providerCalls += 1;
-  run = await interpreter.interpret({ text, domainHint });
-  if (run.resourceExhausted) operationalMetrics.resourceExhausted += 1;
-  return run;
+  providerBudget.calls += 1;
+  return interpreter.interpret({ text, domainHint });
+}
+
+function runInterpreterOnce(
+  key: string,
+  text: string,
+  domainHint: ClaimTarget | undefined,
+  apiKey: string,
+) {
+  const existing = inFlightInterpreterRuns.get(key);
+  if (existing) return existing;
+  const pending = runInterpreter(text, domainHint, apiKey).finally(() => {
+    inFlightInterpreterRuns.delete(key);
+  });
+  inFlightInterpreterRuns.set(key, pending);
+  return pending;
 }
 
 function domainHintFor(skills: readonly RiskSkill[]): ClaimTarget | undefined {
@@ -149,112 +170,210 @@ function domainHintFor(skills: readonly RiskSkill[]): ClaimTarget | undefined {
   return value ? "general" : undefined;
 }
 
+function projectRules(rules: AnalysisResult) {
+  return {
+    finalScore: rules.finalScore,
+    grade: rules.grade,
+    status: rules.status,
+    statusLabel: rules.statusLabel,
+    speechAct: rules.speechAct,
+    recommendation: rules.recommendation,
+    reason: rules.reason,
+    suggestedRewrite: rules.suggestedRewrite,
+    dominantFloor: rules.dominantFloor,
+    topCategoryScore: rules.topCategoryScore,
+    categoryScores: rules.categoryScores.map(({ category, score }) => ({ category, score })),
+    evidence: (rules.primaryMatch?.hits ?? []).map(({ start, end, text, role }) => ({
+      start,
+      end,
+      text,
+      role,
+    })),
+    generatedAt: rules.generatedAt,
+  };
+}
+
+function hasProviderBudget() {
+  const day = utcDay();
+  if (providerBudget.day !== day) providerBudget = { day, calls: 0 };
+  return providerBudget.calls < DAILY_PROVIDER_CALL_LIMIT;
+}
+
+async function abuseKey(request: Request) {
+  const day = utcDay();
+  const address =
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "unavailable";
+  const bytes = new TextEncoder().encode(`riskshield:public-analyze:${day}:${address}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
+}
+
+async function enforceRateLimit(request: Request) {
+  const key = await abuseKey(request);
+  const now = Date.now();
+  const day = utcDay();
+  const current = abuseBuckets.get(key);
+  const bucket: AbuseBucket = !current || current.day !== day
+    ? { day, dayCount: 0, windowStartedAt: now, windowCount: 0 }
+    : current;
+  if (now - bucket.windowStartedAt >= BURST_WINDOW_MS) {
+    bucket.windowStartedAt = now;
+    bucket.windowCount = 0;
+  }
+  const burstBlocked = bucket.windowCount >= BURST_LIMIT;
+  const dailyBlocked = bucket.dayCount >= DAILY_REQUEST_LIMIT;
+  if (burstBlocked || dailyBlocked) {
+    const retryAfter = burstBlocked
+      ? Math.max(1, Math.ceil((bucket.windowStartedAt + BURST_WINDOW_MS - now) / 1_000))
+      : Math.max(1, Math.ceil((Date.parse(`${day}T00:00:00.000Z`) + 86_400_000 - now) / 1_000));
+    return Response.json(
+      { error: "rate_limited", message: "요청이 많습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 429, headers: { "retry-after": String(retryAfter), "cache-control": "no-store" } },
+    );
+  }
+  bucket.windowCount += 1;
+  bucket.dayCount += 1;
+  abuseBuckets.set(key, bucket);
+  return null;
+}
+
+function unavailableRun(key: string, text: string): InterpreterRun {
+  return {
+    ok: false,
+    payload: null,
+    schemaValid: false,
+    errors: ["server_secret_unavailable"],
+    inputHash: key,
+    masked: prepareInterpreterInput(text).masked,
+    minimized: false,
+    mode: "live",
+    providerId: "google-genai-native-rest",
+    model: "unavailable",
+    promptVersion: "unavailable",
+    schemaVersion: INTERPRETER_SCHEMA_VERSION,
+    latencyMs: 0,
+    providerRequestMs: 0,
+    validationMs: 0,
+    estimatedCost: 0,
+    tokenUsage: null,
+    timedOut: false,
+    timeoutStage: null,
+  };
+}
+
+function json(body: unknown, status = 200, extraHeaders: HeadersInit = {}) {
+  return Response.json(body, {
+    status,
+    headers: {
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+      ...extraHeaders,
+    },
+  });
+}
+
 export async function POST(request: Request) {
-  const routeStartedAt = performance.now();
-  if (!request.headers.get("content-type")?.toLocaleLowerCase().includes("application/json")) {
-    return Response.json({ error: "JSON 요청이 필요합니다." }, { status: 415 });
+  const limited = await enforceRateLimit(request);
+  if (limited) return limited;
+  if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
+    return json({ error: "unsupported_media_type", message: "JSON 요청이 필요합니다." }, 415);
   }
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
-    return Response.json({ error: "분석 문구가 너무 깁니다." }, { status: 413 });
+    return json({ error: "payload_too_large", message: "분석 문구가 너무 깁니다." }, 413);
   }
 
   let body: unknown;
   try {
     const raw = await request.text();
     if (new TextEncoder().encode(raw).byteLength > MAX_REQUEST_BYTES) {
-      return Response.json({ error: "분석 문구가 너무 깁니다." }, { status: 413 });
+      return json({ error: "payload_too_large", message: "분석 문구가 너무 깁니다." }, 413);
     }
     body = JSON.parse(raw) as unknown;
   } catch {
-    return Response.json({ error: "올바른 JSON 요청이 필요합니다." }, { status: 400 });
+    return json({ error: "invalid_json", message: "올바른 JSON 요청이 필요합니다." }, 400);
   }
   if (!isRecord(body) || typeof body.text !== "string" || !body.text.trim()) {
-    return Response.json({ error: "분석할 문구가 필요합니다." }, { status: 400 });
+    return json({ error: "text_required", message: "분석할 문구가 필요합니다." }, 400);
   }
   if (body.text.length > MAX_INPUT_CHARS) {
-    return Response.json({ error: `분석 문구는 ${MAX_INPUT_CHARS.toLocaleString("ko-KR")}자 이하여야 합니다.` }, { status: 413 });
+    return json(
+      { error: "text_too_long", message: `분석 문구는 ${MAX_INPUT_CHARS.toLocaleString("ko-KR")}자 이하여야 합니다.` },
+      413,
+    );
   }
 
   const text = body.text.trim();
-  const runtime = await getRuntimeEnvironment();
-  const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
+  try {
+    const runtime = await getRuntimeEnvironment();
+    const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
+    return await enqueue(async () => {
+      const [skills, severityRules] = await Promise.all([
+        readReviewedSkills(runtime),
+        readSeverityRules(runtime),
+      ]);
+      const rules = analyzeText(text, skills, { severityRules });
+      const key = cacheKeyFor(text);
+      let run = readCached(key);
 
-  return enqueue(async () => {
-    const [skills, severityRules] = await Promise.all([
-      readReviewedSkills(runtime),
-      readSeverityRules(runtime),
-    ]);
-    const rulesStartedAt = performance.now();
-    const rules = analyzeText(text, skills, { severityRules });
-    const ruleAnalysisMs = performance.now() - rulesStartedAt;
-    const key = cacheKeyFor(text);
-    let run = readCached(key);
-    const cacheHit = Boolean(run);
+      if (!run && apiKey && !hasProviderBudget()) {
+        return json(
+          { error: "daily_budget_exhausted", message: "오늘의 AI 분석 한도에 도달했습니다. 나중에 다시 시도해 주세요." },
+          429,
+          { "retry-after": "3600" },
+        );
+      }
+      if (!run && apiKey) {
+        run = await runInterpreterOnce(
+          key,
+          text,
+          domainHintFor(rules.primaryMatch ? [rules.primaryMatch.skill] : []),
+          apiKey,
+        );
+        writeCached(key, run);
+      }
+      run ??= unavailableRun(key, text);
 
-    if (!run && apiKey) {
-      run = await runInterpreter(text, domainHintFor(rules.primaryMatch ? [rules.primaryMatch.skill] : []), apiKey);
-      writeCached(key, run);
-    }
-    if (!run) {
-      run = {
-        ok: false,
-        payload: null,
-        schemaValid: false,
-        errors: ["server_secret_unavailable"],
-        inputHash: key,
-        masked: prepareInterpreterInput(text).masked,
-        minimized: false,
-        mode: "live",
-        providerId: "google-genai-native-rest",
-        model: "unavailable",
-        promptVersion: "unavailable",
-        schemaVersion: INTERPRETER_SCHEMA_VERSION,
-        latencyMs: 0,
-        providerRequestMs: 0,
-        validationMs: 0,
-        estimatedCost: 0,
-        tokenUsage: null,
-        timedOut: false,
-        timeoutStage: null,
-      };
-    }
-
-    const hybrid = combinePrivateBetaHybrid(rules, run);
-    const payload = run.payload;
-    const routeTotalMs = performance.now() - routeStartedAt;
-    return Response.json({
-      beta: "RiskShield v0.4.1 AI-assisted private beta",
-      rules,
-      ai: {
-        state: run.ok ? "ready" : "fallback",
-        confidence: payload?.confidence ?? null,
-        riskIntent: payload?.risk_intent ?? null,
-        speechAct: payload?.speech_act ?? null,
-        contextRelation: payload?.context_relation ?? null,
-        claimStrength: payload?.claim_strength ?? null,
-        policyRelevance: payload?.policy_relevance ?? null,
-        riskFamily: payload?.risk_family ?? null,
-        evidenceSpans: payload?.evidence_spans ?? [],
-        masked: run.masked,
-        cached: cacheHit,
-        latencyMs: Math.round(run.latencyMs),
-        fallbackKind: run.ok ? null : fallbackKind(run),
-        providerStatus: providerStatus(run, cacheHit),
-        timing: {
-          routeTotalMs: Math.round(routeTotalMs),
-          providerRequestMs: Math.round(run.providerRequestMs),
-          validationMs: Math.round(run.validationMs),
-          ruleAnalysisMs: Math.round(ruleAnalysisMs),
-          cacheStatus: cacheHit ? "hit" : "miss",
-          timeoutStage: run.timeoutStage,
+      const hybrid = combinePrivateBetaHybrid(rules, run);
+      const payload = run.payload;
+      return json({
+        beta: "RiskShield v0.5 public beta",
+        rules: projectRules(rules),
+        ai: {
+          state: run.ok ? "ready" : "fallback",
+          confidence: payload?.confidence ?? null,
+          riskIntent: payload?.risk_intent ?? null,
+          speechAct: payload?.speech_act ?? null,
+          contextRelation: payload?.context_relation ?? null,
+          claimStrength: payload?.claim_strength ?? null,
+          policyRelevance: payload?.policy_relevance ?? null,
+          riskFamily: payload?.risk_family ?? null,
+          evidenceSpans: payload?.evidence_spans ?? [],
+          masked: run.masked,
         },
-      },
-      hybrid,
-      notice: hybrid.status === "no_match"
-        ? "현재 규칙과 AI 문맥 분석에서 직접 위험 주장이 확인되지 않았습니다. 이는 자동 승인이나 안전 보장을 의미하지 않습니다."
-        : "AI 분석은 담당자의 최종 검토를 돕는 보조 신호이며 자동 승인·자동 금지를 의미하지 않습니다.",
-      cachePolicy: { ttlSeconds: CACHE_TTL_MS / 1_000, storesOriginalText: false },
+        hybrid: {
+          status: hybrid.status,
+          score: hybrid.score,
+          conflict: hybrid.conflict,
+          reason: hybrid.reason,
+        },
+        notice: hybrid.status === "no_match"
+          ? "현재 규칙과 AI 문맥 분석에서 직접 위험 주장이 확인되지 않았습니다. 이는 자동 승인이나 안전 보장을 의미하지 않습니다."
+          : "AI 분석은 담당자의 최종 검토를 돕는 보조 신호이며 자동 승인·자동 금지를 의미하지 않습니다.",
+      });
     });
-  });
+  } catch (error) {
+    console.error(
+      "[RiskShield public analyze] request failed",
+      error instanceof Error ? error.name : "unknown_error",
+    );
+    return json(
+      { error: "analysis_unavailable", message: "분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      503,
+    );
+  }
 }

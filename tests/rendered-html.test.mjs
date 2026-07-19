@@ -26,31 +26,35 @@ async function render() {
   );
 }
 
-test("server-renders the finished RiskShield workbench", async () => {
+test("server-renders the public Analyzer boundary", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<html[^>]*\blang="ko"/i);
-  assert.match(
-    html,
-    /<title>RiskShield Studio \| 조합형 위험 패턴 워크벤치<\/title>/i,
-  );
+  assert.match(html, /<title>RiskShield \| Public Beta Analyzer<\/title>/i);
+  assert.match(html, /<textarea[^>]*id="public-analysis-input"/i);
+  assert.ok(html.includes("위험 신호 분석"));
+  assert.ok(html.includes("사람의 최종 판단"));
+  assert.ok(html.includes("no_match"));
+  assert.ok(html.includes("안전 판정이나 게시 승인이 아닙니다."));
 
-  for (const label of [
+  for (const forbidden of [
     "스킬 만들기",
     "CSV 가져오기",
     "스킬 라이브러리",
-    "Analyzer 테스트",
+    "Skill Library",
     "내보내기",
+    "Export",
+    "/api/skills",
+    "triggerPatterns",
+    "severityFloor",
+    "검토 콘솔",
+    "개발 콘솔",
   ]) {
-    assert.ok(html.includes(label), `missing rendered label: ${label}`);
+    assert.ok(!html.includes(forbidden), `forbidden public-root marker: ${forbidden}`);
   }
-  assert.ok(
-    html.includes("Mock은 규칙 기반 시연 결과를 생성합니다. 실제 AI 분석이 아닙니다."),
-  );
-  assert.match(html, /Human in the loop/i);
 
   assert.doesNotMatch(html, developmentPreviewMeta);
   assert.doesNotMatch(html, /Codex is working|Your site is taking shape/i);

@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "RiskShield Studio | 조합형 위험 패턴 워크벤치";
-const betaTitle = "RiskShield v0.4 | AI-assisted private beta";
+const title = "RiskShield | Public Beta Analyzer";
+const betaTitle = "RiskShield Public Beta Analyzer";
 const description =
-  "규칙 분석과 Gemma 문맥 분석을 결합해 담당자의 최종 검토를 돕는 RiskShield 비공개 AI 보조 베타";
+  "광고·제품 문구의 위험 신호와 문맥을 정리해 사람의 최종 검토를 돕는 공개 RiskShield Analyzer";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -25,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       type: "website",
       locale: "ko_KR",
-      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield v0.4 AI-assisted private beta" }],
+      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield Public Beta Analyzer" }],
     },
     twitter: {
       card: "summary_large_image",
