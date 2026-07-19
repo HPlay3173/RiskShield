@@ -66,7 +66,7 @@ const BUILDER_STEPS = [
   },
 ] as const;
 
-const ONBOARDING_STORAGE_KEY = "riskshield:onboarding:v0.4.1";
+const ONBOARDING_SESSION_KEY = "riskshield:onboarding-session:v0.4.2";
 const LIBRARY_PAGE_SIZE = 20;
 
 type OnboardingTarget = "navigation" | "new-skill" | "copy-input" | "next-action" | "analyzer-nav";
@@ -742,7 +742,7 @@ export function RiskShieldWorkbench() {
     const timer = window.setTimeout(() => {
       let completed = false;
       try {
-        completed = window.localStorage.getItem(ONBOARDING_STORAGE_KEY) === "complete";
+        completed = window.sessionStorage.getItem(ONBOARDING_SESSION_KEY) === "complete";
       } catch {
         completed = false;
       }
@@ -750,7 +750,7 @@ export function RiskShieldWorkbench() {
       onboardingOriginRef.current = { activeView: "builder", builderStep: 1, analyzerStep: 1 };
       setOnboardingStep(0);
       setOnboardingOpen(true);
-    }, 450);
+    }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -782,27 +782,36 @@ export function RiskShieldWorkbench() {
     const measure = () => {
       const rect = element.getBoundingClientRect();
       const padding = 8;
-      setOnboardingRect({
+      const candidate = {
         top: Math.max(8, rect.top - padding),
         right: Math.min(window.innerWidth - 8, rect.right + padding),
         bottom: Math.min(window.innerHeight - 8, rect.bottom + padding),
         left: Math.max(8, rect.left - padding),
         width: Math.min(window.innerWidth - 16, rect.width + (padding * 2)),
         height: Math.min(window.innerHeight - 16, rect.height + (padding * 2)),
-      });
+      };
+      const dialogRect = onboardingDialogRef.current?.getBoundingClientRect();
+      const targetIsVisible = rect.top >= 8
+        && rect.bottom <= window.innerHeight - 8
+        && rect.left >= 8
+        && rect.right <= window.innerWidth - 8;
+      const overlapsDialog = Boolean(dialogRect
+        && candidate.left < dialogRect.right + 16
+        && candidate.right > dialogRect.left - 16
+        && candidate.top < dialogRect.bottom + 16
+        && candidate.bottom > dialogRect.top - 16);
+      setOnboardingRect(targetIsVisible && !overlapsDialog ? candidate : null);
     };
 
-    const initialRect = element.getBoundingClientRect();
-    if (initialRect.top < 72 || initialRect.bottom > window.innerHeight - 24) {
-      element.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
-    }
+    const resetTimer = window.setTimeout(() => setOnboardingRect(null), 0);
     const timer = window.setTimeout(() => {
       measure();
       onboardingDialogRef.current?.focus({ preventScroll: true });
-    }, 220);
+    }, 80);
     window.addEventListener("resize", measure);
     window.addEventListener("scroll", measure, true);
     return () => {
+      window.clearTimeout(resetTimer);
       window.clearTimeout(timer);
       window.removeEventListener("resize", measure);
       window.removeEventListener("scroll", measure, true);
@@ -1088,7 +1097,7 @@ export function RiskShieldWorkbench() {
 
   function closeOnboarding() {
     try {
-      window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "complete");
+      window.sessionStorage.setItem(ONBOARDING_SESSION_KEY, "complete");
     } catch {
       // 브라우저 저장소를 사용할 수 없어도 안내 종료는 계속합니다.
     }
@@ -1363,22 +1372,6 @@ export function RiskShieldWorkbench() {
   ];
 
   const currentOnboardingStep = ONBOARDING_STEPS[onboardingStep];
-  const onboardingDialogStyle = onboardingRect && typeof window !== "undefined"
-    ? (() => {
-        const cardWidth = Math.min(380, window.innerWidth - 24);
-        const left = Math.max(12, Math.min(
-          onboardingRect.left + (onboardingRect.width / 2) - (cardWidth / 2),
-          window.innerWidth - cardWidth - 12,
-        ));
-        const estimatedHeight = Math.min(420, window.innerHeight - 24);
-        const below = onboardingRect.bottom + 14;
-        const top = below + estimatedHeight <= window.innerHeight
-          ? below
-          : Math.max(12, onboardingRect.top - estimatedHeight - 14);
-        return { left, top };
-      })()
-    : undefined;
-
   return (
     <div className="appShell appleShell">
       <a className="skipLink" href="#main-content">본문으로 건너뛰기</a>
@@ -2380,8 +2373,7 @@ export function RiskShieldWorkbench() {
           )}
           <div
             ref={onboardingDialogRef}
-            className={cx("onboardingDialog", onboardingRect && "onboardingDialogAnchored")}
-            style={onboardingDialogStyle}
+            className="onboardingDialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="onboarding-title"
