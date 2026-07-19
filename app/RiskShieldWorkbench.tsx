@@ -70,6 +70,14 @@ const ONBOARDING_SESSION_KEY = "riskshield:onboarding-session:v0.4.2";
 const LIBRARY_PAGE_SIZE = 20;
 
 type OnboardingTarget = "navigation" | "new-skill" | "copy-input" | "next-action" | "analyzer-nav";
+type OnboardingPlacement = "above" | "below" | "left" | "right";
+
+type OnboardingDialogPosition = {
+  top: number;
+  left: number;
+  maxHeight: number;
+  placement: OnboardingPlacement;
+};
 
 const ONBOARDING_STEPS: Array<{
   eyebrow: string;
@@ -729,6 +737,7 @@ export function RiskShieldWorkbench() {
     width: number;
     height: number;
   } | null>(null);
+  const [onboardingDialogPosition, setOnboardingDialogPosition] = useState<OnboardingDialogPosition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
   const builderStageRef = useRef<HTMLDivElement>(null);
@@ -761,6 +770,7 @@ export function RiskShieldWorkbench() {
     if (!target) {
       const timer = window.setTimeout(() => {
         setOnboardingRect(null);
+        setOnboardingDialogPosition(null);
         onboardingDialogRef.current?.focus({ preventScroll: true });
       }, 0);
       return () => window.clearTimeout(timer);
@@ -775,46 +785,139 @@ export function RiskShieldWorkbench() {
           : `[data-tour="${target}"]`;
     const element = document.querySelector<HTMLElement>(selector);
     if (!element) {
-      const timer = window.setTimeout(() => setOnboardingRect(null), 0);
+      const timer = window.setTimeout(() => {
+        setOnboardingRect(null);
+        setOnboardingDialogPosition(null);
+      }, 0);
       return () => window.clearTimeout(timer);
     }
 
-    const measure = () => {
+    const placeDialog = () => {
       const rect = element.getBoundingClientRect();
-      const padding = 8;
-      const candidate = {
-        top: Math.max(8, rect.top - padding),
-        right: Math.min(window.innerWidth - 8, rect.right + padding),
-        bottom: Math.min(window.innerHeight - 8, rect.bottom + padding),
-        left: Math.max(8, rect.left - padding),
-        width: Math.min(window.innerWidth - 16, rect.width + (padding * 2)),
-        height: Math.min(window.innerHeight - 16, rect.height + (padding * 2)),
-      };
       const dialogRect = onboardingDialogRef.current?.getBoundingClientRect();
-      const targetIsVisible = rect.top >= 8
-        && rect.bottom <= window.innerHeight - 8
-        && rect.left >= 8
-        && rect.right <= window.innerWidth - 8;
-      const overlapsDialog = Boolean(dialogRect
-        && candidate.left < dialogRect.right + 16
-        && candidate.right > dialogRect.left - 16
-        && candidate.top < dialogRect.bottom + 16
-        && candidate.bottom > dialogRect.top - 16);
-      setOnboardingRect(targetIsVisible && !overlapsDialog ? candidate : null);
+      if (!dialogRect) return;
+
+      const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = window.innerHeight;
+      const padding = 8;
+      const spotlight = {
+        top: Math.max(8, rect.top - padding),
+        right: Math.min(viewportWidth - 8, rect.right + padding),
+        bottom: Math.min(viewportHeight - 8, rect.bottom + padding),
+        left: Math.max(8, rect.left - padding),
+        width: Math.min(viewportWidth - 16, rect.width + (padding * 2)),
+        height: Math.min(viewportHeight - 16, rect.height + (padding * 2)),
+      };
+      setOnboardingRect(spotlight);
+
+      const margin = 12;
+      const gap = 16;
+      const dialogWidth = Math.min(dialogRect.width, viewportWidth - (margin * 2));
+      const dialogHeight = dialogRect.height;
+      const minimumUsableHeight = Math.min(280, dialogHeight);
+      const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(value, maximum));
+      const centeredLeft = clamp(
+        spotlight.left + (spotlight.width / 2) - (dialogWidth / 2),
+        margin,
+        viewportWidth - dialogWidth - margin,
+      );
+      const fullHeight = viewportHeight - (margin * 2);
+      const centeredTop = clamp(
+        spotlight.top + (spotlight.height / 2) - (Math.min(dialogHeight, fullHeight) / 2),
+        margin,
+        viewportHeight - Math.min(dialogHeight, fullHeight) - margin,
+      );
+      const belowHeight = viewportHeight - margin - spotlight.bottom - gap;
+      const aboveHeight = spotlight.top - gap - margin;
+      const rightWidth = viewportWidth - margin - spotlight.right - gap;
+      const leftWidth = spotlight.left - gap - margin;
+
+      const candidates: Record<OnboardingPlacement, OnboardingDialogPosition | null> = {
+        below: belowHeight >= minimumUsableHeight ? {
+          top: spotlight.bottom + gap,
+          left: centeredLeft,
+          maxHeight: belowHeight,
+          placement: "below",
+        } : null,
+        above: aboveHeight >= minimumUsableHeight ? {
+          top: spotlight.top - gap - Math.min(dialogHeight, aboveHeight),
+          left: centeredLeft,
+          maxHeight: aboveHeight,
+          placement: "above",
+        } : null,
+        right: rightWidth >= dialogWidth ? {
+          top: centeredTop,
+          left: spotlight.right + gap,
+          maxHeight: fullHeight,
+          placement: "right",
+        } : null,
+        left: leftWidth >= dialogWidth ? {
+          top: centeredTop,
+          left: spotlight.left - gap - dialogWidth,
+          maxHeight: fullHeight,
+          placement: "left",
+        } : null,
+      };
+      const isCompact = viewportWidth <= 767;
+      const preferences: OnboardingPlacement[] = target === "navigation" || target === "new-skill" || target === "analyzer-nav"
+        ? ["below", "left", "right", "above"]
+        : target === "next-action"
+          ? isCompact ? ["above", "below"] : ["left", "right", "above", "below"]
+          : isCompact ? ["below", "above"] : ["right", "left", "below", "above"];
+      const selected = preferences.map((placement) => candidates[placement]).find(Boolean);
+
+      if (selected) {
+        setOnboardingDialogPosition(selected);
+        return;
+      }
+
+      const fallbackPlacement: OnboardingPlacement = aboveHeight > belowHeight ? "above" : "below";
+      const fallbackHeight = Math.max(180, fallbackPlacement === "above" ? aboveHeight : belowHeight);
+      setOnboardingDialogPosition({
+        top: fallbackPlacement === "above"
+          ? Math.max(margin, spotlight.top - gap - fallbackHeight)
+          : spotlight.bottom + gap,
+        left: centeredLeft,
+        maxHeight: fallbackHeight,
+        placement: fallbackPlacement,
+      });
     };
 
-    const resetTimer = window.setTimeout(() => setOnboardingRect(null), 0);
+    const prepareTarget = () => {
+      const viewportWidth = document.documentElement.clientWidth;
+      const rect = element.getBoundingClientRect();
+      const targetIsFullyVisible = rect.top >= 8
+        && rect.bottom <= window.innerHeight - 8
+        && rect.left >= 8
+        && rect.right <= viewportWidth - 8;
+      if (target === "copy-input") {
+        element.scrollIntoView({ block: "start", inline: "nearest", behavior: "auto" });
+        const headerHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-height")) || 0;
+        window.scrollBy({ top: -(headerHeight + 16), left: 0, behavior: "auto" });
+      } else if (target === "next-action") {
+        element.scrollIntoView({ block: "end", inline: "nearest", behavior: "auto" });
+        window.scrollBy({ top: 24, left: 0, behavior: "auto" });
+      } else if (!targetIsFullyVisible) {
+        element.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+      }
+    };
+
+    const resetTimer = window.setTimeout(() => {
+      setOnboardingRect(null);
+      setOnboardingDialogPosition(null);
+      prepareTarget();
+    }, 0);
     const timer = window.setTimeout(() => {
-      measure();
+      placeDialog();
       onboardingDialogRef.current?.focus({ preventScroll: true });
-    }, 80);
-    window.addEventListener("resize", measure);
-    window.addEventListener("scroll", measure, true);
+    }, 120);
+    window.addEventListener("resize", placeDialog);
+    window.addEventListener("scroll", placeDialog, true);
     return () => {
       window.clearTimeout(resetTimer);
       window.clearTimeout(timer);
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", measure, true);
+      window.removeEventListener("resize", placeDialog);
+      window.removeEventListener("scroll", placeDialog, true);
     };
   }, [onboardingOpen, onboardingStep]);
 
@@ -1104,6 +1207,7 @@ export function RiskShieldWorkbench() {
     const origin = onboardingOriginRef.current;
     setOnboardingOpen(false);
     setOnboardingRect(null);
+    setOnboardingDialogPosition(null);
     if (origin) {
       setActiveView(origin.activeView);
       setBuilderStep(origin.builderStep);
@@ -2373,7 +2477,13 @@ export function RiskShieldWorkbench() {
           )}
           <div
             ref={onboardingDialogRef}
-            className="onboardingDialog"
+            className={cx("onboardingDialog", onboardingDialogPosition && "onboardingDialogPlaced")}
+            style={onboardingDialogPosition ? {
+              top: onboardingDialogPosition.top,
+              left: onboardingDialogPosition.left,
+              maxHeight: onboardingDialogPosition.maxHeight,
+            } : undefined}
+            data-placement={onboardingDialogPosition?.placement}
             role="dialog"
             aria-modal="true"
             aria-labelledby="onboarding-title"

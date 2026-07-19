@@ -1632,7 +1632,8 @@ textarea:disabled {
   top: calc(var(--header-height) + 24px);
   min-width: 0;
   max-height: calc(100vh - var(--header-height) - 48px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   margin-top: 32px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -3081,6 +3082,11 @@ textarea:disabled {
   transform: translate(-50%, -50%);
 }
 
+.onboardingDialogPlaced {
+  transform: none;
+  transition: top 180ms ease, left 180ms ease, max-height 180ms ease;
+}
+
 .onboardingDialog:focus {
   outline: none;
 }
@@ -3710,7 +3716,7 @@ textarea:disabled {
 }
 
 @media (max-height: 680px) {
-  .onboardingDialog {
+  .onboardingDialog:not(.onboardingDialogPlaced) {
     top: 12px;
     max-height: calc(100vh - 24px);
     transform: translateX(-50%);
