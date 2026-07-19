@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "risk_intent": "direct_promotional",
+  "speech_act": "claim",
+  "claim_target": "health",
+  "context_relation": "supports",
+  "actor": "advertiser",
+  "claim_strength": "strong",
+  "confidence": 0.94,
+  "evidence_spans": [
+    {
+      "start": 0,
+      "end": 9,
+      "text": "효과를 보장합니다"
+    }
+  ],
+  "policy_reason": "DIRECT_STRONG_RESULT"
+}

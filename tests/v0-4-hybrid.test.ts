@@ -10,7 +10,6 @@ import {
 } from "../lib/riskshield.ts";
 import {
   INTERPRETER_JSON_SCHEMA,
-  INTERPRETER_PROMPT_VERSION,
   INTERPRETER_SCHEMA_VERSION,
   LiveInterpreter,
   MockInterpreter,
@@ -38,6 +37,8 @@ function payloadFor(text: string, overrides: Partial<InterpreterPayload> = {}): 
     context_relation: "supports",
     actor: "advertiser",
     claim_strength: "strong",
+    policy_relevance: "potentially_high",
+    risk_family: "general_substantiation",
     confidence: 0.93,
     evidence_spans: [{ start: 0, end: text.length, text }],
     policy_reason: "DIRECT_STRONG_RESULT",
@@ -45,7 +46,7 @@ function payloadFor(text: string, overrides: Partial<InterpreterPayload> = {}): 
   };
 }
 
-test("v0.4 strict schema accepts grounded JSON and rejects extra fields or fabricated spans", () => {
+test("Schema 1.1.0 strict validator accepts grounded JSON and rejects extra fields or fabricated spans", () => {
   const text = "지금 신청하면 결과가 크게 개선됩니다";
   const prepared = prepareInterpreterInput(text);
   const valid = validateInterpreterPayload(payloadFor(text), prepared);
@@ -113,7 +114,9 @@ test("LiveInterpreter validates provider JSON and converts provider errors to re
   const provider: LiveProvider = {
     id: "fake-live-provider",
     async complete() {
-      return { output: payloadFor(text), model: "fake-model", estimatedCost: 0.001 };
+      const output: Record<string, unknown> = { ...payloadFor(text), evidence_quotes: [text] };
+      delete output.evidence_spans;
+      return { output, model: "fake-model", estimatedCost: 0.001 };
     },
   };
   const run = await new LiveInterpreter(provider).interpret({ text });
@@ -193,7 +196,8 @@ test("hybrid fusion requires rule evidence for high and suppresses contextual wa
   const aiOnlyRun = await new MockInterpreter().interpret({ text: aiOnlyInput });
   const recovered = combineHybrid(aiOnlyRules, aiOnlyRun);
   assert.equal(recovered.status, "review");
-  assert.equal(recovered.recoveredByInterpreter, true);
+  assert.equal(recovered.recoveredByInterpreter, false);
+  assert.ok(recovered.conflictReasons.includes("ai_only_substantiation"));
 
   const warningRun = await new MockInterpreter().interpret({ text: "전원 합격을 내세우는 광고를 주의하세요" });
   const suppressed = combineHybrid(directRules, warningRun);
@@ -201,7 +205,7 @@ test("hybrid fusion requires rule evidence for high and suppresses contextual wa
   assert.equal(suppressed.suppressedHigh, true);
 });
 
-test("invalid Interpreter output and domain conflict always route to review", async () => {
+test("Schema 1.1.0 invalid Interpreter output and risk-family conflict always route to review", async () => {
   const rules = analyzeText("15초만에 형량 분석", starterSkills);
   const invalidRun = {
     ...(await new MockInterpreter().interpret({ text: "15초만에 형량 분석" })),
@@ -216,16 +220,18 @@ test("invalid Interpreter output and domain conflict always route to review", as
   const conflict = combineHybrid(rules, privacyRun);
   assert.equal(conflict.status, "review");
   assert.equal(conflict.conflict, true);
-  assert.ok(conflict.conflictReasons.includes("domain_mismatch"));
+  assert.ok(conflict.conflictReasons.includes("risk_family_mismatch"));
 });
 
-test("shipped schema, recordings, comparison CSV, and metrics preserve the offline contract", () => {
+test("Schema 1.0.0 legacy artifacts, recordings, comparison CSV, and metrics remain preserved", () => {
   const schema = JSON.parse(readFileSync(
     new URL("../artifacts/v0.4/interpreter-schema.json", import.meta.url),
     "utf8",
-  )) as { required: string[]; properties: Record<string, unknown> };
-  assert.deepEqual(schema.required, INTERPRETER_JSON_SCHEMA.required);
-  assert.deepEqual(Object.keys(schema.properties), Object.keys(INTERPRETER_JSON_SCHEMA.properties as object));
+  )) as { $id: string; required: string[]; properties: Record<string, { const?: string }> };
+  assert.match(schema.$id, /interpreter-1[.]0[.]0[.]json$/u);
+  assert.equal(schema.properties.schema_version.const, "1.0.0");
+  assert.equal(schema.required.includes("policy_relevance"), false);
+  assert.equal(schema.required.includes("risk_family"), false);
 
   const recordingLines = readFileSync(
     new URL("../artifacts/v0.4/recorded-interpreter-responses.jsonl", import.meta.url),
@@ -236,7 +242,8 @@ test("shipped schema, recordings, comparison CSV, and metrics preserve the offli
     const record = JSON.parse(line) as Record<string, unknown>;
     assert.equal("input" in record, false);
     assert.equal("model_text" in record, false);
-    assert.equal(record.prompt_version, INTERPRETER_PROMPT_VERSION);
+    assert.equal(record.prompt_version, "riskshield-interpreter-2026-07-18");
+    assert.equal(record.schema_version, "1.0.0");
   }
 
   const [headers, ...rows] = parseCsv(readFileSync(
