@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-07-19T10:25:14+09:00",
+  "method": "single-concurrency live Gemma evaluation; each completed provider call separated by at least 8 seconds",
+  "cache_status": {
+    "beta30": { "hit": 0, "miss": 30 },
+    "generalization20": { "hit": 0, "miss": 20 }
+  },
+  "baseline_v0_4": {
+    "count": 30,
+    "average_total_ms": 9006,
+    "p95_total_ms": 17486,
+    "provider_timeouts": 4
+  },
+  "beta30": {
+    "count": 30,
+    "total": { "average_ms": 4097, "p95_ms": 4349, "min_ms": 3142, "max_ms": 15033 },
+    "provider_request": { "average_ms": 4092, "p95_ms": 4345, "min_ms": 3137, "max_ms": 15028 },
+    "json_parse_validation": { "average_ms": 0, "p95_ms": 1, "min_ms": 0, "max_ms": 1 },
+    "rule_analysis": { "average_ms": 5, "p95_ms": 10, "min_ms": 2, "max_ms": 15 },
+    "provider_status": { "ready": 29, "timeout": 1 },
+    "timeout_stage": { "provider_request": 1, "validation": 0 }
+  },
+  "generalization20": {
+    "count": 20,
+    "total": { "average_ms": 3525, "p95_ms": 3864, "min_ms": 3210, "max_ms": 4079 },
+    "provider_request": { "average_ms": 3522, "p95_ms": 3860, "min_ms": 3207, "max_ms": 4076 },
+    "json_parse_validation": { "average_ms": 0, "p95_ms": 0, "min_ms": 0, "max_ms": 0 },
+    "rule_analysis": { "average_ms": 3, "p95_ms": 4, "min_ms": 2, "max_ms": 5 },
+    "provider_status": { "ready": 18, "validation_error": 2 },
+    "timeout_stage": { "provider_request": 0, "validation": 0 }
+  },
+  "interpretation": {
+    "dominant_component": "provider_request",
+    "baseline_average_change_ms": -4909,
+    "baseline_p95_change_ms": -13137,
+    "root_cause": "The provider request accounts for virtually all measured latency. Rule analysis and JSON parse/validation are single-digit milliseconds. The observed timeout occurred at the 15-second provider request deadline, not during rule analysis or validation.",
+    "route_instrumentation": [
+      "route_total_ms",
+      "provider_request_ms",
+      "validation_ms",
+      "rule_analysis_ms",
+      "cache_status",
+      "timeout_stage"
+    ]
+  }
+}

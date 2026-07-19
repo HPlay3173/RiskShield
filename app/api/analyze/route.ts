@@ -8,6 +8,8 @@ import {
 } from "../../../lib/riskshield";
 import { GoogleGenAiProvider } from "../../../lib/v0-4/google-genai-provider";
 import {
+  INTERPRETER_PROMPT_VERSION,
+  INTERPRETER_SCHEMA_VERSION,
   LiveInterpreter,
   combinePrivateBetaHybrid,
   hashInterpreterInput,
@@ -50,7 +52,7 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 function cacheKeyFor(text: string) {
   const prepared = prepareInterpreterInput(text, MAX_INPUT_CHARS);
   const normalizedMaskedInput = prepared.modelText;
-  return hashInterpreterInput(normalizedMaskedInput);
+  return hashInterpreterInput(`${INTERPRETER_SCHEMA_VERSION}:${INTERPRETER_PROMPT_VERSION}:${normalizedMaskedInput}`);
 }
 
 function readCached(key: string) {
@@ -108,7 +110,17 @@ async function readSeverityRules(runtime: RuntimeEnvironment): Promise<SeverityR
 function fallbackKind(run: InterpreterRun) {
   if (run.timedOut) return "timeout" as const;
   if (run.resourceExhausted) return "resource_exhausted" as const;
-  if (!run.schemaValid) return "validation" as const;
+  if (!run.schemaValid && run.validationMs > 0) return "validation" as const;
+  return "provider_error" as const;
+}
+
+function providerStatus(run: InterpreterRun, cacheHit: boolean) {
+  if (cacheHit) return "cached" as const;
+  if (run.ok) return "ready" as const;
+  if (run.timedOut) return "timeout" as const;
+  if (run.resourceExhausted) return "resource_exhausted" as const;
+  if (run.errors.includes("server_secret_unavailable")) return "secret_unavailable" as const;
+  if (run.validationMs > 0) return "validation_error" as const;
   return "provider_error" as const;
 }
 
@@ -138,6 +150,7 @@ function domainHintFor(skills: readonly RiskSkill[]): ClaimTarget | undefined {
 }
 
 export async function POST(request: Request) {
+  const routeStartedAt = performance.now();
   if (!request.headers.get("content-type")?.toLocaleLowerCase().includes("application/json")) {
     return Response.json({ error: "JSON 요청이 필요합니다." }, { status: 415 });
   }
@@ -172,7 +185,9 @@ export async function POST(request: Request) {
       readReviewedSkills(runtime),
       readSeverityRules(runtime),
     ]);
+    const rulesStartedAt = performance.now();
     const rules = analyzeText(text, skills, { severityRules });
+    const ruleAnalysisMs = performance.now() - rulesStartedAt;
     const key = cacheKeyFor(text);
     let run = readCached(key);
     const cacheHit = Boolean(run);
@@ -194,18 +209,22 @@ export async function POST(request: Request) {
         providerId: "google-genai-native-rest",
         model: "unavailable",
         promptVersion: "unavailable",
-        schemaVersion: "1.0.0",
+        schemaVersion: INTERPRETER_SCHEMA_VERSION,
         latencyMs: 0,
+        providerRequestMs: 0,
+        validationMs: 0,
         estimatedCost: 0,
         tokenUsage: null,
         timedOut: false,
+        timeoutStage: null,
       };
     }
 
     const hybrid = combinePrivateBetaHybrid(rules, run);
     const payload = run.payload;
+    const routeTotalMs = performance.now() - routeStartedAt;
     return Response.json({
-      beta: "RiskShield v0.4 AI-assisted private beta",
+      beta: "RiskShield v0.4.1 AI-assisted private beta",
       rules,
       ai: {
         state: run.ok ? "ready" : "fallback",
@@ -214,11 +233,22 @@ export async function POST(request: Request) {
         speechAct: payload?.speech_act ?? null,
         contextRelation: payload?.context_relation ?? null,
         claimStrength: payload?.claim_strength ?? null,
+        policyRelevance: payload?.policy_relevance ?? null,
+        riskFamily: payload?.risk_family ?? null,
         evidenceSpans: payload?.evidence_spans ?? [],
         masked: run.masked,
         cached: cacheHit,
         latencyMs: Math.round(run.latencyMs),
         fallbackKind: run.ok ? null : fallbackKind(run),
+        providerStatus: providerStatus(run, cacheHit),
+        timing: {
+          routeTotalMs: Math.round(routeTotalMs),
+          providerRequestMs: Math.round(run.providerRequestMs),
+          validationMs: Math.round(run.validationMs),
+          ruleAnalysisMs: Math.round(ruleAnalysisMs),
+          cacheStatus: cacheHit ? "hit" : "miss",
+          timeoutStage: run.timeoutStage,
+        },
       },
       hybrid,
       notice: hybrid.status === "no_match"

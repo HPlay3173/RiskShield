@@ -81,9 +81,23 @@ Gemma function calling 추가 규칙:
 - 공백, 조사, 문장부호를 바꾸거나 요약·교정하지 마세요. 분석 대상에 정확히 존재하지 않는 문자열은 넣지 마세요.
 - start/end offset은 생성하지 마세요. 애플리케이션이 exact substring 검색으로 계산합니다.
 - 분석 대상 UTF-16 길이는 ${input.length}입니다.
-- speech_act가 warning, criticism, report, quote, definition, condition 중 하나이면 risk_intent는 반드시 contextual_only이고 evidence_quotes는 반드시 빈 배열입니다.
+- speech_act가 warning, criticism, report, quote, definition 중 하나이면 risk_intent는 반드시 contextual_only이고 evidence_quotes는 반드시 빈 배열입니다.
 - direct_promotional은 광고주가 직접 광고·홍보하는 claim에만 사용하며 speech_act=claim, context_relation=supports여야 합니다.
-- 위험 주장을 경고·비판·인용·보도·정의하거나 조건부로 설명하는 문장은 표현 안에 위험 단어가 있어도 절대 direct_promotional이 아닙니다.`;
+- 위험 주장을 경고·비판·인용·보도·정의하거나 조건부로 설명하는 문장은 표현 안에 위험 단어가 있어도 절대 direct_promotional이 아닙니다.
+- 광고성 문장이라는 이유만으로 정책 위험으로 분류하지 마세요. 직접 광고와 위험 광고는 다른 개념입니다.
+- CTA, 상품 소개, 기능 안내, 사용 절차, 과거 사건 제목은 구체적인 위험 요소가 없으면 policy_relevance=none, risk_family=none입니다.
+- 메뉴 검색·선택·클릭 같은 사용 절차는 risk_intent=contextual_only, speech_act=condition, context_relation=conditions, evidence_quotes=[]로 반환하세요.
+- 일반 CTA를 direct_promotional로 분류했다면 speech_act=claim, context_relation=supports를 함께 사용하되 policy_relevance=none일 수 있습니다.
+- 정보성 가이드가 일부 판매자의 과거 수입 사례를 설명할 뿐 독자 수익을 보장하지 않으면 contextual_only, report, reports, policy_relevance=none을 사용하세요.
+- 수익화 강의나 고수익 시스템 자체를 직접 홍보하는 제목은 금액 보장이 없어도 policy_relevance=substantiation, risk_family=income_claim을 사용하세요.
+- 구체적인 비교·성과·결과 약속이 없는 일반 포지셔닝 문구는 policy_relevance=none입니다.
+- 과거 완료 사건 결과의 제목에 미래 약속이나 CTA가 없으면 contextual_only, report, reports, policy_relevance=none입니다.
+- 실패한 환불 약속을 가정하고 소비자 대응을 묻는 문구는 contextual_only, warning, warns_about, policy_relevance=none입니다.
+- 기술 수준과 무관하게 누구나 뛰어난 결과물을 만들 수 있다는 직접 기능 홍보는 substantiation, general_substantiation입니다.
+- confidence는 위험도가 아니라 이 문맥 분류의 확실성입니다. 명백한 안전 CTA·절차·과거 사례·경고를 none으로 분류했다는 이유로 confidence를 낮추지 마세요.
+- 비교·실적·최상급·조건처럼 근거 확인이 필요한 주장은 policy_relevance=substantiation을 사용하세요.
+- 결과 보장, 효능 확정, 금융 보장, 비동의 감시는 policy_relevance=potentially_high를 사용하세요.
+- 원문에 없는 위험을 추론하지 마세요. 판단할 수 없으면 policy_relevance=uncertain을 사용하세요.`;
 }
 
 export class GoogleGenAiProvider implements LiveProvider {

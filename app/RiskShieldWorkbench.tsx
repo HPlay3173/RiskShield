@@ -96,7 +96,7 @@ type BundleImportReport = {
 type BetaHybridStatus = "no_match" | "review" | "attention" | "high";
 
 type BetaAnalysis = {
-  beta: "RiskShield v0.4 AI-assisted private beta";
+  beta: "RiskShield v0.4.1 AI-assisted private beta";
   rules: AnalysisResult;
   ai: {
     state: "ready" | "fallback";
@@ -105,16 +105,28 @@ type BetaAnalysis = {
     speechAct: "claim" | "quote" | "warning" | "criticism" | "report" | "definition" | "condition" | null;
     contextRelation: string | null;
     claimStrength: string | null;
+    policyRelevance: "none" | "substantiation" | "potentially_high" | "uncertain" | null;
+    riskFamily: "health_claim" | "financial_guarantee" | "income_claim" | "education_outcome" | "legal_outcome" | "privacy_intrusion" | "urgency" | "general_substantiation" | "none" | null;
     evidenceSpans: Array<{ start: number; end: number; text: string }>;
     masked: boolean;
     cached: boolean;
     latencyMs: number;
     fallbackKind: "timeout" | "resource_exhausted" | "validation" | "provider_error" | null;
+    providerStatus: "ready" | "cached" | "timeout" | "resource_exhausted" | "validation_error" | "provider_error" | "secret_unavailable";
+    timing: {
+      routeTotalMs: number;
+      providerRequestMs: number;
+      validationMs: number;
+      ruleAnalysisMs: number;
+      cacheStatus: "hit" | "miss";
+      timeoutStage: "provider_request" | "validation" | null;
+    };
   };
   hybrid: {
     status: BetaHybridStatus;
     score: number;
     conflict: boolean;
+    conflictReasons: string[];
     recoveredByInterpreter: boolean;
     suppressedHigh: boolean;
     reason: string;
@@ -238,10 +250,79 @@ function speechActLabel(value: BetaAnalysis["ai"]["speechAct"]) {
 }
 
 function riskIntentLabel(value: BetaAnalysis["ai"]["riskIntent"]) {
-  if (value === "direct_promotional") return "직접 홍보 위험 주장";
+  if (value === "direct_promotional") return "직접 광고·홍보 주장";
   if (value === "contextual_only") return "문맥상 직접 주장 아님";
   if (value === "uncertain") return "의도 불확실";
   return "분석 실패";
+}
+
+function policyRelevanceLabel(value: BetaAnalysis["ai"]["policyRelevance"]) {
+  if (value === "none") return "현재 위험 정책과 직접 관련 없음";
+  if (value === "substantiation") return "근거 확인 필요";
+  if (value === "potentially_high") return "고위험 가능성";
+  if (value === "uncertain") return "판단 불확실";
+  return "확인 불가";
+}
+
+function riskFamilyLabel(value: BetaAnalysis["ai"]["riskFamily"]) {
+  const labels: Record<NonNullable<BetaAnalysis["ai"]["riskFamily"]>, string> = {
+    health_claim: "건강·효능",
+    financial_guarantee: "금융 보장",
+    income_claim: "수익·부업",
+    education_outcome: "교육·취업 결과",
+    legal_outcome: "법률·행정 결과",
+    privacy_intrusion: "개인정보 침해",
+    urgency: "긴급성 유도",
+    general_substantiation: "일반 입증 필요",
+    none: "해당 없음",
+  };
+  return value ? labels[value] : "확인 불가";
+}
+
+function contextRelationLabel(value: string | null) {
+  const labels: Record<string, string> = {
+    supports: "주장을 뒷받침함",
+    negates: "주장을 부정함",
+    warns_about: "위험을 경고함",
+    reports: "사실을 보도함",
+    defines: "개념을 설명함",
+    quotes: "타인의 표현을 인용함",
+    conditions: "조건을 안내함",
+    unrelated: "직접 관련 없음",
+  };
+  return value ? (labels[value] ?? "확인 불가") : "확인 불가";
+}
+
+function providerStatusLabel(value: BetaAnalysis["ai"]["providerStatus"]) {
+  const labels = {
+    ready: "정상 완료",
+    cached: "검증 캐시 사용",
+    timeout: "응답 시간 초과",
+    resource_exhausted: "무료 할당량 소진",
+    validation_error: "응답 검증 실패",
+    provider_error: "AI 서비스 오류",
+    secret_unavailable: "AI 연결 설정 없음",
+  } as const;
+  return labels[value];
+}
+
+function conflictReasonLabel(values: string[]) {
+  if (values.length === 0) return "확인되지 않음";
+  const labels: Record<string, string> = {
+    context_policy_suppression: "규칙 표현이 경고·설명 문맥에 포함됨",
+    legitimate_condition_suppresses_rules: "규칙 표현이 정상 조건 안내에 포함됨",
+    risk_family_mismatch: "규칙과 AI의 위험 분야가 다름",
+    interpreter_timeout: "AI 문맥 분석 시간 초과",
+    interpreter_resource_exhausted: "AI 무료 할당량 소진",
+    interpreter_validation_failed: "AI 응답 또는 근거 검증 실패",
+    interpreter_provider_failed: "AI 서비스 응답 실패",
+    interpreter_low_confidence: "AI 확신도 부족",
+    interpreter_uncertain: "AI 문맥 판단 불확실",
+    ai_only_substantiation: "AI만 입증 필요 표현을 감지",
+    ai_only_potentially_high: "AI만 고위험 가능성을 감지",
+    rules_interpreter_disagreement: "규칙과 AI의 위험 해석이 다름",
+  };
+  return values.map((value) => labels[value] ?? "추가 확인 필요").join(" · ");
 }
 
 function ChipEditor({
@@ -471,11 +552,16 @@ function AiAssistPanel({ result, loading }: { result: BetaAnalysis | null; loadi
   const tone = hybridTone(result.hybrid.status);
   const confidence = result.ai.confidence === null ? "—" : `${Math.round(result.ai.confidence * 100)}%`;
   const fallbackLabels = {
-    timeout: "AI 응답 시간이 초과되어 review로 전환했습니다.",
-    resource_exhausted: "AI 무료 할당량이 일시 소진되어 review로 전환했습니다.",
-    validation: "AI 응답 또는 근거를 검증하지 못해 review로 전환했습니다.",
-    provider_error: "AI 서비스 오류로 review로 전환했습니다.",
+    timeout: "AI 문맥 분석이 시간 안에 완료되지 않아 담당자 검토로 전환했습니다.",
+    resource_exhausted: "AI 무료 할당량이 일시 소진되어 담당자 검토로 전환했습니다.",
+    validation: "AI 응답 또는 근거를 검증하지 못해 담당자 검토로 전환했습니다.",
+    provider_error: "AI 서비스 오류로 담당자 검토로 전환했습니다.",
   } as const;
+  const emptyEvidenceMessage = result.ai.riskIntent === "contextual_only"
+    ? "이 문구는 위험 표현을 설명하거나 경고하는 문맥으로 해석되었습니다."
+    : result.ai.policyRelevance === "none"
+      ? "현재 정책과 직접 관련된 위험 근거가 확인되지 않았습니다."
+      : "검증 가능한 직접 인용 근거가 확인되지 않았습니다.";
 
   return (
     <section className="analysisPanel aiAssistPanel" aria-labelledby="ai-assist-title" data-testid="ai-assist-result">
@@ -492,10 +578,16 @@ function AiAssistPanel({ result, loading }: { result: BetaAnalysis | null; loadi
       <div className="hybridStatusGrid">
         <div><span>규칙 분석</span><strong>{result.rules.statusLabel} · {result.rules.finalScore}점</strong></div>
         <div><span>AI 문맥 상태</span><strong>{result.ai.state === "ready" ? riskIntentLabel(result.ai.riskIntent) : "review 폴백"}</strong></div>
-        <div><span>하이브리드 최종</span><strong>{hybridLabel(result.hybrid.status)}</strong></div>
-        <div><span>AI 신뢰도</span><strong>{confidence}</strong></div>
         <div><span>발화 구분</span><strong>{speechActLabel(result.ai.speechAct)}</strong></div>
-        <div><span>규칙·AI 충돌</span><strong>{result.hybrid.conflict ? "있음 · 사람 검토" : "확인되지 않음"}</strong></div>
+        <div><span>문맥 관계</span><strong>{contextRelationLabel(result.ai.contextRelation)}</strong></div>
+        <div><span>정책 관련성</span><strong>{policyRelevanceLabel(result.ai.policyRelevance)}</strong></div>
+        <div><span>위험 분야</span><strong>{riskFamilyLabel(result.ai.riskFamily)}</strong></div>
+        <div><span>AI 신뢰도</span><strong>{confidence}</strong></div>
+        <div><span>AI 제공 상태</span><strong>{providerStatusLabel(result.ai.providerStatus)}</strong></div>
+        <div><span>하이브리드 최종</span><strong>{hybridLabel(result.hybrid.status)}</strong></div>
+        <div><span>규칙·AI 충돌 이유</span><strong>{conflictReasonLabel(result.hybrid.conflictReasons)}</strong></div>
+        <div><span>처리 시간</span><strong>전체 {result.ai.timing.routeTotalMs.toLocaleString("ko-KR")}ms · AI {result.ai.timing.providerRequestMs.toLocaleString("ko-KR")}ms</strong></div>
+        <div><span>캐시</span><strong>{result.ai.timing.cacheStatus === "hit" ? "검증 결과 재사용" : "새 분석"}</strong></div>
       </div>
 
       {result.ai.state === "fallback" && result.ai.fallbackKind ? (
@@ -508,11 +600,11 @@ function AiAssistPanel({ result, loading }: { result: BetaAnalysis | null; loadi
           </div>
           {result.ai.evidenceSpans.length > 0 ? (
             <ul>{result.ai.evidenceSpans.map((span) => <li key={`${span.start}-${span.end}`}>“{span.text}”</li>)}</ul>
-          ) : <p>직접 위험 주장의 근거 quote가 반환되지 않았습니다.</p>}
+          ) : <p>{emptyEvidenceMessage}</p>}
         </div>
       )}
 
-      <p className="hybridReason">{result.hybrid.reason}</p>
+      <p className="hybridReason"><strong>검토 사유</strong> {result.hybrid.reason}</p>
       <p className="aiDecisionNotice">{result.notice}</p>
       <p className="aiPrivacyNote">
         개인정보는 서버에서 마스킹한 뒤 분석하며, 캐시는 원문이 아닌 입력 해시와 검증된 결과만 최대 {Math.round(result.cachePolicy.ttlSeconds / 60)}분 보관합니다.
@@ -769,7 +861,7 @@ export function RiskShieldWorkbench() {
     } catch {
       if (requestId !== analysisRequestIdRef.current) return;
       setBetaAnalysis({
-        beta: "RiskShield v0.4 AI-assisted private beta",
+        beta: "RiskShield v0.4.1 AI-assisted private beta",
         rules: localRules,
         ai: {
           state: "fallback",
@@ -778,16 +870,28 @@ export function RiskShieldWorkbench() {
           speechAct: null,
           contextRelation: null,
           claimStrength: null,
+          policyRelevance: null,
+          riskFamily: null,
           evidenceSpans: [],
           masked: false,
           cached: false,
           latencyMs: 0,
           fallbackKind: "provider_error",
+          providerStatus: "provider_error",
+          timing: {
+            routeTotalMs: 0,
+            providerRequestMs: 0,
+            validationMs: 0,
+            ruleAnalysisMs: 0,
+            cacheStatus: "miss",
+            timeoutStage: null,
+          },
         },
         hybrid: {
           status: "review",
           score: Math.max(55, Math.min(69, localRules.finalScore || 55)),
           conflict: true,
+          conflictReasons: ["interpreter_provider_failed"],
           recoveredByInterpreter: false,
           suppressedHigh: localRules.status === "high",
           reason: "AI 분석 실패 시 규칙 결과를 유지하고 담당자 review로 전달합니다.",
