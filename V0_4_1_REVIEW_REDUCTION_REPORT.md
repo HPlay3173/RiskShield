@@ -121,3 +121,5 @@ provider 요청이 전체 시간의 거의 전부를 차지한다. 규칙 분석
 **BETA_OK (private beta)**
 
 불필요 review 축소 목표, 기존 위험 review 유지, BETA027·028 억제, 일반화 20건 목표, false high 0을 모두 충족했다. BETA019와 provider 실패는 의도적으로 review에 남기는 제한 사항이다.
+
+배포 후 기존 private URL에서 11개 운영 UI 시나리오를 확인했고 모두 목표 범위에 들어왔다. D1 29/24/4/1, custom 접근 정책과 API secret은 보존됐다.
