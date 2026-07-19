@@ -2510,16 +2510,12 @@ textarea:disabled {
 }
 
 .filterBar {
-  position: sticky;
-  z-index: 10;
-  top: var(--header-height);
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 14px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  backdrop-filter: saturate(150%) blur(14px);
+  background: var(--surface);
 }
 
 .filterBar label {
