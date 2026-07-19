@@ -49,25 +49,79 @@ test("retires every compatibility skills method without reading auth or D1", asy
   }
 });
 
-test("keeps the control plane unavailable without starting OAuth", async () => {
-  for (const path of ["/admin", "/dev", "/owner/access"]) {
+test("exposes only POST on the public Analyzer API", async () => {
+  for (const method of ["GET", "HEAD", "PUT", "PATCH", "DELETE"]) {
+    const response = await request("/api/analyze", { method });
+    assert.equal(response.status, 405, `${method} /api/analyze`);
+  }
+});
+
+test("keeps the management control plane fail-closed when auth is unavailable", async () => {
+  const defaultRedirects = new Map([
+    ["/admin", "/admin/review"],
+    ["/dev", "/dev/datasets"],
+    ["/owner", "/owner/access"],
+  ]);
+  for (const [path, destination] of defaultRedirects) {
     const response = await request(path);
-    assert.equal(response.status, 404, path);
-    assert.equal(response.headers.get("location"), null, `${path} redirected`);
+    assert.equal(response.status, 307, path);
+    assert.equal(new URL(response.headers.get("location")).pathname, destination);
   }
 
-  for (const path of ["/api/admin/ping", "/api/dev/ping", "/api/owner/ping"]) {
+  for (const path of [
+    "/admin/review",
+    "/admin/skills",
+    "/admin/trends",
+    "/admin/audit",
+    "/dev/datasets",
+    "/dev/training",
+    "/dev/evaluation",
+    "/dev/models",
+    "/dev/audit",
+    "/owner/access",
+  ]) {
     const response = await request(path);
-    assert.equal(response.status, 503, path);
-    assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.deepEqual(await response.json(), {
-      error: "control_plane_unavailable",
-      message: "이 기능은 현재 사용할 수 없습니다.",
-    });
+    assert.equal(response.status, 307, path);
+    const location = response.headers.get("location");
+    assert.ok(location, `${path} omitted its authentication redirect`);
+    const redirectUrl = new URL(location);
+    assert.equal(redirectUrl.pathname, "/api/auth/google/start");
+    assert.equal(redirectUrl.searchParams.get("return_to"), path);
   }
 
-  await assert.rejects(access(new URL("../app/api/auth/google/start/route.ts", import.meta.url)));
-  await assert.rejects(access(new URL("../app/api/auth/google/callback/route.ts", import.meta.url)));
+  const authStart = await request("/api/auth/google/start?return_to=%2Fadmin");
+  assert.equal(authStart.status, 503);
+  assert.equal(authStart.headers.get("cache-control"), "private, no-store");
+  assert.deepEqual(await authStart.json(), { error: "authentication_unavailable" });
+
+  for (const path of [
+    "/api/admin/ping",
+    "/api/admin/candidates",
+    "/api/admin/skills",
+    "/api/dev/ping",
+    "/api/dev/datasets",
+    "/api/owner/ping",
+  ]) {
+    const response = await request(path);
+    assert.equal(response.status, 401, path);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(await response.json(), { error: "authentication_required" });
+  }
+
+  for (const path of [
+    "/api/admin/candidates/decision",
+    "/api/admin/skills/revisions",
+    "/api/dev/datasets/register",
+    "/api/dev/training/run",
+  ]) {
+    const response = await request(path, { method: "POST" });
+    assert.equal(response.status, 401, path);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(await response.json(), { error: "authentication_required" });
+  }
+
+  await access(new URL("../app/api/auth/google/start/route.ts", import.meta.url));
+  await access(new URL("../app/api/auth/google/callback/route.ts", import.meta.url));
 });
 
 test("keeps public root HTML, hydration, and public JS free of skill and control datasets", async () => {
@@ -80,9 +134,13 @@ test("keeps public root HTML, hydration, and public JS free of skill and control
   ];
   const assetPaths = [...new Set(assetMatches.map((match) => match[1]))];
   assert.ok(assetPaths.length > 0, "root did not reference a public JS entry");
+  const stylePaths = [...new Set(
+    [...html.matchAll(/<link[^>]+href="(\/assets\/[^"?]+\.css)"/g)].map((match) => match[1]),
+  )];
+  assert.ok(stylePaths.length > 0, "root did not reference a public CSS entry");
 
   const publicBytes = [html];
-  for (const assetPath of assetPaths) {
+  for (const assetPath of [...assetPaths, ...stylePaths]) {
     publicBytes.push(
       await readFile(new URL(`../dist/client${assetPath}`, import.meta.url), "utf8"),
     );
@@ -98,6 +156,22 @@ test("keeps public root HTML, hydration, and public JS free of skill and control
     "스킬 라이브러리",
     "검토 콘솔",
     "개발 콘솔",
+    "개발 데이터",
+    "Skill Library",
+    "Dataset Console",
+    "Training Console",
+    "/api/admin",
+    "/api/dev",
+    "/api/owner",
+    "risk_skills",
+    "RISKSHIELD_INTERPRETER_API_KEY",
+    "RISKSHIELD_GOOGLE_CLIENT_SECRET",
+    "RISKSHIELD_SESSION_SECRET",
+    "managementShell",
+    "reviewInbox",
+    "skillLibrary",
+    "datasetConsole",
+    "trainingConsole",
   ]) {
     assert.ok(!combined.includes(forbidden), `public bytes contain ${forbidden}`);
   }
@@ -122,5 +196,6 @@ test("contains no database mutation in GET or HEAD API routes", async () => {
   }
 
   assert.ok(getRoutes.includes("skills/route.ts"));
-  assert.ok(getRoutes.every((path) => !path.startsWith("auth/")), getRoutes.join(", "));
+  assert.ok(getRoutes.includes("auth/google/start/route.ts"));
+  assert.ok(getRoutes.includes("auth/google/callback/route.ts"));
 });
