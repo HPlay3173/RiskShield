@@ -54,7 +54,7 @@ function candidateView(record: CandidateRecord): ReviewCandidate {
 }
 
 export default async function AdminReviewPage() {
-  const { principal, presentation, repositories } = await protectedProductPage("/admin/review", "candidate:read");
+  const { principal, presentation, repositories } = await protectedProductPage("/manage/review", "candidate:read");
   const result = await repositories.candidates.list();
   if (result.status !== "ready") {
     return (
@@ -78,7 +78,7 @@ export default async function AdminReviewPage() {
           modelConflicts: knownConflict.length ? knownConflict.filter((candidate) => candidate.modelConflict).length : null,
         }}
         candidates={candidates}
-        decisionEndpoint="/api/admin/candidates/decision"
+        decisionEndpoint="/api/manage/candidates/decision"
         csrfToken={principal.csrfToken}
         developmentFixture={result.fixture}
         degradedMessage={result.fixture ? "개발 데이터의 결정은 메모리 저장소에만 기록되며 production 스킬을 변경하지 않습니다." : null}

@@ -71,6 +71,8 @@ const localCandidateDecisions = new Map<
   string,
   CandidateDecisionInput & { candidateStatus: CandidateRecord["status"] }
 >();
+const localTrainingRuns = new Map<string, TrainingRunRecord>();
+const localAuditRecords: AuditRecord[] = [];
 let localCandidateDecisionSequence = 1;
 
 function page<T>(items: readonly T[]): RepositoryPage<T> {
@@ -312,8 +314,25 @@ export class LocalTrainingRepository extends LocalCollectionRepository<TrainingR
     super(records);
   }
 
-  async listRuns() { return this.listRecords(); }
-  async getRun(id: string) { return this.recordById(id); }
+  async listRuns() {
+    return ready(page([...this.records, ...localTrainingRuns.values()]), "local_fixture", fixtureOptions);
+  }
+  async getRun(id: string) {
+    return ready(localTrainingRuns.get(id) ?? this.records.find((record) => record.id === id) ?? null, "local_fixture", fixtureOptions);
+  }
+  async saveRun(record: TrainingRunRecord, actorId: string) {
+    localTrainingRuns.set(record.id, { ...record });
+    localAuditRecords.unshift({
+      id: `local_audit_training_${record.id}`,
+      occurredAt: new Date().toISOString(),
+      actorId,
+      action: "training.run.saved",
+      resourceType: "training_run",
+      resourceId: record.id,
+      result: "succeeded",
+    });
+    return ready({ persisted: true }, "local_fixture", fixtureOptions);
+  }
 }
 
 export class LocalEvaluationRepository extends LocalCollectionRepository<EvaluationRunRecord> implements EvaluationRepository {
@@ -359,7 +378,7 @@ export class LocalAuditRepository implements AuditRepository {
   }
 
   async list() {
-    return ready(page(this.records), "local_fixture", fixtureOptions);
+    return ready(page([...localAuditRecords, ...this.records]), "local_fixture", fixtureOptions);
   }
 }
 

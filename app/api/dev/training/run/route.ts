@@ -1,4 +1,4 @@
-import { requireApiCapability } from "../../../../../lib/auth/authorize";
+import { principalFromRequest, requireApiCapability } from "../../../../../lib/auth/authorize";
 import { requireMutationIntegrity } from "../../../../../lib/auth/request-integrity";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject, repositoryFailure } from "../../../../../lib/http/control-response";
 import { createRepositoryServices } from "../../../../../lib/repositories";
@@ -32,18 +32,22 @@ function rowsFrom(value: unknown): TrainingSourceRow[] | null {
   return rows;
 }
 
-export async function POST(request: Request) {
+export async function runTrainingRequest(request: Request, allowProduction: boolean) {
   const denied = await requireApiCapability(request, "training:run");
   if (denied) return denied;
   const integrityFailure = await requireMutationIntegrity(request);
   if (integrityFailure) return integrityFailure;
   const repositories = await createRepositoryServices({ request });
-  if (!repositories.developmentFixture) {
-    return controlJson({
-      error: "training_runner_unavailable",
-      message: "Production training runner is not configured.",
-      state: "configuration_required",
-    }, 503);
+  const principal = await principalFromRequest(request);
+  if (!principal) return controlJson({ error: "authentication_required" }, 401);
+  if (!allowProduction) {
+    if (!repositories.developmentFixture) {
+      return controlJson({
+        error: "training_runner_unavailable",
+        message: "Production training runner is available only through the unified management API.",
+        state: "configuration_required",
+      }, 503);
+    }
   }
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
@@ -94,10 +98,9 @@ export async function POST(request: Request) {
     apiKey = "";
   }
   const draftProvider = new GoogleTrainingDraftProvider(apiKey);
-  const waitingReviewRepository: WaitingReviewRepository | undefined = draftProvider.configured && repositories.developmentFixture
-    ? {
+  const waitingReviewRepository: WaitingReviewRepository = {
         configured: true,
-        async saveWaitingReview(candidates, _context, signal) {
+        async saveWaitingReview(candidates, context, signal) {
           if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
           const result = await repositories.candidates.saveGenerated(candidates.map((candidate) => ({
             id: candidate.id,
@@ -117,14 +120,31 @@ export async function POST(request: Request) {
             redTeam: "생성된 양성·음성 경계 테스트는 사람의 Red-Team 검토가 필요합니다.",
             modelConflict: null,
             policyChange: null,
+            draft: candidate.draft ? {
+              title: candidate.draft.title,
+              riskSummary: candidate.draft.riskSummary,
+              triggerPatterns: candidate.draft.triggerPatterns,
+              contextPatterns: candidate.draft.contextPatterns,
+              safeRewrite: candidate.draft.safeRewrite,
+            } : null,
+            lineage: {
+              runId: context.runId,
+              datasetVersionId: context.datasetVersionId,
+              sourceSha256: context.sourceSha256,
+            },
+            sources: [{
+              title: `Dataset ${context.datasetVersionId}`,
+              url: "",
+              date: new Date().toISOString().slice(0, 10),
+            }],
             autoInclusionBlockedReason: "pipeline 후보는 관리자 승인 전 active skill로 편입되지 않습니다.",
           })));
           if (result.status !== "ready") throw Object.assign(new Error(result.code), { code: result.code });
           return { savedCandidateIds: [...result.data.savedIds] };
         },
-      }
-    : undefined;
+      };
 
+  const startedAt = Date.now();
   const result = await runTrainingMvp({
     datasetVersionId,
     sourceSha256,
@@ -144,10 +164,32 @@ export async function POST(request: Request) {
     maxRetries: 1,
   });
 
+  const activeStage = [...result.stages].reverse().find((stage) => stage.state !== "not_configured");
+  const runPersistence = await repositories.training.saveRun({
+    id: result.runId,
+    datasetVersionId,
+    status: result.status,
+    currentStage: activeStage?.id ?? null,
+    itemCount: result.metrics.candidates,
+    warningCount: result.stages.reduce((sum, stage) => sum + stage.warnings.length, 0),
+    estimatedCost: null,
+    latencyMs: Date.now() - startedAt,
+    updatedAt: new Date().toISOString(),
+  }, principal.userId);
+  if (runPersistence.status !== "ready") return repositoryFailure(runPersistence);
+  if (!runPersistence.data.persisted) {
+    return controlJson({ error: "training_run_not_persisted" }, 409);
+  }
+
   return controlJson({
     acknowledged: true,
     providerConfigured: draftProvider.configured,
-    candidatePersistenceConfigured: Boolean(waitingReviewRepository),
+    candidatePersistenceConfigured: true,
+    runPersisted: true,
     result,
   });
+}
+
+export async function POST(request: Request) {
+  return runTrainingRequest(request, false);
 }

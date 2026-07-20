@@ -23,7 +23,7 @@ function skillView(record: SkillAdminRecord): SkillLibraryItem | null {
 }
 
 export default async function AdminSkillsPage() {
-  const { principal, presentation, repositories } = await protectedProductPage("/admin/skills", "skill:read_admin");
+  const { principal, presentation, repositories } = await protectedProductPage("/manage/skills", "skill:read_admin");
   const result = await repositories.skills.listAdmin({ limit: 100 });
   if (result.status !== "ready") {
     return (
@@ -38,7 +38,7 @@ export default async function AdminSkillsPage() {
     <AdminShell currentHref="/admin/skills" principal={presentation} title="스킬 라이브러리" description="실제 risk_skills read adapter로 검색·상세·payload를 확인하고 기존 값을 덮어쓰지 않는 revision을 제안합니다.">
       <SkillLibrary
         skills={skills}
-        revisionEndpoint="/api/admin/skills/revisions"
+        revisionEndpoint="/api/manage/skills/revisions"
         csrfToken={principal.csrfToken}
         developmentFixture={result.fixture}
         degradedMessage={invalidCount ? `검증할 수 없는 payload ${invalidCount}건은 상세 목록에서 제외했습니다.` : result.fixture ? "개발 데이터입니다. production D1을 변경하지 않습니다." : null}

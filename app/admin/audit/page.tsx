@@ -13,7 +13,7 @@ const columns = [
 ] as const;
 
 export default async function AdminAuditPage() {
-  const { presentation, repositories } = await protectedProductPage("/admin/audit", "audit:read_admin");
+  const { presentation, repositories } = await protectedProductPage("/manage/audit", "audit:read_admin");
   const result = await repositories.audit.list();
 
   return (

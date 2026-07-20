@@ -20,20 +20,20 @@ import {
 import {
   configurationRequired,
   ready,
-  type AuditRepository,
-  type CandidateRepository,
-  type DatasetRepository,
   type EvaluationRepository,
   type ModelRecord,
   type ModelRepository,
   type RepositoryServices,
-  type TrainingRepository,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "./contracts.ts";
 import {
   D1AnalyzerService,
+  D1AuditRepository,
+  D1CandidateRepository,
+  D1DatasetRepository,
   D1PrincipalRepository,
   D1SkillRepository,
+  D1TrainingRepository,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "./d1.ts";
 
@@ -68,30 +68,6 @@ function configuration<T>(area: string, missing: readonly string[]) {
   );
 }
 
-function unconfiguredCandidates(): CandidateRepository {
-  return {
-    list: async () => configuration("candidate", ["skill_candidates migration"]),
-    getById: async () => configuration("candidate", ["skill_candidates migration"]),
-    decide: async () => configuration("candidate", ["skill_candidates migration", "candidate decision audit"]),
-    saveGenerated: async () => configuration("candidate", ["skill_candidates migration", "candidate lineage"]),
-  };
-}
-
-function unconfiguredDatasets(): DatasetRepository {
-  return {
-    list: async () => configuration("dataset", ["datasets migration", "dataset_versions migration", "R2"]),
-    getById: async () => configuration("dataset", ["datasets migration", "dataset_versions migration", "R2"]),
-    register: async () => configuration("dataset", ["datasets migration", "dataset_versions migration", "R2"]),
-  };
-}
-
-function unconfiguredTraining(): TrainingRepository {
-  return {
-    listRuns: async () => configuration("training", ["pipeline_runs migration", "local or external runner"]),
-    getRun: async () => configuration("training", ["pipeline_runs migration", "local or external runner"]),
-  };
-}
-
 function unconfiguredEvaluation(): EvaluationRepository {
   return {
     listRuns: async () => configuration("evaluation", ["evaluation_runs migration", "evaluation result manifest"]),
@@ -103,12 +79,6 @@ function codeModels(): ModelRepository {
   return {
     list: async () => ready({ items: [currentModel], nextCursor: null }, "code"),
     getActive: async () => ready(currentModel, "code"),
-  };
-}
-
-function unconfiguredAudit(): AuditRepository {
-  return {
-    list: async () => configuration("audit", ["audit_logs migration"]),
   };
 }
 
@@ -148,12 +118,12 @@ export async function createRepositoryServices(
   return {
     analyzer: new D1AnalyzerService(skills),
     skills,
-    candidates: unconfiguredCandidates(),
-    datasets: unconfiguredDatasets(),
-    training: unconfiguredTraining(),
+    candidates: new D1CandidateRepository(runtime.DB),
+    datasets: new D1DatasetRepository(runtime.DB),
+    training: new D1TrainingRepository(runtime.DB),
     evaluation: unconfiguredEvaluation(),
     models: codeModels(),
-    audit: unconfiguredAudit(),
+    audit: new D1AuditRepository(runtime.DB),
     principals: new D1PrincipalRepository(runtime.DB),
     developmentFixture: false,
   };

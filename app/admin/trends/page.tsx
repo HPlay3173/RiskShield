@@ -4,7 +4,7 @@ import { StatePanel } from "../../../components/states/StatePanel";
 import { protectedProductPage } from "../../../lib/product-page";
 
 export default async function AdminTrendsPage() {
-  const { presentation, repositories } = await protectedProductPage("/admin/trends", "candidate:read");
+  const { presentation, repositories } = await protectedProductPage("/manage/trends", "candidate:read");
   const runs = await repositories.training.listRuns();
   const recentRun = runs.status === "ready" ? runs.data.items[0] : null;
 

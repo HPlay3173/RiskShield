@@ -39,7 +39,7 @@ const INITIAL_CSV_METADATA: InitialCsvMetadataTuple = [
 ];
 
 export default async function DatasetsPage() {
-  const { principal, presentation, repositories } = await protectedProductPage("/dev/datasets", "dataset:manage");
+  const { principal, presentation, repositories } = await protectedProductPage("/manage/datasets", "dataset:manage");
   const datasets = await repositories.datasets.list();
   const configurationMessage = datasets.status === "configuration_required"
     ? `${datasets.message} ${datasets.missing.join(", ")}`
@@ -50,7 +50,7 @@ export default async function DatasetsPage() {
     <DeveloperShell currentHref="/dev/datasets" principal={presentation} title="데이터셋" description="원본 CSV를 byte-exact로 검사하고 provenance와 column mapping을 확인한 뒤 staging Dataset Version으로만 등록합니다.">
       <DatasetConsole
         initialCsvMetadata={INITIAL_CSV_METADATA}
-        stagingEndpoint="/api/dev/datasets/register"
+        stagingEndpoint="/api/manage/datasets/register"
         csrfToken={principal.csrfToken}
         developmentFixture={repositories.developmentFixture}
         configurationMessage={configurationMessage}

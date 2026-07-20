@@ -16,7 +16,7 @@ const columns = [
 ] as const;
 
 export default async function OwnerAccessPage() {
-  const { presentation, repositories } = await protectedProductPage("/owner/access", "principal:manage");
+  const { presentation, repositories } = await protectedProductPage("/manage/access", "principal:manage");
   const result = await repositories.principals.list();
   return (
     <OwnerShell currentHref="/owner/access" principal={presentation} title="사용자·역할" description="Google stable sub와 D1 role lookup을 기준으로 reviewer, developer, owner 접근을 확인합니다. client query나 localStorage로 역할을 바꿀 수 없습니다.">

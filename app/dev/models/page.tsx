@@ -19,7 +19,7 @@ const columns = [
 ] as const;
 
 export default async function ModelsPage() {
-  const { presentation, repositories } = await protectedProductPage("/dev/models", "model:manage");
+  const { presentation, repositories } = await protectedProductPage("/manage/models", "model:manage");
   const result = await repositories.models.list();
   const active = result.status === "ready" ? result.data.items.find((model) => model.status === "active") ?? null : null;
 

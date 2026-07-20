@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const riskSkills = sqliteTable(
   "risk_skills",
@@ -71,4 +71,115 @@ export const riskshieldSessionRevocations = sqliteTable(
     revokedAt: text("revoked_at").notNull(),
   },
   (table) => [index("riskshield_session_revocations_expiry_idx").on(table.expiresAt)],
+);
+
+export const riskshieldDatasets = sqliteTable(
+  "riskshield_datasets",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    sourceKind: text("source_kind").notNull().default("csv"),
+    status: text("status").notNull().default("staging"),
+    owner: text("owner").notNull(),
+    license: text("license").notNull(),
+    allowedPurpose: text("allowed_purpose").notNull(),
+    retention: text("retention").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    check("riskshield_datasets_status_check", sql`${table.status} IN ('staging', 'ready', 'invalid', 'unavailable')`),
+  ],
+);
+
+export const riskshieldDatasetVersions = sqliteTable(
+  "riskshield_dataset_versions",
+  {
+    id: text("id").primaryKey(),
+    datasetId: text("dataset_id").notNull().references(() => riskshieldDatasets.id),
+    versionNumber: integer("version_number").notNull(),
+    sha256: text("sha256").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    rowCount: integer("row_count").notNull(),
+    encoding: text("encoding").notNull(),
+    delimiter: text("delimiter").notNull(),
+    headersJson: text("headers_json").notNull(),
+    keywordColumn: text("keyword_column").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("riskshield_dataset_versions_number_idx").on(table.datasetId, table.versionNumber),
+    uniqueIndex("riskshield_dataset_versions_sha_idx").on(table.datasetId, table.sha256),
+  ],
+);
+
+export const riskshieldCandidates = sqliteTable(
+  "riskshield_candidates",
+  {
+    id: text("id").primaryKey(),
+    status: text("status").notNull().default("pending"),
+    payload: text("payload").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("riskshield_candidates_status_idx").on(table.status, table.updatedAt),
+    check("riskshield_candidates_status_check", sql`${table.status} IN ('pending', 'approved', 'merged', 'held', 'rejected')`),
+  ],
+);
+
+export const riskshieldCandidateDecisions = sqliteTable("riskshield_candidate_decisions", {
+  id: text("id").primaryKey(),
+  candidateId: text("candidate_id").notNull().references(() => riskshieldCandidates.id),
+  decision: text("decision").notNull(),
+  note: text("note"),
+  mergeSkillId: text("merge_skill_id"),
+  actorId: text("actor_id").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const riskshieldTrainingRuns = sqliteTable("riskshield_training_runs", {
+  id: text("id").primaryKey(),
+  datasetVersionId: text("dataset_version_id"),
+  status: text("status").notNull(),
+  currentStage: text("current_stage"),
+  itemCount: integer("item_count"),
+  warningCount: integer("warning_count"),
+  estimatedCost: real("estimated_cost"),
+  latencyMs: integer("latency_ms"),
+  payload: text("payload").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const riskshieldSkillRevisions = sqliteTable("riskshield_skill_revisions", {
+  id: text("id").primaryKey(),
+  skillId: text("skill_id").notNull(),
+  baseRevision: integer("base_revision").notNull(),
+  proposedRevision: integer("proposed_revision").notNull(),
+  summary: text("summary").notNull(),
+  rationale: text("rationale").notNull(),
+  payload: text("payload").notNull(),
+  actorId: text("actor_id").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const riskshieldAuditLogs = sqliteTable(
+  "riskshield_audit_logs",
+  {
+    id: text("id").primaryKey(),
+    occurredAt: text("occurred_at").notNull(),
+    actorId: text("actor_id").notNull(),
+    action: text("action").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    result: text("result").notNull(),
+    beforeJson: text("before_json"),
+    afterJson: text("after_json"),
+    reason: text("reason"),
+  },
+  (table) => [
+    index("riskshield_audit_occurred_idx").on(table.occurredAt),
+    check("riskshield_audit_result_check", sql`${table.result} IN ('succeeded', 'denied', 'failed')`),
+  ],
 );

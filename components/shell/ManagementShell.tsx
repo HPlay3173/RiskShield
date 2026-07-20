@@ -55,34 +55,23 @@ export function ManagementShell({
       <a className="skipLink managementSkipLink" href={`#${mainId}`}>
         본문으로 건너뛰기
       </a>
-
       <header className="managementTopBar floatingMaterial">
         <a className="managementBrand" href={brandHref} aria-label={`${brandLabel} 홈`}>
-          <span className="managementBrandMark" aria-hidden="true">
-            R
-          </span>
+          <span className="managementBrandMark" aria-hidden="true">R</span>
           <span>{brandLabel}</span>
         </a>
-
         <div className="managementTopBarActions">
           {identity ? (
             <div className="managementIdentity" aria-label="현재 접근 주체">
               <span className="managementIdentityName">{identity.displayName}</span>
-              {identity.secondaryText ? (
-                <span className="managementIdentitySecondary">{identity.secondaryText}</span>
-              ) : null}
-              {identity.roleLabel ? (
-                <span className="managementIdentityRole">{identity.roleLabel}</span>
-              ) : null}
-              {identity.developmentFixture ? (
-                <strong className="developmentDataBadge">개발 데이터</strong>
-              ) : null}
+              {identity.secondaryText ? <span className="managementIdentitySecondary">{identity.secondaryText}</span> : null}
+              {identity.roleLabel ? <span className="managementIdentityRole">{identity.roleLabel}</span> : null}
+              {identity.developmentFixture ? <strong className="developmentDataBadge">개발 데이터</strong> : null}
             </div>
           ) : null}
           {actions}
         </div>
       </header>
-
       <div className="managementFrame">
         <aside className="managementSidebar">
           <nav className="managementNavigation" aria-label={areaLabel}>
@@ -98,19 +87,14 @@ export function ManagementShell({
                       <strong>{item.label}</strong>
                       {item.description ? <small>{item.description}</small> : null}
                     </span>
-                    {item.badge === undefined ? null : (
-                      <span className="managementNavBadge">{item.badge}</span>
-                    )}
+                    {item.badge === undefined ? null : <span className="managementNavBadge">{item.badge}</span>}
                   </a>
                 </li>
               ))}
             </ul>
           </nav>
-          {navigationFooter ? (
-            <footer className="managementNavigationFooter">{navigationFooter}</footer>
-          ) : null}
+          {navigationFooter ? <footer className="managementNavigationFooter">{navigationFooter}</footer> : null}
         </aside>
-
         <main id={mainId} className="managementMain" tabIndex={-1}>
           <header className="managementPageHeader">
             {eyebrow ? <p className="managementPageEyebrow">{eyebrow}</p> : null}

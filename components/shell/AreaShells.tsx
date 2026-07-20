@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import {
   ManagementShell,
   type ManagementIdentity,
@@ -23,36 +24,40 @@ export type AreaShellProps = {
   className?: string;
 };
 
-const adminNavigation = [
-  { href: "/admin/review", label: "후보 검토", description: "AI 후보와 결정" },
-  { href: "/admin/skills", label: "스킬 라이브러리", description: "스킬과 revision" },
-  { href: "/admin/trends", label: "표현 변화", description: "신규 표현과 변화" },
-  { href: "/admin/audit", label: "관리 감사", description: "검토와 변경 이력" },
+const managementNavigation = [
+  { href: "/manage/review", label: "후보 검토", description: "AI 후보와 사람의 결정" },
+  { href: "/manage/skills", label: "스킬", description: "검토 상태와 revision" },
+  { href: "/manage/datasets", label: "데이터셋", description: "CSV 검증과 등록" },
+  { href: "/manage/training", label: "학습", description: "정제부터 검토함까지" },
+  { href: "/manage/evaluation", label: "평가", description: "회귀 결과와 품질" },
+  { href: "/manage/models", label: "모델", description: "Gemma와 계약 버전" },
+  { href: "/manage/trends", label: "트렌드", description: "신규 표현 데이터 상태" },
+  { href: "/manage/audit", label: "감사", description: "결정과 변경 이력" },
+  { href: "/manage/access", label: "접근", description: "관리 세션과 권한" },
 ] as const;
 
-const developerNavigation = [
-  { href: "/dev/datasets", label: "데이터셋", description: "등록과 검증" },
-  { href: "/dev/training", label: "Training Pipeline", description: "단계와 실행 상태" },
-  { href: "/dev/evaluation", label: "평가", description: "회귀와 품질 지표" },
-  { href: "/dev/models", label: "모델·프롬프트", description: "버전과 설정" },
-  { href: "/dev/audit", label: "개발 감사", description: "lifecycle 이력" },
-] as const;
-
-const ownerNavigation = [
-  { href: "/owner/access", label: "사용자·역할", description: "접근과 session 관리" },
-] as const;
+const legacyMap: Record<string, string> = {
+  "/admin/review": "/manage/review",
+  "/admin/skills": "/manage/skills",
+  "/admin/trends": "/manage/trends",
+  "/admin/audit": "/manage/audit",
+  "/dev/datasets": "/manage/datasets",
+  "/dev/training": "/manage/training",
+  "/dev/evaluation": "/manage/evaluation",
+  "/dev/models": "/manage/models",
+  "/dev/audit": "/manage/audit",
+  "/owner/access": "/manage/access",
+};
 
 function normalizedPath(href: string) {
   const path = href.split(/[?#]/u, 1)[0] || "/";
-  return path.length > 1 ? path.replace(/\/+$/u, "") : path;
+  const normalized = path.length > 1 ? path.replace(/\/+$/u, "") : path;
+  return legacyMap[normalized] ?? normalized;
 }
 
-function navigationFor(
-  items: ReadonlyArray<{ href: string; label: string; description: string }>,
-  currentHref: string,
-): ManagementNavItem[] {
+function navigationFor(currentHref: string): ManagementNavItem[] {
   const current = normalizedPath(currentHref);
-  return items.map((item) => ({
+  return managementNavigation.map((item) => ({
     ...item,
     current: current === item.href || current.startsWith(`${item.href}/`),
   }));
@@ -67,77 +72,34 @@ function identityFor(principal: AreaPrincipal): ManagementIdentity {
   };
 }
 
-type AreaFrameProps = AreaShellProps & {
-  areaLabel: string;
-  brandLabel: string;
-  eyebrow: string;
-  navigation: ReadonlyArray<{ href: string; label: string; description: string }>;
-};
-
-function AreaFrame({
-  currentHref,
-  principal,
-  title,
-  description,
-  children,
-  actions,
-  navigationFooter,
-  className,
-  areaLabel,
-  brandLabel,
-  eyebrow,
-  navigation,
-}: AreaFrameProps) {
+function UnifiedManagementShell(props: AreaShellProps) {
   return (
     <ManagementShell
-      areaLabel={areaLabel}
-      brandLabel={brandLabel}
-      eyebrow={eyebrow}
-      title={title}
-      description={description}
-      navigation={navigationFor(navigation, currentHref)}
-      identity={identityFor(principal)}
-      actions={actions}
-      navigationFooter={navigationFooter}
-      className={className}
+      areaLabel="통합 관리 메뉴"
+      brandLabel="RiskShield Manage"
+      brandHref="/manage"
+      eyebrow="UNIFIED MANAGEMENT"
+      title={props.title}
+      description={props.description}
+      navigation={navigationFor(props.currentHref)}
+      identity={identityFor(props.principal)}
+      actions={props.actions}
+      navigationFooter={props.navigationFooter ?? <Link href="/">공개 Analyzer로 돌아가기</Link>}
+      className={props.className}
     >
-      {children}
+      {props.children}
     </ManagementShell>
   );
 }
 
 export function AdminShell(props: AreaShellProps) {
-  return (
-    <AreaFrame
-      {...props}
-      areaLabel="관리자 메뉴"
-      brandLabel="RiskShield Admin"
-      eyebrow="ADMIN REVIEW"
-      navigation={adminNavigation}
-    />
-  );
+  return <UnifiedManagementShell {...props} />;
 }
 
 export function DeveloperShell(props: AreaShellProps) {
-  return (
-    <AreaFrame
-      {...props}
-      areaLabel="개발자 메뉴"
-      brandLabel="RiskShield Developer"
-      eyebrow="DEVELOPER CONTROL"
-      navigation={developerNavigation}
-    />
-  );
+  return <UnifiedManagementShell {...props} />;
 }
 
 export function OwnerShell(props: AreaShellProps) {
-  return (
-    <AreaFrame
-      {...props}
-      areaLabel="Owner 메뉴"
-      brandLabel="RiskShield Owner"
-      eyebrow="OWNER ACCESS"
-      navigation={ownerNavigation}
-    />
-  );
+  return <UnifiedManagementShell {...props} />;
 }

@@ -113,6 +113,18 @@ export type CandidateRecord = {
   modelConflict?: boolean | null;
   policyChange?: boolean | null;
   autoInclusionBlockedReason?: string | null;
+  draft?: {
+    title: string;
+    riskSummary: string;
+    triggerPatterns: readonly string[];
+    contextPatterns: readonly string[];
+    safeRewrite: readonly string[];
+  } | null;
+  lineage?: {
+    runId: string;
+    datasetVersionId: string;
+    sourceSha256: string;
+  } | null;
 };
 
 export type CandidateDecisionInput = {
@@ -309,6 +321,7 @@ export interface DatasetRepository {
 export interface TrainingRepository {
   listRuns(): Promise<RepositoryResult<RepositoryPage<TrainingRunRecord>>>;
   getRun(id: string): Promise<RepositoryResult<TrainingRunRecord | null>>;
+  saveRun(record: TrainingRunRecord, actorId: string): Promise<RepositoryResult<{ persisted: boolean }>>;
 }
 
 export interface EvaluationRepository {

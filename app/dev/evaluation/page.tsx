@@ -36,7 +36,7 @@ function measured(value: number | null, suffix = "") {
 }
 
 export default async function EvaluationPage() {
-  const { presentation, repositories } = await protectedProductPage("/dev/evaluation", "evaluation:run");
+  const { presentation, repositories } = await protectedProductPage("/manage/evaluation", "evaluation:run");
   const result = await repositories.evaluation.listRuns();
   const latest = result.status === "ready" ? result.data.items[0] : null;
 

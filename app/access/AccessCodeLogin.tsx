@@ -5,7 +5,7 @@ import { Pressable } from "../../components/interaction/Pressable";
 
 function returnPath() {
   const value = new URLSearchParams(window.location.search).get("return_to");
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/admin";
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/manage";
   return value;
 }
 
@@ -34,7 +34,7 @@ export function AccessCodeLogin() {
           : "코드를 확인한 뒤 다시 시도해 주세요.");
         return;
       }
-      window.location.assign(payload?.returnTo || "/admin");
+      window.location.assign(payload?.returnTo || "/manage");
     } catch {
       setMessage("로그인 요청을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
