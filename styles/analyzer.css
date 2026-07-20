@@ -101,6 +101,28 @@
 .publicAnalyzerStatus { min-height: 1.7rem; margin-top: 0.8rem; color: var(--ink-600); }
 .publicAnalyzerStatus [role="alert"] { display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: var(--red-800); }
 .publicAnalyzerNotice { margin: 1rem 0 0; color: var(--ink-600); font-size: 0.9rem; }
+.publicAnalyzerFooter {
+  width: min(100% - 2rem, 68rem);
+  margin-inline: auto;
+  padding: 0 0 2rem;
+  text-align: right;
+}
+.publicAnalyzerFooter a {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  padding-inline: 0.5rem;
+  color: var(--ink-600);
+  font-size: 0.82rem;
+  text-underline-offset: 0.2em;
+}
+.publicAnalyzerFooter a:hover { color: var(--ink-950); }
+.publicAnalyzerFooter a:focus-visible {
+  color: var(--ink-950);
+  outline: 2px solid var(--blue-600);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
 
 .publicAnalyzerResults { display: grid; gap: 1rem; margin-top: 3rem; scroll-margin-top: 5rem; }
 .analysisBanner { display: flex; gap: 0.7rem; padding: 0.9rem 1rem; color: var(--amber-800); background: var(--amber-100); border: 1px solid #eed395; border-radius: var(--radius-md); }

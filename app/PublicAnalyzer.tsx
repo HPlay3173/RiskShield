@@ -369,6 +369,9 @@ export function PublicAnalyzer() {
           </section>
         )}
       </main>
+      <footer className="publicAnalyzerFooter">
+        <a href="/access">관리자 로그인</a>
+      </footer>
     </div>
   );
 }
