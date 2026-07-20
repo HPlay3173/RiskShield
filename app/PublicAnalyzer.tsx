@@ -295,11 +295,10 @@ export function PublicAnalyzer() {
               </div>
               <strong
                 className="riskScore"
-                aria-label={result.hybrid.score === null ? "위험 점수 산정되지 않음" : `위험 점수 ${result.hybrid.score}점`}
+                aria-label={`규칙 위험 점수 ${result.hybrid.score ?? result.rules.finalScore}점. ${result.hybrid.score === null ? "현재 규칙에서 위험 근거가 확인되지 않았으나 안전 판정은 아님" : "종합 판정에 사용된 점수"}`}
               >
-                {result.hybrid.score === null
-                  ? <>—<small>산정 안 됨</small></>
-                  : <>{result.hybrid.score}<small>/100</small></>}
+                {result.hybrid.score ?? result.rules.finalScore}<small>/100</small>
+                {result.hybrid.score === null && <em>규칙 점수 · 판단 불가</em>}
               </strong>
             </div>
 

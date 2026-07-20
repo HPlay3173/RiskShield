@@ -149,6 +149,7 @@
 .analysisProfileFocus strong { color: var(--ink-950); }
 .riskScore { flex: none; font-size: clamp(2.4rem, 6vw, 4.6rem); line-height: 0.9; letter-spacing: -0.06em; }
 .riskScore small { margin-left: 0.2rem; color: var(--ink-500); font-size: 0.95rem; letter-spacing: 0; }
+.riskScore em { display: block; margin-top: 0.65rem; color: var(--ink-600); font-size: 0.82rem; font-style: normal; font-weight: 650; line-height: 1.3; letter-spacing: 0; text-align: right; }
 
 .resultSignalStrip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
 .resultSignalStrip > div { display: grid; align-content: start; gap: 0.2rem; min-width: 0; padding: 1rem; border-right: 1px solid var(--line); }
