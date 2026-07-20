@@ -23,6 +23,7 @@ import {
   JSON_BODY_TOO_LARGE,
   readJsonValue,
 } from "../../../lib/http/control-response";
+import { calculateDeterministicScore } from "../../../lib/v0-5/scoring";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -387,6 +388,23 @@ export async function POST(request: Request) {
 
       const hybrid = combinePrivateBetaHybrid(rules, run);
       const payload = run.payload;
+      const calculatedScore = calculateDeterministicScore(rules, payload);
+      const contextSuppressed = hybrid.status === "no_match"
+        && payload?.risk_intent === "contextual_only"
+        && payload.policy_relevance === "none";
+      const scoring = contextSuppressed
+        ? {
+            ...calculatedScore,
+            finalScore: 0,
+            status: "no_match" as const,
+            categoryScores: [],
+            primaryCategory: null,
+            highRequiresReview: false,
+          }
+        : calculatedScore;
+      const resolvedStatus = hybrid.status === "review" || hybrid.conflict
+        ? "review" as const
+        : scoring.status;
       const uncertainty = !run.ok || hybrid.conflict || hybrid.status === "review"
         ? {
             level: "high" as const,
@@ -404,6 +422,7 @@ export async function POST(request: Request) {
               reason: "규칙 근거와 문맥 신호가 같은 방향을 가리킵니다.",
             };
       const exactEvidenceCount = rules.primaryMatch?.hits.length ?? 0;
+      const aiOnlyCategoryCount = scoring.categoryScores.filter((category) => category.aiScore > 0 && category.ruleScore === 0).length;
       const novelty = exactEvidenceCount > 0
         ? {
             state: "known_pattern" as const,
@@ -411,12 +430,12 @@ export async function POST(request: Request) {
             reason: "검토된 규칙의 정확한 evidence 구간이 있습니다.",
             candidateRegistration: "disabled" as const,
           }
-        : hybrid.status === "no_match"
+        : aiOnlyCategoryCount > 0
           ? {
               state: "possible_new_expression" as const,
-              label: "새 표현일 수 있음",
-              reason: "현재 검토 지식에서 직접 근거를 찾지 못했습니다. 이는 안전 판정이 아닙니다.",
-              candidateRegistration: "disabled" as const,
+              label: "새 위험 표현 후보",
+              reason: "AI 다축 분석에서 위험 신호를 찾았지만 현재 검토 규칙에는 같은 근거가 없습니다.",
+              candidateRegistration: run.masked ? "disabled" as const : "available" as const,
             }
           : {
               state: "insufficient_evidence" as const,
@@ -432,6 +451,10 @@ export async function POST(request: Request) {
           kernel: "v4-compatibility",
         },
         rules: projectRules(rules, profile),
+        scoring: {
+          ...scoring,
+          status: resolvedStatus,
+        },
         ai: {
           state: run.ok ? "ready" : "fallback",
           confidence: payload?.confidence ?? null,
@@ -445,8 +468,8 @@ export async function POST(request: Request) {
           masked: run.masked,
         },
         hybrid: {
-          status: hybrid.status,
-          score: hybrid.score,
+          status: resolvedStatus,
+          score: scoring.finalScore,
           conflict: hybrid.conflict,
           reason: hybrid.reason,
         },

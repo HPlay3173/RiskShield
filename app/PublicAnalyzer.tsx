@@ -49,6 +49,33 @@ type PublicAnalysis = {
     categoryScores: Array<{ category: string; score: number }>;
     evidence: Array<{ start: number; end: number; text: string; role: string }>;
   };
+  scoring: {
+    policyVersion: "2.0.0";
+    finalScore: number;
+    status: "no_match" | "review" | "attention" | "high";
+    confidence: number | null;
+    highRequiresReview: boolean;
+    formula: string;
+    primaryCategory: {
+      id: string;
+      label: string;
+      score: number;
+      ruleScore: number;
+      aiScore: number;
+      source: "rule" | "ai" | "hybrid";
+      contextMultiplier: number;
+    } | null;
+    categoryScores: Array<{
+      id: string;
+      label: string;
+      score: number;
+      ruleScore: number;
+      aiScore: number;
+      source: "rule" | "ai" | "hybrid";
+      contextMultiplier: number;
+      axes: Record<string, number> | null;
+    }>;
+  };
   ai: {
     state: "ready" | "fallback";
     confidence: number | null;
@@ -71,7 +98,7 @@ type PublicAnalysis = {
     state: "known_pattern" | "possible_new_expression" | "insufficient_evidence";
     label: string;
     reason: string;
-    candidateRegistration: "disabled";
+    candidateRegistration: "disabled" | "available";
   };
   notice: string;
 };
@@ -97,6 +124,7 @@ export function PublicAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [lastRequest, setLastRequest] = useState<{ text: string; profile: ProfileId } | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [candidateState, setCandidateState] = useState<"idle" | "submitting" | "submitted" | "failed">("idle");
   const controllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -112,6 +140,7 @@ export function PublicAnalyzer() {
     setLoading(true);
     setError("");
     setCopyState("idle");
+    setCandidateState("idle");
     setLastRequest(input);
     try {
       const response = await fetch("/api/analyze", {
@@ -171,11 +200,35 @@ export function PublicAnalyzer() {
     }
   }
 
+  async function submitCandidate() {
+    if (!result || !lastRequest || result.novelty.candidateRegistration !== "available") return;
+    setCandidateState("submitting");
+    try {
+      const response = await fetch("/api/analyze/candidate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          consent: true,
+          text: lastRequest.text,
+          riskDomain: result.scoring.primaryCategory?.id ?? "unclassified",
+          score: result.scoring.finalScore,
+          confidence: result.ai.confidence,
+        }),
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("candidate_submission_failed");
+      setCandidateState("submitted");
+    } catch {
+      setCandidateState("failed");
+    }
+  }
+
   function startAnother() {
     setText("");
     setResult(null);
     setError("");
     setCopyState("idle");
+    setCandidateState("idle");
     requestAnimationFrame(() => inputRef.current?.focus());
   }
 
@@ -295,10 +348,10 @@ export function PublicAnalyzer() {
               </div>
               <strong
                 className="riskScore"
-                aria-label={`규칙 위험 점수 ${result.hybrid.score ?? result.rules.finalScore}점. ${result.hybrid.score === null ? "현재 규칙에서 위험 근거가 확인되지 않았으나 안전 판정은 아님" : "종합 판정에 사용된 점수"}`}
+                aria-label={`종합 위험 점수 ${result.scoring.finalScore}점. 고정 점수 공식 ${result.scoring.policyVersion}`}
               >
-                {result.hybrid.score ?? result.rules.finalScore}<small>/100</small>
-                {result.hybrid.score === null && <em>규칙 점수 · 판단 불가</em>}
+                {result.scoring.finalScore}<small>/100</small>
+                <em>{result.scoring.primaryCategory?.label ?? "직접 위험 근거 미확인"}</em>
               </strong>
             </div>
 
@@ -316,17 +369,18 @@ export function PublicAnalyzer() {
             <div className={`publicAnalyzerResultGrid profile-${result.profile.emphasis}`}>
               <article className="resultCard categoryCard">
                 <h3>주요 분야별 위험</h3>
-                {result.rules.categoryScores.length ? (
+                {result.scoring.categoryScores.length ? (
                   <ul className="publicAnalyzerScores">
-                    {result.rules.categoryScores.map((category) => (
-                      <li key={category.category}>
-                        <span>{category.category}</span>
+                    {result.scoring.categoryScores.map((category) => (
+                      <li key={category.id}>
+                        <span>{category.label}<small>{category.source === "hybrid" ? "규칙 + AI" : category.source === "rule" ? "규칙" : "AI 문맥"}</small></span>
                         <div aria-hidden="true"><i style={{ width: `${category.score}%` }} /></div>
                         <strong>{category.score}</strong>
                       </li>
                     ))}
                   </ul>
                 ) : <p className="emptyCopy">현재 표시할 분야별 위험 축이 없습니다.</p>}
+                <p className="scoringPolicyNote">점수 공식 {result.scoring.policyVersion} · 최고 분야 중심, 보조 분야 최대 10점 반영</p>
               </article>
 
               <article className="resultCard contextCard">
@@ -369,6 +423,23 @@ export function PublicAnalyzer() {
               <button className="pressable primaryButton" type="button" onClick={startAnother}>다른 문구 분석</button>
               <span>공개 분석 결과는 자동 학습이나 후보 등록에 사용되지 않습니다.</span>
             </div>
+            {result.novelty.candidateRegistration === "available" && (
+              <div className="candidateOptIn">
+                <div>
+                  <strong>새 위험 표현 개선에 제공</strong>
+                  <p>개인정보가 없는 현재 문구를 검토 대기 후보로 저장합니다. 자동으로 규칙에 추가되지는 않습니다.</p>
+                </div>
+                <button
+                  className="pressable secondaryButton"
+                  type="button"
+                  onClick={submitCandidate}
+                  disabled={candidateState === "submitting" || candidateState === "submitted"}
+                >
+                  {candidateState === "submitting" ? "제공 중" : candidateState === "submitted" ? "후보 제공 완료" : "동의하고 후보 제공"}
+                </button>
+                {candidateState === "failed" && <p role="alert">후보를 저장하지 못했습니다. 분석 결과에는 영향이 없습니다.</p>}
+              </div>
+            )}
             <p className="publicAnalyzerNotice">{result.notice}</p>
           </section>
         )}

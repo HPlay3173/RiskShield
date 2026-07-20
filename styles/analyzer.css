@@ -165,9 +165,11 @@
 .resultCard p:last-child { margin-bottom: 0; }
 .publicAnalyzerScores { display: grid; gap: 0.7rem; padding: 0; list-style: none; }
 .publicAnalyzerScores li { display: grid; grid-template-columns: minmax(7rem, 1fr) minmax(5rem, 1.4fr) 2.5rem; align-items: center; gap: 0.65rem; }
+.publicAnalyzerScores li > span small { display: block; margin-top: 0.18rem; color: var(--ink-500); font-size: 0.74rem; font-weight: 620; }
 .publicAnalyzerScores li > div { height: 0.45rem; overflow: hidden; background: #e6eaf0; border-radius: 1rem; }
 .publicAnalyzerScores i { display: block; height: 100%; background: var(--blue-600); border-radius: inherit; }
 .publicAnalyzerScores strong { text-align: right; font-variant-numeric: tabular-nums; }
+.scoringPolicyNote { margin: 1rem 0 0; color: var(--ink-600); font-size: 0.82rem; }
 .publicAnalyzerContext { display: grid; gap: 0.55rem; }
 .publicAnalyzerContext div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--line); }
 .publicAnalyzerContext dt { color: var(--ink-600); }
@@ -179,6 +181,10 @@
 .rewriteCard .secondaryButton { margin-top: 0.5rem; }
 .resultFooterActions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .resultFooterActions span { color: var(--ink-600); font-size: 0.88rem; }
+.candidateOptIn { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 1rem; padding: 1rem 1.1rem; background: var(--surface-soft); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.candidateOptIn strong { display: block; margin-bottom: 0.25rem; }
+.candidateOptIn p { grid-column: 1 / -1; margin: 0; color: var(--ink-600); font-size: 0.85rem; }
+.candidateOptIn > div p { margin: 0; }
 
 @media (max-width: 48rem) {
   .publicAnalyzerHeader { width: 100%; border-radius: 0; }
@@ -190,6 +196,8 @@
   .publicAnalyzerVerdict { align-items: flex-start; }
   .riskScore { font-size: 2.7rem; }
   .resultFooterActions { align-items: stretch; flex-direction: column; }
+  .candidateOptIn { grid-template-columns: 1fr; }
+  .candidateOptIn button { width: 100%; }
 }
 
 @media (max-width: 30rem) {

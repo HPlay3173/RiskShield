@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AnalysisResult } from "../riskshield.ts";
 
 export const INTERPRETER_SCHEMA_VERSION = "1.1.0" as const;
-export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-19-v0.4.1-r2" as const;
+export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-21-multiaxis-r1" as const;
 export const HIGH_CONFIDENCE_THRESHOLD = 0.82;
 export const MEDIUM_CONFIDENCE_THRESHOLD = 0.55;
 export const SAFE_NO_MATCH_CONFIDENCE_THRESHOLD = 0.5;
@@ -53,6 +53,17 @@ export type RiskFamily = typeof RISK_FAMILIES[number];
 export type PolicyReason = typeof POLICY_REASONS[number];
 export type HybridStatus = "no_match" | "review" | "attention" | "high";
 
+export interface InterpreterCategoryAssessment {
+  risk_family: Exclude<RiskFamily, "none">;
+  relevance: 0 | 1 | 2 | 3 | 4;
+  certainty: 0 | 1 | 2 | 3 | 4;
+  harm: 0 | 1 | 2 | 3 | 4;
+  deception: 0 | 1 | 2 | 3 | 4;
+  vulnerability: 0 | 1 | 2 | 3 | 4;
+  privacy_intrusion: 0 | 1 | 2 | 3 | 4;
+  evidence_strength: 0 | 1 | 2 | 3 | 4;
+}
+
 export interface EvidenceSpan {
   start: number;
   end: number;
@@ -74,6 +85,7 @@ export interface InterpreterPayload {
   confidence: number;
   evidence_spans: EvidenceSpan[];
   policy_reason: PolicyReason;
+  category_assessments?: InterpreterCategoryAssessment[];
 }
 
 export interface MaskRange {
@@ -196,6 +208,61 @@ const PROVIDER_RESPONSE_KEYS = [
   "policy_reason",
 ] as const;
 
+const OPTIONAL_RESPONSE_KEYS = ["category_assessments"] as const;
+const ALLOWED_RESPONSE_KEYS = [...RESPONSE_KEYS, ...OPTIONAL_RESPONSE_KEYS] as const;
+const OPTIONAL_PROVIDER_RESPONSE_KEYS = ["category_assessments"] as const;
+const ALLOWED_PROVIDER_RESPONSE_KEYS = [...PROVIDER_RESPONSE_KEYS, ...OPTIONAL_PROVIDER_RESPONSE_KEYS] as const;
+
+const CATEGORY_ASSESSMENT_PROPERTIES = {
+  risk_family: { type: "string", enum: RISK_FAMILIES.filter((family) => family !== "none") },
+  relevance: { type: "integer", minimum: 0, maximum: 4 },
+  certainty: { type: "integer", minimum: 0, maximum: 4 },
+  harm: { type: "integer", minimum: 0, maximum: 4 },
+  deception: { type: "integer", minimum: 0, maximum: 4 },
+  vulnerability: { type: "integer", minimum: 0, maximum: 4 },
+  privacy_intrusion: { type: "integer", minimum: 0, maximum: 4 },
+  evidence_strength: { type: "integer", minimum: 0, maximum: 4 },
+} as const;
+
+const CATEGORY_ASSESSMENT_KEYS = Object.keys(CATEGORY_ASSESSMENT_PROPERTIES);
+
+function categoryAssessments(value: unknown, errors: string[]): InterpreterCategoryAssessment[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 5) {
+    errors.push("category_assessments must be an array with at most 5 items");
+    return [];
+  }
+  const seen = new Set<string>();
+  const assessments: InterpreterCategoryAssessment[] = [];
+  for (const [index, raw] of value.entries()) {
+    if (!isRecord(raw)) {
+      errors.push(`category_assessments[${index}] must be an object`);
+      continue;
+    }
+    const keys = Object.keys(raw);
+    if (keys.length !== CATEGORY_ASSESSMENT_KEYS.length || !CATEGORY_ASSESSMENT_KEYS.every((key) => keys.includes(key))) {
+      errors.push(`category_assessments[${index}] fields are invalid`);
+      continue;
+    }
+    if (!includesValue(RISK_FAMILIES, raw.risk_family) || raw.risk_family === "none") {
+      errors.push(`category_assessments[${index}].risk_family is invalid`);
+      continue;
+    }
+    if (seen.has(raw.risk_family)) {
+      errors.push(`category_assessments contains duplicate risk_family: ${raw.risk_family}`);
+      continue;
+    }
+    const axes = CATEGORY_ASSESSMENT_KEYS.filter((key) => key !== "risk_family");
+    if (!axes.every((key) => Number.isInteger(raw[key]) && Number(raw[key]) >= 0 && Number(raw[key]) <= 4)) {
+      errors.push(`category_assessments[${index}] axes must be integers from 0 to 4`);
+      continue;
+    }
+    seen.add(raw.risk_family);
+    assessments.push(raw as unknown as InterpreterCategoryAssessment);
+  }
+  return assessments;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -316,7 +383,7 @@ export function validateInterpreterPayload(
     if (!keys.includes(key)) errors.push(`필수 필드 누락: ${key}`);
   }
   for (const key of keys) {
-    if (!(RESPONSE_KEYS as readonly string[]).includes(key)) errors.push(`허용되지 않은 필드: ${key}`);
+    if (!(ALLOWED_RESPONSE_KEYS as readonly string[]).includes(key)) errors.push(`허용되지 않은 필드: ${key}`);
   }
   if (value.schema_version !== INTERPRETER_SCHEMA_VERSION) {
     errors.push(`schema_version이 ${INTERPRETER_SCHEMA_VERSION}이 아닙니다.`);
@@ -336,6 +403,7 @@ export function validateInterpreterPayload(
   }
 
   const normalizedSpans: EvidenceSpan[] = [];
+  const normalizedAssessments = categoryAssessments(value.category_assessments, errors);
   if (!Array.isArray(value.evidence_spans)) {
     errors.push("evidence_spans는 배열이어야 합니다.");
   } else {
@@ -399,6 +467,12 @@ export function validateInterpreterPayload(
     && value.policy_relevance !== "none") {
     errors.push("경고·비판·보도·정의 문맥은 policy_relevance=none이어야 합니다.");
   }
+  if (value.policy_relevance === "none" && normalizedAssessments.length > 0) {
+    errors.push("policy_relevance=none이면 category_assessments는 비어 있어야 합니다.");
+  }
+  if (normalizedAssessments.length > 0 && normalizedSpans.length === 0) {
+    errors.push("category_assessments에는 검증 가능한 evidence span이 필요합니다.");
+  }
 
   if (errors.length > 0) return { success: false, errors };
   return {
@@ -416,6 +490,7 @@ export function validateInterpreterPayload(
       confidence: value.confidence as number,
       evidence_spans: normalizedSpans,
       policy_reason: value.policy_reason as PolicyReason,
+      category_assessments: normalizedAssessments,
     },
   };
 }
@@ -449,6 +524,16 @@ export const INTERPRETER_JSON_SCHEMA: Record<string, unknown> = {
       },
     },
     policy_reason: { type: "string", enum: [...POLICY_REASONS] },
+    category_assessments: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [...CATEGORY_ASSESSMENT_KEYS],
+        properties: CATEGORY_ASSESSMENT_PROPERTIES,
+      },
+    },
   },
 };
 
@@ -473,6 +558,16 @@ export const INTERPRETER_PROVIDER_JSON_SCHEMA: Record<string, unknown> = {
       items: { type: "string", minLength: 1 },
     },
     policy_reason: { type: "string", enum: [...POLICY_REASONS] },
+    category_assessments: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [...CATEGORY_ASSESSMENT_KEYS],
+        properties: CATEGORY_ASSESSMENT_PROPERTIES,
+      },
+    },
   },
 };
 
@@ -567,7 +662,7 @@ export function validateProviderInterpreterPayload(
     if (!keys.includes(key)) errors.push(`provider 필수 필드 누락: ${key}`);
   }
   for (const key of keys) {
-    if (!(PROVIDER_RESPONSE_KEYS as readonly string[]).includes(key)) {
+    if (!(ALLOWED_PROVIDER_RESPONSE_KEYS as readonly string[]).includes(key)) {
       errors.push(`provider에 허용되지 않은 필드: ${key}`);
     }
   }
@@ -609,6 +704,7 @@ policy_relevance=none이면 risk_family=none이어야 하며, substantiation 또
 - “누구나 월 300만원을 보장합니다”, “부작용이 전혀 없습니다”, “전원 합격을 약속합니다”, “상대방 몰래 메시지를 확인합니다” → potentially_high
 원문에 없는 사실이나 근거를 만들지 마세요. evidence_quotes에는 제공된 입력에서 그대로 복사한 정확한 연속 substring만 사용하고 offset은 만들지 마세요.
 confidence는 위험 점수가 아니라 문맥 해석의 확실성입니다. 명백한 일반 CTA·절차·과거 사례·경고를 policy_relevance=none으로 분류했더라도 해석이 명확하면 confidence를 불필요하게 낮추지 마세요.
+category_assessments는 위험 점수를 직접 쓰는 곳이 아닙니다. 입력에서 evidence_quotes로 뒷받침되는 위험 분야마다 relevance, certainty, harm, deception, vulnerability, privacy_intrusion, evidence_strength를 0~4 정수로 평가하세요. 여러 분야가 동시에 존재하면 최대 5개까지 각각 반환하고, policy_relevance=none이면 빈 배열을 반환하세요. 점수 계산은 서버의 고정 공식이 수행합니다.
 확신이 없으면 uncertain 또는 unclear를 사용하세요.
 지정된 JSON schema에 맞는 JSON 객체 외에는 아무 텍스트도 출력하지 마세요.`;
 
