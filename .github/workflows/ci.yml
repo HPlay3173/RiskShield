@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Frozen evaluation artifacts were originally sealed from a Windows
+      # checkout, so reproduce their byte-exact CRLF form on every runner.
+      - run: git config --global core.autocrlf true
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
