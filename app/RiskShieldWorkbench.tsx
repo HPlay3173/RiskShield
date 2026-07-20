@@ -199,7 +199,7 @@ type BetaAnalysis = {
   };
   hybrid: {
     status: BetaHybridStatus;
-    score: number;
+    score: number | null;
     conflict: boolean;
     conflictReasons: string[];
     recoveredByInterpreter: boolean;
@@ -1163,7 +1163,7 @@ export function RiskShieldWorkbench() {
         },
         hybrid: {
           status: "review",
-          score: Math.max(55, Math.min(69, localRules.finalScore || 55)),
+          score: localRules.finalScore > 0 ? localRules.finalScore : null,
           conflict: true,
           conflictReasons: ["interpreter_provider_failed"],
           recoveredByInterpreter: false,

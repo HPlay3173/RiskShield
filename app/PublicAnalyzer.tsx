@@ -62,7 +62,7 @@ type PublicAnalysis = {
   };
   hybrid: {
     status: "no_match" | "review" | "attention" | "high";
-    score: number;
+    score: number | null;
     conflict: boolean;
     reason: string;
   };
@@ -293,8 +293,13 @@ export function PublicAnalyzer() {
                 <h2 ref={resultHeadingRef} id="result-title" tabIndex={-1}>{statusCopy(result.hybrid.status)}</h2>
                 <p>{result.hybrid.reason}</p>
               </div>
-              <strong className="riskScore" aria-label={`위험 점수 ${result.hybrid.score}점`}>
-                {result.hybrid.score}<small>/100</small>
+              <strong
+                className="riskScore"
+                aria-label={result.hybrid.score === null ? "위험 점수 산정되지 않음" : `위험 점수 ${result.hybrid.score}점`}
+              >
+                {result.hybrid.score === null
+                  ? <>—<small>산정 안 됨</small></>
+                  : <>{result.hybrid.score}<small>/100</small></>}
               </strong>
             </div>
 

@@ -158,7 +158,7 @@ export interface RecordedInterpreterRecord {
 
 export interface HybridDecision {
   status: HybridStatus;
-  score: number;
+  score: number | null;
   conflict: boolean;
   conflictReasons: string[];
   recoveredByInterpreter: boolean;
@@ -1066,7 +1066,10 @@ function reviewDecision(
 ): HybridDecision {
   return {
     status: "review",
-    score: Math.max(55, Math.min(69, rules.finalScore || 55)),
+    // A review state is a routing decision, not a synthetic risk score.
+    // Preserve a real rule score when evidence exists; otherwise expose the
+    // absence of a score instead of inventing the old 55-point floor.
+    score: rules.finalScore > 0 ? rules.finalScore : null,
     conflict,
     conflictReasons,
     recoveredByInterpreter: false,
@@ -1230,7 +1233,7 @@ export function combinePrivateBetaHybrid(
   return {
     ...decision,
     status: "review",
-    score: Math.max(55, Math.min(69, rules.finalScore || 55)),
+    score: rules.finalScore > 0 ? rules.finalScore : null,
     reason: "규칙과 AI의 위험 해석이 충돌해 자동 결론 대신 담당자 검토로 전환했습니다.",
   };
 }
