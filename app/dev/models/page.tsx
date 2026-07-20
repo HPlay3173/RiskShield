@@ -18,8 +18,8 @@ const columns = [
   { key: "status", header: "상태", render: (row: ModelRecord) => row.status },
 ] as const;
 
-export default async function ModelsPage() {
-  const { presentation, repositories } = await protectedProductPage("/manage/models", "model:manage");
+export async function renderModelsPage(returnTo = "/dev/models") {
+  const { presentation, repositories } = await protectedProductPage(returnTo, "model:manage");
   const result = await repositories.models.list();
   const active = result.status === "ready" ? result.data.items.find((model) => model.status === "active") ?? null : null;
 
@@ -66,4 +66,8 @@ export default async function ModelsPage() {
       )}
     </DeveloperShell>
   );
+}
+
+export default function ModelsPage() {
+  return renderModelsPage();
 }

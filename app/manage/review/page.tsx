@@ -1,1 +1,5 @@
-export { default } from "../../admin/review/page";
+import { renderAdminReviewPage } from "../../admin/review/page";
+
+export default function ManageReviewPage() {
+  return renderAdminReviewPage("/manage/review");
+}

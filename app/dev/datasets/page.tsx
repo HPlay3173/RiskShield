@@ -38,8 +38,8 @@ const INITIAL_CSV_METADATA: InitialCsvMetadataTuple = [
   },
 ];
 
-export default async function DatasetsPage() {
-  const { principal, presentation, repositories } = await protectedProductPage("/manage/datasets", "dataset:manage");
+export async function renderDatasetsPage(returnTo = "/dev/datasets") {
+  const { principal, presentation, repositories } = await protectedProductPage(returnTo, "dataset:manage");
   const datasets = await repositories.datasets.list();
   const configurationMessage = datasets.status === "configuration_required"
     ? `${datasets.message} ${datasets.missing.join(", ")}`
@@ -57,4 +57,8 @@ export default async function DatasetsPage() {
       />
     </DeveloperShell>
   );
+}
+
+export default function DatasetsPage() {
+  return renderDatasetsPage();
 }

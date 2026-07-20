@@ -1,1 +1,5 @@
-export { default } from "../../dev/datasets/page";
+import { renderDatasetsPage } from "../../dev/datasets/page";
+
+export default function ManageDatasetsPage() {
+  return renderDatasetsPage("/manage/datasets");
+}

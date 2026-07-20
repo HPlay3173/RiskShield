@@ -22,8 +22,8 @@ function skillView(record: SkillAdminRecord): SkillLibraryItem | null {
   };
 }
 
-export default async function AdminSkillsPage() {
-  const { principal, presentation, repositories } = await protectedProductPage("/manage/skills", "skill:read_admin");
+export async function renderAdminSkillsPage(returnTo = "/admin/skills") {
+  const { principal, presentation, repositories } = await protectedProductPage(returnTo, "skill:read_admin");
   const result = await repositories.skills.listAdmin({ limit: 100 });
   if (result.status !== "ready") {
     return (
@@ -45,4 +45,8 @@ export default async function AdminSkillsPage() {
       />
     </AdminShell>
   );
+}
+
+export default function AdminSkillsPage() {
+  return renderAdminSkillsPage();
 }

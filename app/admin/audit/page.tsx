@@ -12,8 +12,8 @@ const columns = [
   { key: "result", header: "결과", render: (row: AuditRecord) => row.result },
 ] as const;
 
-export default async function AdminAuditPage() {
-  const { presentation, repositories } = await protectedProductPage("/manage/audit", "audit:read_admin");
+export async function renderAdminAuditPage(returnTo = "/admin/audit") {
+  const { presentation, repositories } = await protectedProductPage(returnTo, "audit:read_admin");
   const result = await repositories.audit.list();
 
   return (
@@ -39,4 +39,8 @@ export default async function AdminAuditPage() {
       )}
     </AdminShell>
   );
+}
+
+export default function AdminAuditPage() {
+  return renderAdminAuditPage();
 }

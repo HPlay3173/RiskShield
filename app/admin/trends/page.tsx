@@ -3,8 +3,8 @@ import { AdminShell } from "../../../components/shell/AreaShells";
 import { StatePanel } from "../../../components/states/StatePanel";
 import { protectedProductPage } from "../../../lib/product-page";
 
-export default async function AdminTrendsPage() {
-  const { presentation, repositories } = await protectedProductPage("/manage/trends", "candidate:read");
+export async function renderAdminTrendsPage(returnTo = "/admin/trends") {
+  const { presentation, repositories } = await protectedProductPage(returnTo, "candidate:read");
   const runs = await repositories.training.listRuns();
   const recentRun = runs.status === "ready" ? runs.data.items[0] : null;
 
@@ -32,4 +32,8 @@ export default async function AdminTrendsPage() {
       </StatePanel>
     </AdminShell>
   );
+}
+
+export default function AdminTrendsPage() {
+  return renderAdminTrendsPage();
 }

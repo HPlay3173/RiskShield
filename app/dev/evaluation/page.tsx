@@ -35,8 +35,8 @@ function measured(value: number | null, suffix = "") {
   return value === null ? "측정되지 않음" : `${value.toLocaleString("ko-KR")}${suffix}`;
 }
 
-export default async function EvaluationPage() {
-  const { presentation, repositories } = await protectedProductPage("/manage/evaluation", "evaluation:run");
+export async function renderEvaluationPage(returnTo = "/dev/evaluation") {
+  const { presentation, repositories } = await protectedProductPage(returnTo, "evaluation:run");
   const result = await repositories.evaluation.listRuns();
   const latest = result.status === "ready" ? result.data.items[0] : null;
 
@@ -103,4 +103,8 @@ export default async function EvaluationPage() {
       )}
     </DeveloperShell>
   );
+}
+
+export default function EvaluationPage() {
+  return renderEvaluationPage();
 }

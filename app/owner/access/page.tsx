@@ -15,8 +15,8 @@ const columns = [
   { key: "revoke", header: "Session revoke", render: (row: PrincipalRecord) => row.sessionNotBefore ? `not before ${row.sessionNotBefore}` : "revocation 없음" },
 ] as const;
 
-export default async function OwnerAccessPage() {
-  const { presentation, repositories } = await protectedProductPage("/manage/access", "principal:manage");
+export async function renderOwnerAccessPage(returnTo = "/owner/access") {
+  const { presentation, repositories } = await protectedProductPage(returnTo, "principal:manage");
   const result = await repositories.principals.list();
   return (
     <OwnerShell currentHref="/owner/access" principal={presentation} title="사용자·역할" description="Google stable sub와 D1 role lookup을 기준으로 reviewer, developer, owner 접근을 확인합니다. client query나 localStorage로 역할을 바꿀 수 없습니다.">
@@ -35,4 +35,8 @@ export default async function OwnerAccessPage() {
       )}
     </OwnerShell>
   );
+}
+
+export default function OwnerAccessPage() {
+  return renderOwnerAccessPage();
 }

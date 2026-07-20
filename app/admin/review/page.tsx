@@ -53,8 +53,8 @@ function candidateView(record: CandidateRecord): ReviewCandidate {
   };
 }
 
-export default async function AdminReviewPage() {
-  const { principal, presentation, repositories } = await protectedProductPage("/manage/review", "candidate:read");
+export async function renderAdminReviewPage(returnTo = "/admin/review") {
+  const { principal, presentation, repositories } = await protectedProductPage(returnTo, "candidate:read");
   const result = await repositories.candidates.list();
   if (result.status !== "ready") {
     return (
@@ -85,4 +85,8 @@ export default async function AdminReviewPage() {
       />
     </AdminShell>
   );
+}
+
+export default function AdminReviewPage() {
+  return renderAdminReviewPage();
 }
