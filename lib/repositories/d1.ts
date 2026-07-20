@@ -24,6 +24,10 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../riskshield.ts";
 import {
+  resolveActiveReviewedSkills,
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+} from "../active-skills.ts";
+import {
   configurationRequired,
   ready,
   unavailable,
@@ -175,13 +179,9 @@ export class D1SkillRepository implements SkillRepository {
     if (!this.db) return storageRequired<readonly RiskSkill[]>();
     try {
       const rows = await this.db.prepare(
-        "SELECT payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
-      ).all<{ payload: string }>();
-      const skills = (rows.results ?? []).flatMap((row) => {
-        const parsed = parseSkill(row.payload).skill;
-        return parsed?.reviewStatus === "reviewed" ? [parsed] : [];
-      });
-      return ready(skills, "d1");
+        "SELECT id, review_status, payload FROM risk_skills ORDER BY updated_at DESC",
+      ).all<{ id: string; review_status: string; payload: string }>();
+      return ready(resolveActiveReviewedSkills(rows.results ?? []), "d1");
     } catch {
       return storageUnavailable<readonly RiskSkill[]>();
     }

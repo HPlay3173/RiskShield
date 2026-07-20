@@ -2,12 +2,11 @@ import {
   DEFAULT_SEVERITY_RULES,
   analyzeText,
   parseSeverityRules,
-  validateSkill,
   type AnalysisResult,
   type RiskSkill,
   type SeverityRules,
-  starterSkills,
 } from "../../../lib/riskshield";
+import { resolveActiveReviewedSkills } from "../../../lib/active-skills";
 import { GoogleGenAiProvider } from "../../../lib/v0-4/google-genai-provider";
 import {
   INTERPRETER_PROMPT_VERSION,
@@ -143,23 +142,12 @@ async function readReviewedSkills(runtime: RuntimeEnvironment): Promise<RiskSkil
   try {
     if (!runtime.DB) throw new Error("storage_unavailable");
     const rows = await runtime.DB.prepare(
-      "SELECT payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
-    ).all<{ payload: string }>();
-    return (rows.results ?? []).flatMap((row) => {
-      try {
-        const parsed = JSON.parse(row.payload) as unknown;
-        if (!isRecord(parsed) || parsed.reviewStatus !== "reviewed") return [];
-        const skill = parsed as unknown as RiskSkill;
-        return validateSkill(skill).length === 0 ? [skill] : [];
-      } catch {
-        return [];
-      }
-    });
+      "SELECT id, review_status, payload FROM risk_skills ORDER BY updated_at DESC",
+    ).all<{ id: string; review_status: string; payload: string }>();
+    return resolveActiveReviewedSkills(rows.results ?? []);
   } catch (error) {
     if (developmentRuleFallback(runtime)) {
-      return starterSkills.filter(
-        (skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0,
-      );
+      return resolveActiveReviewedSkills([]);
     }
     throw error;
   }
