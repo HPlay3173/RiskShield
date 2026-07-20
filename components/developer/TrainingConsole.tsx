@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { readCsvDataset, type CsvInspection } from "../../lib/datasets/csv";
+import { arrayBufferToBase64 } from "../../lib/datasets/source-bytes";
 import type {
   TrainingRunResult,
   TrainingRunState,
@@ -53,6 +54,7 @@ export type TrainingConsoleProps = {
 
 type PreparedDataset = {
   file: File;
+  sourceBytesBase64: string;
   inspection: CsvInspection;
   datasetVersionId: string;
   rows: TrainingSourceRow[];
@@ -305,7 +307,8 @@ export function TrainingConsole({
     setRunError("");
     setLatencyMs(null);
     try {
-      const dataset = await readCsvDataset(await file.arrayBuffer(), {
+      const sourceBuffer = await file.arrayBuffer();
+      const dataset = await readCsvDataset(sourceBuffer, {
         sourceName: file.name,
         previewRows: 0,
       });
@@ -332,6 +335,7 @@ export function TrainingConsole({
       }
       setPrepared({
         file,
+        sourceBytesBase64: arrayBufferToBase64(sourceBuffer),
         inspection: dataset.inspection,
         datasetVersionId: selectedDatasetVersion.id,
         rows,
@@ -367,14 +371,7 @@ export function TrainingConsole({
         body: JSON.stringify({
           datasetVersionId: prepared.datasetVersionId,
           sourceSha256: prepared.inspection.sha256,
-          rows: prepared.rows.map((row) => ({
-            id: row.id,
-            keyword: row.expression,
-            root: row.root ?? null,
-            category: row.category ?? null,
-            sourceRow: row.sourceRow ?? null,
-            flags: row.flags ?? [],
-          })),
+          sourceBytesBase64: prepared.sourceBytesBase64,
           configuration: {
             model: { id: selectedModel?.id, version: selectedModel?.version },
             prompt: { id: selectedPrompt?.id, version: selectedPrompt?.version },

@@ -7,7 +7,7 @@ import {
   type SeverityRules,
 } from "../../../lib/riskshield";
 import { resolveActiveReviewedSkills } from "../../../lib/active-skills";
-import { GoogleGenAiProvider } from "../../../lib/v0-4/google-genai-provider";
+import { GEMMA_LIVE_PILOT_MODEL, GoogleGenAiProvider } from "../../../lib/v0-4/google-genai-provider";
 import {
   INTERPRETER_PROMPT_VERSION,
   INTERPRETER_SCHEMA_VERSION,
@@ -33,6 +33,7 @@ const BURST_WINDOW_MS = 60 * 1_000;
 const BURST_LIMIT = 6;
 const DAILY_REQUEST_LIMIT = 40;
 const DAILY_PROVIDER_CALL_LIMIT = 250;
+const MAX_PROVIDER_CONCURRENCY = 4;
 const MAX_RETRY_AFTER_SECONDS = 2;
 
 const ANALYSIS_PROFILES = {
@@ -70,8 +71,8 @@ type AbuseBucket = {
 const verifiedResultCache = new Map<string, CacheEntry>();
 const inFlightInterpreterRuns = new Map<string, Promise<InterpreterRun>>();
 const abuseBuckets = new Map<string, AbuseBucket>();
-let serialQueue: Promise<void> = Promise.resolve();
 let providerBudget = { day: utcDay(), calls: 0 };
+let activeProviderCalls = 0;
 
 async function getRuntimeEnvironment() {
   const { env } = await import("cloudflare:workers");
@@ -101,16 +102,17 @@ function utcDay(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const queued = serialQueue.then(task, task);
-  serialQueue = queued.then(() => undefined, () => undefined);
-  return queued;
-}
-
-function cacheKeyFor(text: string) {
+function cacheKeyFor(text: string, skills: readonly RiskSkill[], severityRules: SeverityRules) {
   const prepared = prepareInterpreterInput(text, MAX_INPUT_CHARS);
   return hashInterpreterInput(
-    `${INTERPRETER_SCHEMA_VERSION}:${INTERPRETER_PROMPT_VERSION}:${prepared.modelText}`,
+    JSON.stringify({
+      schema: INTERPRETER_SCHEMA_VERSION,
+      prompt: INTERPRETER_PROMPT_VERSION,
+      model: GEMMA_LIVE_PILOT_MODEL,
+      skills: skills.map((skill) => [skill.id, skill.revision, skill.updatedAt]),
+      severityRules,
+      text: prepared.modelText,
+    }),
   );
 }
 
@@ -195,8 +197,13 @@ function runInterpreterOnce(
 ) {
   const existing = inFlightInterpreterRuns.get(key);
   if (existing) return existing;
+  if (activeProviderCalls >= MAX_PROVIDER_CONCURRENCY) {
+    return Promise.resolve(unavailableRun(key, text, "provider_concurrency_saturated"));
+  }
+  activeProviderCalls += 1;
   const pending = runInterpreter(text, domainHint, apiKey).finally(() => {
     inFlightInterpreterRuns.delete(key);
+    activeProviderCalls = Math.max(0, activeProviderCalls - 1);
   });
   inFlightInterpreterRuns.set(key, pending);
   return pending;
@@ -266,6 +273,11 @@ async function enforceRateLimit(request: Request) {
   const key = await abuseKey(request);
   const now = Date.now();
   const day = utcDay();
+  if (abuseBuckets.size > 10_000) {
+    for (const [bucketKey, value] of abuseBuckets) {
+      if (value.day !== day) abuseBuckets.delete(bucketKey);
+    }
+  }
   const current = abuseBuckets.get(key);
   const bucket: AbuseBucket = !current || current.day !== day
     ? { day, dayCount: 0, windowStartedAt: now, windowCount: 0 }
@@ -291,12 +303,12 @@ async function enforceRateLimit(request: Request) {
   return null;
 }
 
-function unavailableRun(key: string, text: string): InterpreterRun {
+function unavailableRun(key: string, text: string, reason = "server_secret_unavailable"): InterpreterRun {
   return {
     ok: false,
     payload: null,
     schemaValid: false,
-    errors: ["server_secret_unavailable"],
+    errors: [reason],
     inputHash: key,
     masked: prepareInterpreterInput(text).masked,
     minimized: false,
@@ -359,52 +371,39 @@ export async function POST(request: Request) {
   try {
     const runtime = await getRuntimeEnvironment();
     const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
-    return await enqueue(async () => {
-      const [skills, severityRules] = await Promise.all([
-        readReviewedSkills(runtime),
-        readSeverityRules(runtime),
-      ]);
-      const rules = analyzeText(text, skills, { severityRules });
-      const key = cacheKeyFor(text);
-      let run = readCached(key);
+    const [skills, severityRules] = await Promise.all([
+      readReviewedSkills(runtime),
+      readSeverityRules(runtime),
+    ]);
+    const rules = analyzeText(text, skills, { severityRules });
+    const key = cacheKeyFor(text, skills, severityRules);
+    let run = readCached(key);
 
-      if (!run && apiKey && !hasProviderBudget()) {
-        return json(
-          { error: "daily_budget_exhausted", message: "오늘의 AI 분석 한도에 도달했습니다. 나중에 다시 시도해 주세요." },
-          429,
-          { "retry-after": "3600" },
-        );
-      }
-      if (!run && apiKey) {
-        run = await runInterpreterOnce(
-          key,
-          text,
-          domainHintFor(rules.primaryMatch ? [rules.primaryMatch.skill] : []),
-          apiKey,
-        );
-        writeCached(key, run);
-      }
-      run ??= unavailableRun(key, text);
+    const providerBudgetAvailable = hasProviderBudget();
+    if (!run && apiKey && providerBudgetAvailable) {
+      run = await runInterpreterOnce(
+        key,
+        text,
+        domainHintFor(rules.primaryMatch ? [rules.primaryMatch.skill] : []),
+        apiKey,
+      );
+      writeCached(key, run);
+    }
+    run ??= unavailableRun(
+      key,
+      text,
+      apiKey && !providerBudgetAvailable ? "provider_budget_exhausted" : "server_secret_unavailable",
+    );
 
       const hybrid = combinePrivateBetaHybrid(rules, run);
       const payload = run.payload;
-      const calculatedScore = calculateDeterministicScore(rules, payload);
       const contextSuppressed = hybrid.status === "no_match"
         && payload?.risk_intent === "contextual_only"
         && payload.policy_relevance === "none";
-      const scoring = contextSuppressed
-        ? {
-            ...calculatedScore,
-            finalScore: 0,
-            status: "no_match" as const,
-            categoryScores: [],
-            primaryCategory: null,
-            highRequiresReview: false,
-          }
-        : calculatedScore;
-      const resolvedStatus = hybrid.status === "review" || hybrid.conflict
-        ? "review" as const
-        : scoring.status;
+      const scoring = calculateDeterministicScore(rules, payload, {
+        suppressContext: contextSuppressed,
+        forceReview: hybrid.conflict,
+      });
       const uncertainty = !run.ok || hybrid.conflict || hybrid.status === "review"
         ? {
             level: "high" as const,
@@ -453,7 +452,7 @@ export async function POST(request: Request) {
         rules: projectRules(rules, profile),
         scoring: {
           ...scoring,
-          status: resolvedStatus,
+          status: scoring.status,
         },
         ai: {
           state: run.ok ? "ready" : "fallback",
@@ -468,18 +467,17 @@ export async function POST(request: Request) {
           masked: run.masked,
         },
         hybrid: {
-          status: resolvedStatus,
+          status: scoring.status,
           score: scoring.finalScore,
           conflict: hybrid.conflict,
           reason: hybrid.reason,
         },
         uncertainty,
         novelty,
-        notice: hybrid.status === "no_match"
+        notice: scoring.status === "no_match"
           ? "현재 규칙과 AI 문맥 분석에서 직접 위험 주장이 확인되지 않았습니다. 이는 자동 승인이나 안전 보장을 의미하지 않습니다."
           : "AI 분석은 담당자의 최종 검토를 돕는 보조 신호이며 자동 승인·자동 금지를 의미하지 않습니다.",
       });
-    });
   } catch (error) {
     console.error(
       "[RiskShield public analyze] request failed",

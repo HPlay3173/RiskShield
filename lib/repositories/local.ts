@@ -292,6 +292,7 @@ export class LocalDatasetRepository implements DatasetRepository {
       status: "staging",
       versionCount: current ? (current.versionCount ?? 0) + 1 : 1,
       latestSha256: input.sha256,
+      latestKeywordColumn: input.keywordColumn,
       updatedAt: new Date().toISOString(),
       owner: input.owner,
       license: input.license,

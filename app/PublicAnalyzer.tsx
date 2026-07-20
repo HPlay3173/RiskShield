@@ -50,12 +50,13 @@ type PublicAnalysis = {
     evidence: Array<{ start: number; end: number; text: string; role: string }>;
   };
   scoring: {
-    policyVersion: "2.0.0";
+    policyVersion: string;
     finalScore: number;
     status: "no_match" | "review" | "attention" | "high";
     confidence: number | null;
     highRequiresReview: boolean;
     formula: string;
+    experimental: boolean;
     primaryCategory: {
       id: string;
       label: string;
@@ -210,9 +211,6 @@ export function PublicAnalyzer() {
         body: JSON.stringify({
           consent: true,
           text: lastRequest.text,
-          riskDomain: result.scoring.primaryCategory?.id ?? "unclassified",
-          score: result.scoring.finalScore,
-          confidence: result.ai.confidence,
         }),
         cache: "no-store",
       });
@@ -278,7 +276,7 @@ export function PublicAnalyzer() {
             <span>이름·연락처 등 개인정보는 입력하지 마세요.</span>
           </div>
 
-          <fieldset className="profilePicker">
+          <fieldset className="profilePicker" hidden>
             <legend>분석 프로필</legend>
             <div>
               {PROFILES.map((item) => (
@@ -342,13 +340,13 @@ export function PublicAnalyzer() {
 
             <div className={`publicAnalyzerVerdict status-${result.hybrid.status}`}>
               <div>
-                <span>DOMINANT RISK · {result.profile.label}</span>
+                <span>실험 위험 점수 · {result.profile.label}</span>
                 <h2 ref={resultHeadingRef} id="result-title" tabIndex={-1}>{statusCopy(result.hybrid.status)}</h2>
                 <p>{result.hybrid.reason}</p>
               </div>
               <strong
                 className="riskScore"
-                aria-label={`종합 위험 점수 ${result.scoring.finalScore}점. 고정 점수 공식 ${result.scoring.policyVersion}`}
+                aria-label={`실험 위험 점수 ${result.scoring.finalScore}점. 점수 정책 ${result.scoring.policyVersion}`}
               >
                 {result.scoring.finalScore}<small>/100</small>
                 <em>{result.scoring.primaryCategory?.label ?? "직접 위험 근거 미확인"}</em>
@@ -380,7 +378,7 @@ export function PublicAnalyzer() {
                     ))}
                   </ul>
                 ) : <p className="emptyCopy">현재 표시할 분야별 위험 축이 없습니다.</p>}
-                <p className="scoringPolicyNote">점수 공식 {result.scoring.policyVersion} · 최고 분야 중심, 보조 분야 최대 10점 반영</p>
+                <p className="scoringPolicyNote">실험 점수 {result.scoring.policyVersion} · 가장 높은 분야 점수만 사용하며 교차 분야 가산은 하지 않습니다.</p>
               </article>
 
               <article className="resultCard contextCard">
@@ -402,7 +400,17 @@ export function PublicAnalyzer() {
                       <li key={`${item.start}-${item.end}-${index}`}><mark>{item.text}</mark><span>{item.role}</span></li>
                     ))}
                   </ul>
-                ) : <p className="emptyCopy">정확히 일치한 근거 구간이 없습니다. 안전하다는 뜻은 아닙니다.</p>}
+                ) : <p className="emptyCopy">정확히 일치한 규칙 근거 구간이 없습니다. 안전하다는 뜻은 아닙니다.</p>}
+                {result.ai.evidenceSpans.length > 0 ? (
+                  <>
+                    <h4>AI 문맥 근거</h4>
+                    <ul className="publicAnalyzerEvidence">
+                      {result.ai.evidenceSpans.map((item, index) => (
+                        <li key={`ai-${item.start}-${item.end}-${index}`}><mark>{item.text}</mark><span>AI 문맥</span></li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
               </article>
 
               <article className="resultCard rewriteCard">

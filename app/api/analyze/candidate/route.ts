@@ -1,8 +1,12 @@
 import { prepareInterpreterInput } from "../../../../lib/v0-4/interpreter";
 import {
-  RISK_SKILL_SCHEMA_VERSION,
-  type RiskSkill,
-} from "../../../../lib/riskshield";
+  INVALID_JSON_BODY,
+  JSON_BODY_TOO_LARGE,
+  readJsonValue,
+} from "../../../../lib/http/control-response";
+import type { CandidateRecord } from "../../../../lib/repositories/contracts";
+import { resolveActiveReviewedSkills } from "../../../../lib/active-skills";
+import { analyzeText } from "../../../../lib/riskshield";
 
 const MAX_REQUEST_BYTES = 8 * 1024;
 const MAX_EXPRESSION_CHARS = 500;
@@ -11,28 +15,8 @@ const SUBMISSION_LIMIT = 5;
 
 const buckets = new Map<string, { startedAt: number; count: number }>();
 
-const RISK_DOMAINS = new Set([
-  "health_claim",
-  "financial_guarantee",
-  "income_claim",
-  "education_outcome",
-  "legal_outcome",
-  "privacy_intrusion",
-  "urgency",
-  "general_substantiation",
-]);
-
-const DOMAIN_LABELS: Record<string, string> = {
-  health_claim: "건강·의료 주장",
-  financial_guarantee: "금융·투자 보장",
-  income_claim: "소득·부업 주장",
-  education_outcome: "교육 결과 주장",
-  legal_outcome: "법률 결과 주장",
-  privacy_intrusion: "개인정보·감시 위험",
-  urgency: "긴급성·희소성 주장",
-  general_substantiation: "일반 입증 필요 주장",
-  unclassified: "분류 대기",
-};
+const CONSENT_POLICY_VERSION = "public-candidate-2026-07-21";
+const RETENTION_DAYS = 30;
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
   return Response.json(body, {
@@ -89,10 +73,11 @@ export async function POST(request: Request) {
     return json({ error: "payload_too_large", message: "후보 문구가 너무 깁니다." }, 413);
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const body = await readJsonValue(request, MAX_REQUEST_BYTES);
+  if (body === JSON_BODY_TOO_LARGE) {
+    return json({ error: "payload_too_large", message: "후보 문구가 너무 깁니다." }, 413);
+  }
+  if (body === INVALID_JSON_BODY) {
     return json({ error: "invalid_json", message: "올바른 JSON 요청이 필요합니다." }, 400);
   }
   if (!isRecord(body) || body.consent !== true || typeof body.text !== "string") {
@@ -107,85 +92,79 @@ export async function POST(request: Request) {
     return json({ error: "personal_data_detected", message: "개인정보가 포함된 문구는 학습 후보로 제공할 수 없습니다." }, 400);
   }
 
-  const riskDomain = typeof body.riskDomain === "string" && RISK_DOMAINS.has(body.riskDomain)
-    ? body.riskDomain
-    : "unclassified";
-  const confidence = typeof body.confidence === "number" && Number.isFinite(body.confidence)
-    ? Math.min(1, Math.max(0, body.confidence))
-    : null;
-  const score = typeof body.score === "number" && Number.isFinite(body.score)
-    ? Math.min(100, Math.max(0, Math.round(body.score)))
-    : null;
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(expression.normalize("NFKC")));
   const hash = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
-  const id = `public_${hash.slice(0, 32)}`;
+  const id = `public_submission_${hash.slice(0, 32)}`;
   const now = new Date().toISOString();
-  const payload: RiskSkill = {
-    schemaVersion: RISK_SKILL_SCHEMA_VERSION,
-    revision: 1,
+  const retentionDeadline = new Date(Date.now() + RETENTION_DAYS * 86_400_000).toISOString();
+  const payload: CandidateRecord & {
+    consentPolicyVersion: string;
+    retentionDeadline: string;
+    submissionCount: number;
+  } = {
     id,
-    category: DOMAIN_LABELS[riskDomain] ?? DOMAIN_LABELS.unclassified,
-    subcategory: "공개 제보 후보",
-    patternType: "candidate_expression_pending_review",
-    triggerPatterns: [expression],
-    contextPatterns: [],
-    anyOfPatterns: [],
-    exclusionPatterns: [],
-    conditionScope: "sentence",
-    maxDistance: 48,
-    surfaceMeaning: expression,
-    riskSummary: "공개 Analyzer 사용자가 명시적으로 제공한 신규 표현 후보입니다.",
-    socialContext: "실제 사용 문맥, 반복성, 출처를 추가로 확인해야 합니다.",
-    legalOrEthicIssue: "자동 법률 판단이 아니며 사람의 정책 검토가 필요합니다.",
-    riskReason: score === null
-      ? "현재 규칙에 없는 표현으로 분류되어 검토 대기 중입니다."
-      : `결정론적 분석 점수 ${score}점의 미등록 표현으로 분류되어 검토 대기 중입니다.`,
-    severityFloor: score ?? 0,
-    dominantRisk: false,
-    confidence: confidence ?? 0,
-    riskDomain,
-    recentContextTags: ["public-opt-in", "novel-expression"],
-    safeRewrite: [],
-    falsePositiveNote: "인용·비판·교육·부정 문맥과 우연한 단어 중복을 반드시 확인하세요.",
-    notes: "자동 활성화 금지. 양성·음성·반례 테스트와 출처 검증 후 사람이 승인합니다.",
-    source: {
-      title: "Public Analyzer opt-in",
-      url: "",
-      date: now.slice(0, 10),
-      sourceId: id,
-      provenanceStatus: "synthetic_unverified",
-    },
+    expression,
+    riskDomain: "unclassified",
+    status: "pending",
+    noveltyScore: null,
+    confidence: null,
+    sourceCount: 1,
     createdAt: now,
-    updatedAt: now,
-    reviewStatus: "draft",
+    expressionGroup: [expression],
+    contextSummary: "공개 Analyzer 사용자가 명시적으로 동의해 제공한 미분류 표현입니다. 서버가 위험 점수나 분야를 신뢰해 사전 기입하지 않습니다.",
+    evidence: [expression],
+    positiveTests: [],
+    negativeTests: [],
+    redTeam: null,
+    modelConflict: null,
+    policyChange: null,
+    draft: null,
+    lineage: null,
+    sources: [{ title: "Public Analyzer opt-in", url: "", date: now.slice(0, 10) }],
+    autoInclusionBlockedReason: "출처 검증, 문맥 분류, 양성·음성·반례 테스트와 사람 승인이 끝날 때까지 active skill로 편입하지 않습니다.",
+    consentPolicyVersion: CONSENT_POLICY_VERSION,
+    retentionDeadline,
+    submissionCount: 1,
   };
 
   try {
     const { env } = await import("cloudflare:workers");
     if (!env.DB) return json({ error: "candidate_storage_unavailable" }, 503);
+    const reviewedRows = await env.DB.prepare(
+      "SELECT id, review_status, payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
+    ).all<{ id: string; review_status: string; payload: string }>();
+    const existingRuleResult = analyzeText(expression, resolveActiveReviewedSkills(reviewedRows.results ?? []));
+    if (existingRuleResult.matches.length > 0) {
+      return json({ error: "known_expression", message: "이미 검토된 규칙과 일치하는 문구는 신규 후보로 저장하지 않습니다." }, 409);
+    }
+    const existing = await env.DB.prepare(
+      "SELECT status, payload FROM riskshield_candidates WHERE id = ? LIMIT 1",
+    ).bind(id).first<{ status: string; payload: string }>();
+    if (existing?.status === "approved" || existing?.status === "merged" || existing?.status === "rejected") {
+      return json({ acknowledged: true, candidateId: id, status: existing.status, autoActivated: false, reviewRequired: false });
+    }
+    if (existing?.payload) {
+      try {
+        const previous = JSON.parse(existing.payload) as { submissionCount?: unknown };
+        payload.submissionCount = typeof previous.submissionCount === "number"
+          ? Math.max(1, Math.floor(previous.submissionCount)) + 1
+          : 2;
+      } catch {
+        payload.submissionCount = 2;
+      }
+    }
     await env.DB.prepare(`
-      INSERT INTO risk_skills (
-        id, category, review_status, severity_floor, dominant_risk,
-        payload, created_at, updated_at
-      )
-      VALUES (?, ?, 'draft', ?, 0, ?, ?, ?)
+      INSERT INTO riskshield_candidates (id, status, payload, created_at, updated_at)
+      VALUES (?, 'pending', ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
-        category = CASE WHEN risk_skills.review_status = 'draft' THEN excluded.category ELSE risk_skills.category END,
-        severity_floor = CASE WHEN risk_skills.review_status = 'draft' THEN excluded.severity_floor ELSE risk_skills.severity_floor END,
-        payload = CASE WHEN risk_skills.review_status = 'draft' THEN excluded.payload ELSE risk_skills.payload END,
-        updated_at = CASE WHEN risk_skills.review_status = 'draft' THEN excluded.updated_at ELSE risk_skills.updated_at END
-    `).bind(
-      id,
-      payload.category,
-      payload.severityFloor,
-      JSON.stringify(payload),
-      now,
-      now,
-    ).run();
+        payload = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.payload ELSE riskshield_candidates.payload END,
+        status = CASE WHEN riskshield_candidates.status = 'held' THEN 'pending' ELSE riskshield_candidates.status END,
+        updated_at = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.updated_at ELSE riskshield_candidates.updated_at END
+    `).bind(id, JSON.stringify(payload), now, now).run();
     return json({
       acknowledged: true,
       candidateId: id,
-      status: "draft",
+      status: "pending",
       autoActivated: false,
       reviewRequired: true,
     });

@@ -1,7 +1,7 @@
 import type { AnalysisResult } from "../riskshield.ts";
 import type { InterpreterPayload, RiskFamily } from "../v0-4/interpreter.ts";
 
-export const SCORING_POLICY_VERSION = "2.0.0" as const;
+export const SCORING_POLICY_VERSION = "2.1.0" as const;
 
 export const SCORING_AXES = [
   "relevance",
@@ -48,7 +48,13 @@ export interface DeterministicScoreResult {
   confidence: number | null;
   highRequiresReview: boolean;
   formula: string;
+  experimental: true;
 }
+
+export type ScoringDecisionContext = {
+  forceReview?: boolean;
+  suppressContext?: boolean;
+};
 
 type WeightSet = Record<ScoringAxis, number>;
 
@@ -164,6 +170,7 @@ function statusFor(score: number, hasEvidence: boolean, highRequiresReview: bool
 export function calculateDeterministicScore(
   rules: AnalysisResult,
   payload: InterpreterPayload | null,
+  decision: ScoringDecisionContext = {},
 ): DeterministicScoreResult {
   const multiplier = contextMultiplier(payload);
   const byFamily = new Map<ScorableRiskFamily, { ruleScore: number; assessment: CategoryAssessment | null }>();
@@ -198,21 +205,28 @@ export function calculateDeterministicScore(
   }).filter((category) => category.score > 0)
     .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
 
-  const [top, second, third] = categoryScores;
-  const crossCategorySupport = Math.min(10, Math.round((second?.score ?? 0) * 0.1 + (third?.score ?? 0) * 0.05));
-  const finalScore = clamp((top?.score ?? 0) + crossCategorySupport);
-  const hasRuleEvidence = rules.matches.length > 0;
-  const hasAiEvidence = Boolean(payload?.evidence_spans.length && categoryScores.some((category) => category.aiScore > 0));
-  const highRequiresReview = finalScore >= 80 && !hasRuleEvidence && hasAiEvidence;
+  const top = categoryScores[0] ?? null;
+  const suppressed = decision.suppressContext === true;
+  const finalScore = suppressed ? 0 : top?.score ?? 0;
+  const hasRuleEvidence = !suppressed && rules.matches.length > 0;
+  const hasAiEvidence = !suppressed && Boolean(payload?.evidence_spans.length && categoryScores.some((category) => category.aiScore > 0));
+  const primaryHasSameFamilyRule = Boolean(top && top.ruleScore > 0);
+  const highRequiresReview = finalScore >= 80 && hasAiEvidence && !primaryHasSameFamilyRule;
+  const status = suppressed
+    ? "no_match" as const
+    : decision.forceReview && (hasRuleEvidence || hasAiEvidence)
+      ? "review" as const
+      : statusFor(finalScore, hasRuleEvidence || hasAiEvidence, highRequiresReview);
 
   return {
     policyVersion: SCORING_POLICY_VERSION,
     finalScore,
-    status: statusFor(finalScore, hasRuleEvidence || hasAiEvidence, highRequiresReview),
-    categoryScores,
-    primaryCategory: top ?? null,
+    status,
+    categoryScores: suppressed ? [] : categoryScores,
+    primaryCategory: suppressed ? null : top,
     confidence: payload?.confidence ?? null,
     highRequiresReview,
-    formula: "highest_category + min(10, second_category × 0.10 + third_category × 0.05)",
+    formula: "max(category_scores); no cross-category bonus without independent claim evidence",
+    experimental: true,
   };
 }

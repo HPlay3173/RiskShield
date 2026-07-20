@@ -321,6 +321,7 @@ type DatasetRow = {
   updated_at: string;
   version_count: number;
   latest_sha256: string | null;
+  latest_keyword_column: string | null;
 };
 
 type TrainingRunRow = {
@@ -382,11 +383,11 @@ function generatedSkill(candidate: CandidateRecord, now: string): RiskSkill | nu
     socialContext: candidate.contextSummary ?? "등록된 데이터셋에서 발견된 표현군을 사람이 검토했습니다.",
     legalOrEthicIssue: candidate.draft.riskSummary,
     riskReason: candidate.draft.riskSummary,
-    severityFloor: candidate.confidence !== null && candidate.confidence >= 0.85 ? 80 : 60,
-    dominantRisk: candidate.confidence !== null && candidate.confidence >= 0.85,
+    severityFloor: 60,
+    dominantRisk: false,
     confidence: candidate.confidence ?? 0.6,
     riskDomain: candidate.riskDomain || "미분류 광고 위험",
-    recentContextTags: ["dataset", "human_reviewed"],
+    recentContextTags: ["dataset", "candidate_approved"],
     safeRewrite: [...new Set(candidate.draft.safeRewrite.map((value) => value.trim()).filter(Boolean))],
     falsePositiveNote: "인용·비판·교육·금지 문맥과 근거가 있는 사실 설명은 별도로 검토합니다.",
     notes: `후보 ${candidate.id}에서 사람의 명시적 승인으로 생성했습니다.`,
@@ -399,7 +400,7 @@ function generatedSkill(candidate: CandidateRecord, now: string): RiskSkill | nu
     },
     createdAt: now,
     updatedAt: now,
-    reviewStatus: "reviewed",
+    reviewStatus: "draft",
   };
   return validateSkill(skill).length === 0 ? skill : null;
 }
@@ -495,10 +496,27 @@ export class D1CandidateRepository implements CandidateRepository {
       const status = candidateStatus(input.decision);
       const now = new Date().toISOString();
       const decisionId = crypto.randomUUID();
+      const skill = input.decision === "approve" ? generatedSkill(candidate, now) : null;
+      if (input.decision === "approve" && !skill) {
+        return ready<CandidateDecisionAcknowledgement>({
+          decisionId,
+          candidateStatus: candidate.status,
+          message: "후보 초안이 스킬 검증을 통과하지 못해 승인하지 않았습니다.",
+          persisted: false,
+        }, "d1");
+      }
+      const claimed = await this.db.prepare(
+        "UPDATE riskshield_candidates SET status = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'held')",
+      ).bind(status, now, input.candidateId).run();
+      if (Number(claimed.meta.changes ?? 0) !== 1) {
+        return ready<CandidateDecisionAcknowledgement>({
+          decisionId: `concurrent_${input.candidateId}`,
+          candidateStatus: candidate.status,
+          message: "다른 검토자가 먼저 후보 상태를 변경했습니다. 새로고침 후 다시 확인해 주세요.",
+          persisted: false,
+        }, "d1");
+      }
       const statements = [
-        this.db.prepare(
-          "UPDATE riskshield_candidates SET status = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'held')",
-        ).bind(status, now, input.candidateId),
         this.db.prepare(`
           INSERT INTO riskshield_candidate_decisions
             (id, candidate_id, decision, note, merge_skill_id, actor_id, created_at)
@@ -519,23 +537,14 @@ export class D1CandidateRepository implements CandidateRepository {
           input.note,
         ),
       ];
-      if (input.decision === "approve" || input.decision === "approve_with_edits") {
-        const skill = generatedSkill(candidate, now);
-        if (!skill) {
-          return ready<CandidateDecisionAcknowledgement>({
-            decisionId,
-            candidateStatus: candidate.status,
-            message: "검증 가능한 Gemma draft와 출처가 없어 승인할 수 없습니다.",
-            persisted: false,
-          }, "d1");
-        }
+      if (skill) {
         statements.push(this.db.prepare(`
           INSERT INTO risk_skills
             (id, category, review_status, severity_floor, dominant_risk, payload, created_at, updated_at)
-          VALUES (?, ?, 'reviewed', ?, ?, ?, ?, ?)
+          VALUES (?, ?, 'draft', ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             category = excluded.category,
-            review_status = 'reviewed',
+            review_status = 'draft',
             severity_floor = excluded.severity_floor,
             dominant_risk = excluded.dominant_risk,
             payload = excluded.payload,
@@ -555,7 +564,7 @@ export class D1CandidateRepository implements CandidateRepository {
         decisionId,
         candidateStatus: status,
         message: status === "approved"
-          ? "후보 결정과 reviewed 스킬을 D1에 저장했습니다."
+          ? "후보 결정을 기록하고 비활성 draft 스킬을 D1에 저장했습니다. 별도 검증·릴리스 전에는 분석에 사용되지 않습니다."
           : "후보 결정과 감사 이력을 D1에 저장했습니다.",
         persisted: true,
       }, "d1");
@@ -574,6 +583,7 @@ function datasetRecord(row: DatasetRow): DatasetRecord {
     status: validStatus.has(row.status as DatasetRecord["status"]) ? row.status as DatasetRecord["status"] : "unavailable",
     versionCount: row.version_count,
     latestSha256: row.latest_sha256,
+    latestKeywordColumn: row.latest_keyword_column,
     updatedAt: row.updated_at,
     owner: row.owner,
     license: row.license,
@@ -587,7 +597,9 @@ const DATASET_SELECT = `
     d.allowed_purpose, d.retention, d.updated_at,
     COUNT(v.id) AS version_count,
     (SELECT latest.sha256 FROM riskshield_dataset_versions latest
-      WHERE latest.dataset_id = d.id ORDER BY latest.version_number DESC LIMIT 1) AS latest_sha256
+      WHERE latest.dataset_id = d.id ORDER BY latest.version_number DESC LIMIT 1) AS latest_sha256,
+    (SELECT latest.keyword_column FROM riskshield_dataset_versions latest
+      WHERE latest.dataset_id = d.id ORDER BY latest.version_number DESC LIMIT 1) AS latest_keyword_column
   FROM riskshield_datasets d
   LEFT JOIN riskshield_dataset_versions v ON v.dataset_id = d.id
 `;
@@ -718,9 +730,27 @@ export class D1TrainingRepository implements TrainingRepository {
   }
 
   async getRun(id: string) {
-    const result = await this.listRuns();
-    if (result.status !== "ready") return result;
-    return ready(result.data.items.find((run) => run.id === id) ?? null, "d1");
+    if (!this.db) return storageRequired<TrainingRunRecord | null>();
+    try {
+      const row = await this.db.prepare(`
+        SELECT id, dataset_version_id, status, current_stage, item_count, warning_count,
+          estimated_cost, latency_ms, updated_at
+        FROM riskshield_training_runs WHERE id = ? LIMIT 1
+      `).bind(id).first<TrainingRunRow>();
+      return ready(row ? {
+        id: row.id,
+        datasetVersionId: row.dataset_version_id,
+        status: row.status as TrainingRunRecord["status"],
+        currentStage: row.current_stage,
+        itemCount: row.item_count,
+        warningCount: row.warning_count,
+        estimatedCost: row.estimated_cost,
+        latencyMs: row.latency_ms,
+        updatedAt: row.updated_at,
+      } : null, "d1");
+    } catch {
+      return storageUnavailable<TrainingRunRecord | null>();
+    }
   }
 
   async saveRun(record: TrainingRunRecord, actorId: string) {

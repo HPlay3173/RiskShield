@@ -11,6 +11,7 @@ import {
   type CsvManualMapping,
   type CsvPreviewRow,
 } from "../../lib/datasets/csv";
+import { arrayBufferToBase64 } from "../../lib/datasets/source-bytes";
 import {
   ProductDataTable,
   ProductDefinitionList,
@@ -259,7 +260,8 @@ export function DatasetConsole({
     if (!selectedFile || !inspection || !readyToStage) return;
     setSubmission({ state: "staging" });
     try {
-      const dataset = await readCsvDataset(await selectedFile.arrayBuffer(), {
+      const sourceBuffer = await selectedFile.arrayBuffer();
+      const dataset = await readCsvDataset(sourceBuffer, {
         sourceName: selectedFile.name,
         mapping: manualMapping,
         delimiter: delimiterOverride || undefined,
@@ -284,6 +286,7 @@ export function DatasetConsole({
             lastModified: new Date(selectedFile.lastModified).toISOString(),
             byteSize: dataset.inspection.byteSize,
             sha256: dataset.inspection.sha256,
+            bytesBase64: arrayBufferToBase64(sourceBuffer),
           },
           inspection: {
             encoding: dataset.inspection.encoding,
@@ -298,7 +301,6 @@ export function DatasetConsole({
             validRowCount: dataset.inspection.validRowCount,
             issueCounts: dataset.inspection.issueCounts,
           },
-          rows: dataset.rows,
           provenance,
           warningsAcknowledged: hasWarnings ? warningsAcknowledged : false,
         }),

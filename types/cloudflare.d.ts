@@ -1,7 +1,11 @@
 interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
   first<T = Record<string, unknown>>(columnName?: string): Promise<T | null>;
-  run<T = Record<string, unknown>>(): Promise<{ results?: T[]; success: boolean }>;
+  run<T = Record<string, unknown>>(): Promise<{
+    results?: T[];
+    success: boolean;
+    meta: { changes?: number };
+  }>;
   all<T = Record<string, unknown>>(): Promise<{ results: T[]; success: boolean }>;
   raw<T = unknown[]>(): Promise<T[]>;
 }

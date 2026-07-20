@@ -172,6 +172,7 @@ export type DatasetRecord = {
   status: "staging" | "ready" | "invalid" | "unavailable";
   versionCount: number | null;
   latestSha256: string | null;
+  latestKeywordColumn: string | null;
   updatedAt: string | null;
   owner?: string | null;
   license?: string | null;

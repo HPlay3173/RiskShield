@@ -740,9 +740,37 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const MAX_PATTERNS_PER_SKILL = 64;
+const MAX_PATTERN_LENGTH = 320;
+
+function rawRegexIssue(pattern: string) {
+  const source = pattern.slice(3);
+  if (source.length > MAX_PATTERN_LENGTH) return "정규식 패턴은 320자 이하여야 합니다.";
+  if (/\\[1-9]|\\k</u.test(source)) return "역참조 정규식은 사용할 수 없습니다.";
+  if (/\((?:\?:)?[^()]*(?:[+*]|\{\d*,?\d*\})[^()]*\)(?:[+*]|\{\d*,?\d*\})/u.test(source)) {
+    return "중첩 반복 정규식은 사용할 수 없습니다.";
+  }
+  try {
+    const compiled = new RegExp(source, "giu");
+    compiled.test("RiskShield 안전성 검증용 입력 0000000000000000");
+  } catch {
+    return "컴파일할 수 없는 정규식입니다.";
+  }
+  return null;
+}
+
+function patternIssue(pattern: string) {
+  if (!pattern.trim()) return "빈 패턴은 사용할 수 없습니다.";
+  if (pattern.length > MAX_PATTERN_LENGTH + (pattern.startsWith("re:") ? 3 : 0)) {
+    return "패턴은 320자 이하여야 합니다.";
+  }
+  if (pattern.startsWith("re:")) return rawRegexIssue(pattern);
+  return null;
+}
+
 function literalRegExp(pattern: string) {
   const normalized = normalizeText(pattern);
-  if (normalized.length < 2) return null;
+  if (!normalized.length) return null;
   const source = normalized.split(/\s+/u).map(escapeRegExp).join("\\s*");
   return new RegExp(source, "giu");
 }
@@ -1394,6 +1422,12 @@ export function buildHighlightSegments(
 
 export function validateSkill(skill: RiskSkill) {
   const errors: string[] = [];
+  const allPatterns = [
+    ...skill.triggerPatterns,
+    ...skill.contextPatterns,
+    ...skill.anyOfPatterns,
+    ...(skill.exclusionPatterns ?? []),
+  ];
   if (skill.schemaVersion !== RISK_SKILL_SCHEMA_VERSION) {
     errors.push(`스키마 버전은 ${RISK_SKILL_SCHEMA_VERSION}이어야 합니다.`);
   }
@@ -1415,6 +1449,13 @@ export function validateSkill(skill: RiskSkill) {
   }
   if (skill.anyOfPatterns.some((pattern) => !pattern.trim())) {
     errors.push("any_of 패턴은 빈 문자열일 수 없습니다.");
+  }
+  if (allPatterns.length > MAX_PATTERNS_PER_SKILL) {
+    errors.push(`스킬 하나에는 최대 ${MAX_PATTERNS_PER_SKILL}개 패턴만 사용할 수 있습니다.`);
+  }
+  for (const pattern of allPatterns) {
+    const issue = patternIssue(pattern);
+    if (issue) errors.push(`${pattern.slice(0, 48)}: ${issue}`);
   }
   if (skill.conditionScope !== "sentence" && skill.conditionScope !== "paragraph") {
     errors.push("적용 범위는 sentence 또는 paragraph여야 합니다.");

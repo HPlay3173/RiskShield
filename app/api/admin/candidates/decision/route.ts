@@ -6,8 +6,6 @@ import type { CandidateDecisionInput } from "../../../../../lib/repositories/con
 
 const DECISIONS = new Set<CandidateDecisionInput["decision"]>([
   "approve",
-  "approve_with_edits",
-  "merge",
   "hold",
   "reject",
 ]);
@@ -26,8 +24,7 @@ export async function POST(request: Request) {
     ? body.decision as CandidateDecisionInput["decision"]
     : null;
   const note = typeof body?.note === "string" ? body.note.trim() : null;
-  const mergeSkillId = typeof body?.mergeSkillId === "string" ? body.mergeSkillId.trim() : null;
-  if (!candidateId || !decision || (decision !== "approve" && !note) || (decision === "merge" && !mergeSkillId)) {
+  if (!candidateId || !decision || (decision !== "approve" && !note)) {
     return controlJson({ error: "invalid_candidate_decision", message: "후보, 결정, 필수 근거를 확인해 주세요." }, 400);
   }
   const repositories = await createRepositoryServices({ request });
@@ -35,7 +32,7 @@ export async function POST(request: Request) {
     candidateId,
     decision,
     note,
-    mergeSkillId,
+    mergeSkillId: null,
     actorId: principal.userId,
   });
   if (result.status !== "ready") return repositoryFailure(result);

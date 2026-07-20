@@ -132,6 +132,8 @@ const decisionLabels: Record<ReviewDecision, string> = {
   reject: "반려",
 };
 
+const supportedDecisions: ReviewDecision[] = ["approve", "hold", "reject"];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -574,7 +576,7 @@ export function ReviewInbox({
               />
             </label>
             <div className="candidateDecisionActions" aria-label="후보 결정">
-              {(Object.keys(decisionLabels) as ReviewDecision[]).map((decision) => (
+              {supportedDecisions.map((decision) => (
                 <Pressable
                   key={decision}
                   className={`candidateDecisionButton candidateDecision-${decision}`}

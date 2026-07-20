@@ -31,6 +31,10 @@ function loginRequestIsSameOrigin(request: Request, expectedOrigin: string) {
 }
 
 export async function POST(request: Request) {
+  const hostname = new URL(request.url).hostname;
+  if (hostname !== "localhost" && hostname !== "127.0.0.1") {
+    return json({ error: "access_code_retired" }, 410);
+  }
   let runtime;
   try {
     runtime = await getAuthRuntime();

@@ -2,6 +2,8 @@ import { principalFromRequest, requireApiCapability } from "../../../../../lib/a
 import { requireMutationIntegrity } from "../../../../../lib/auth/request-integrity";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject, repositoryFailure } from "../../../../../lib/http/control-response";
 import { createRepositoryServices } from "../../../../../lib/repositories";
+import { readCsvDataset } from "../../../../../lib/datasets/csv";
+import { decodeSourceBase64 } from "../../../../../lib/datasets/source-bytes";
 import { GoogleTrainingDraftProvider } from "../../../../../lib/training/google-draft-provider";
 import {
   runTrainingMvp,
@@ -10,27 +12,7 @@ import {
 } from "../../../../../lib/training/mvp";
 
 const MAX_ROWS = 10_000;
-const MAX_REQUEST_BYTES = 3 * 1024 * 1024;
-
-function rowsFrom(value: unknown): TrainingSourceRow[] | null {
-  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_ROWS) return null;
-  const rows: TrainingSourceRow[] = [];
-  for (const [index, item] of value.entries()) {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) return null;
-    const row = item as Record<string, unknown>;
-    const expression = typeof row.expression === "string" ? row.expression : row.keyword;
-    if (typeof expression !== "string" || !expression.trim() || expression.length > 500) return null;
-    rows.push({
-      id: typeof row.id === "string" && row.id ? row.id.slice(0, 200) : `row-${index + 1}`,
-      expression,
-      root: typeof row.root === "string" ? row.root.slice(0, 500) : null,
-      category: typeof row.category === "string" ? row.category.slice(0, 200) : null,
-      sourceRow: typeof row.sourceRow === "number" && Number.isInteger(row.sourceRow) ? row.sourceRow : index + 2,
-      flags: Array.isArray(row.flags) ? row.flags.filter((flag): flag is string => typeof flag === "string").slice(0, 12) : [],
-    });
-  }
-  return rows;
-}
+const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 
 export async function runTrainingRequest(request: Request, allowProduction: boolean) {
   const denied = await requireApiCapability(request, "training:run");
@@ -57,14 +39,11 @@ export async function runTrainingRequest(request: Request, allowProduction: bool
   if (body === JSON_BODY_TOO_LARGE) {
     return controlJson({ error: "training_payload_too_large", message: "한 실행은 10,000행과 3MiB 이하만 지원합니다." }, 413);
   }
-  const rows = rowsFrom(body?.rows);
+  const sourceBytes = decodeSourceBase64(body?.sourceBytesBase64);
   const datasetVersionId = typeof body?.datasetVersionId === "string" && body.datasetVersionId.trim()
     ? body.datasetVersionId.trim().slice(0, 200)
     : null;
-  const sourceSha256 = typeof body?.sourceSha256 === "string" && /^[a-f0-9]{64}$/u.test(body.sourceSha256)
-    ? body.sourceSha256
-    : null;
-  if (!rows || !datasetVersionId || !sourceSha256) {
+  if (!sourceBytes || !datasetVersionId) {
     return controlJson({ error: "invalid_training_input", message: "검증된 dataset version, SHA-256과 1~10,000개 expression 행이 필요합니다." }, 400);
   }
 
@@ -79,13 +58,49 @@ export async function runTrainingRequest(request: Request, allowProduction: bool
   if (
     !registeredDataset.data
     || !["staging", "ready"].includes(registeredDataset.data.status)
-    || registeredDataset.data.latestSha256 !== sourceSha256
     || registeredDataset.data.versionCount !== versionNumber
+    || !registeredDataset.data.latestSha256
+    || !registeredDataset.data.latestKeywordColumn
   ) {
     return controlJson({
       error: "dataset_version_mismatch",
       message: "Dataset Version과 source SHA-256을 확인할 수 없습니다.",
     }, 409);
+  }
+
+  const preliminary = await readCsvDataset(sourceBytes.buffer as ArrayBuffer, { previewRows: 0 });
+  const keywordIndex = preliminary.inspection.headers.indexOf(registeredDataset.data.latestKeywordColumn);
+  if (keywordIndex < 0) {
+    return controlJson({ error: "dataset_mapping_mismatch", message: "등록된 keyword 열이 원본 CSV에 없습니다." }, 409);
+  }
+  const verified = await readCsvDataset(sourceBytes.buffer as ArrayBuffer, {
+    mapping: { keyword: keywordIndex },
+    delimiter: preliminary.inspection.delimiter,
+    previewRows: 0,
+  });
+  const sourceSha256 = verified.inspection.sha256;
+  if (
+    registeredDataset.data.latestSha256 !== sourceSha256
+    || !verified.inspection.canStage
+    || !verified.rows.length
+    || verified.rows.length > MAX_ROWS
+  ) {
+    return controlJson({
+      error: "dataset_source_mismatch",
+      message: "원본 CSV 바이트, SHA-256 또는 등록된 열 매핑이 Dataset Version과 일치하지 않습니다.",
+    }, 409);
+  }
+  const sourcePrefix = sourceSha256.slice(0, 16);
+  const rows: TrainingSourceRow[] = verified.rows.map((row) => ({
+    id: `${sourcePrefix}:${row.rowNumber}`,
+    expression: row.mapped.keyword?.trim() ?? "",
+    root: null,
+    category: null,
+    sourceRow: row.rowNumber,
+    flags: [...row.flags],
+  }));
+  if (rows.some((row) => !row.expression)) {
+    return controlJson({ error: "invalid_training_rows", message: "서버 검증을 통과한 keyword 행이 필요합니다." }, 400);
   }
 
   const reviewed = await repositories.skills.listReviewed();
