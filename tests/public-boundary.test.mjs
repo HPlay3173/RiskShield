@@ -102,9 +102,9 @@ test("keeps the management control plane fail-closed when auth is unavailable", 
     },
     body: JSON.stringify({ code: "not-configured", returnTo: "/admin" }),
   });
-  assert.equal(accessLogin.status, 503);
+  assert.equal(accessLogin.status, 410);
   assert.equal(accessLogin.headers.get("cache-control"), "private, no-store");
-  assert.deepEqual(await accessLogin.json(), { error: "authentication_unavailable" });
+  assert.deepEqual(await accessLogin.json(), { error: "access_code_retired" });
 
   for (const path of [
     "/api/admin/ping",
