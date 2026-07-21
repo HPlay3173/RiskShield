@@ -14,6 +14,9 @@ export type SessionClaims = {
   csrf: string;
   iat: number;
   exp: number;
+  googleSubject?: string;
+  normalizedEmail?: string;
+  managerAllowlist?: true;
 };
 
 export type OidcState = {
@@ -36,6 +39,11 @@ export async function createSessionToken(input: {
   sessionId: string;
   roleVersion: number;
   csrfToken: string;
+  googleIdentity?: {
+    subject: string;
+    email: string;
+    managerAllowlist: true;
+  };
 }) {
   const runtime = await getAuthRuntime();
   const { signingKey } = requireSessionConfiguration(runtime);
@@ -43,6 +51,11 @@ export async function createSessionToken(input: {
     sid: input.sessionId,
     roleVersion: input.roleVersion,
     csrf: input.csrfToken,
+    ...(input.googleIdentity ? {
+      googleSubject: input.googleIdentity.subject,
+      normalizedEmail: input.googleIdentity.email.trim().toLowerCase(),
+      managerAllowlist: true,
+    } : {}),
   })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuer(SESSION_ISSUER)
@@ -71,6 +84,14 @@ export async function verifySessionToken(token: string): Promise<SessionClaims> 
   ) {
     throw new Error("invalid_session");
   }
+  const hasManagerClaims = payload.managerAllowlist === true;
+  if (hasManagerClaims && (
+    typeof payload.googleSubject !== "string" ||
+    payload.googleSubject.length < 1 ||
+    typeof payload.normalizedEmail !== "string"
+  )) {
+    throw new Error("invalid_session");
+  }
   return {
     sub: payload.sub,
     sid: payload.sid,
@@ -78,6 +99,11 @@ export async function verifySessionToken(token: string): Promise<SessionClaims> 
     csrf: payload.csrf,
     iat: payload.iat,
     exp: payload.exp,
+    ...(hasManagerClaims ? {
+      googleSubject: payload.googleSubject as string,
+      normalizedEmail: (payload.normalizedEmail as string).trim().toLowerCase(),
+      managerAllowlist: true as const,
+    } : {}),
   };
 }
 

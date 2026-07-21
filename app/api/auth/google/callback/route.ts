@@ -5,7 +5,7 @@ import {
   secureCookie,
 } from "../../../../../lib/auth/cookies";
 import { exchangeAndVerifyCode } from "../../../../../lib/auth/google-oidc";
-import { userForGoogleIdentity } from "../../../../../lib/auth/identity-adapter";
+import { authorizedUserForGoogleIdentity } from "../../../../../lib/auth/identity-adapter";
 import {
   createSessionToken,
   readOidcState,
@@ -31,13 +31,14 @@ export async function GET(request: Request) {
       codeVerifier: state.codeVerifier,
       nonce: state.nonce,
     });
-    const user = await userForGoogleIdentity(identity);
+    const user = await authorizedUserForGoogleIdentity(identity);
     if (!user) return failure(403, "account_not_authorized");
     const sessionToken = await createSessionToken({
-      userId: user.user_id,
+      userId: user.userId,
       sessionId: crypto.randomUUID(),
-      roleVersion: user.role_version,
+      roleVersion: user.roleVersion,
       csrfToken: crypto.randomUUID(),
+      googleIdentity: user.googleIdentity,
     });
     const headers = new Headers({ location: state.returnTo, "cache-control": "private, no-store" });
     headers.append("set-cookie", clearCookie(OIDC_STATE_COOKIE, "Lax"));

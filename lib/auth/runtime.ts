@@ -6,7 +6,21 @@ export type AuthRuntime = {
   RISKSHIELD_SESSION_SIGNING_KEY?: string;
   RISKSHIELD_CANONICAL_ORIGIN?: string;
   RISKSHIELD_ENABLE_DEV_PRINCIPAL?: string;
+  RISKSHIELD_MANAGER_EMAILS?: string;
 };
+
+export function managerEmails(runtime: AuthRuntime) {
+  return new Set(
+    (runtime.RISKSHIELD_MANAGER_EMAILS ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value)),
+  );
+}
+
+export function isManagerEmail(email: string, runtime: AuthRuntime) {
+  return managerEmails(runtime).has(email.trim().toLowerCase());
+}
 
 export function requireSessionConfiguration(runtime: AuthRuntime) {
   const signingKey = runtime.RISKSHIELD_SESSION_SIGNING_KEY;

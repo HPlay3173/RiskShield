@@ -29,6 +29,7 @@ declare module "cloudflare:workers" {
     RISKSHIELD_ACCESS_CODE?: string;
     RISKSHIELD_SESSION_SIGNING_KEY?: string;
     RISKSHIELD_CANONICAL_ORIGIN?: string;
+    RISKSHIELD_MANAGER_EMAILS?: string;
     [binding: string]: unknown;
   };
 }

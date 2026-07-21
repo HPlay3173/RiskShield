@@ -1,4 +1,5 @@
 import {
+  CAPABILITIES,
   isCapability,
   isRole,
   type Capability,
@@ -6,7 +7,7 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "./current-principal.ts";
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
-import { getAuthRuntime } from "./runtime.ts";
+import { getAuthRuntime, isManagerEmail, type AuthRuntime } from "./runtime.ts";
 import type { SessionClaims } from "./session.ts";
 import {
   accessCodePrincipalForSession,
@@ -77,10 +78,76 @@ export async function userForGoogleIdentity(identity: { subject: string; email: 
   return row;
 }
 
+export type AuthorizedGoogleUser = {
+  userId: string;
+  roleVersion: number;
+  googleIdentity?: {
+    subject: string;
+    email: string;
+    managerAllowlist: true;
+  };
+};
+
+export function allowlistedManagerForGoogleIdentity(
+  identity: { subject: string; email: string },
+  runtime: AuthRuntime,
+): AuthorizedGoogleUser | null {
+  const email = identity.email.trim().toLowerCase();
+  if (!identity.subject || !isManagerEmail(email, runtime)) return null;
+  return {
+    userId: `google-manager:${identity.subject}`,
+    roleVersion: 1,
+    googleIdentity: { subject: identity.subject, email, managerAllowlist: true },
+  };
+}
+
+export async function authorizedUserForGoogleIdentity(
+  identity: { subject: string; email: string },
+): Promise<AuthorizedGoogleUser | null> {
+  const runtime = await getAuthRuntime();
+  try {
+    const user = await userForGoogleIdentity(identity);
+    if (user) return { userId: user.user_id, roleVersion: user.role_version };
+  } catch {
+    // The verified-email allowlist supports a single manager while the optional
+    // D1 RBAC schema is not installed. No database write occurs in this flow.
+  }
+  return allowlistedManagerForGoogleIdentity(identity, runtime);
+}
+
+export function allowlistedManagerPrincipalForSession(
+  session: SessionClaims,
+  runtime: AuthRuntime,
+): CurrentPrincipal | null {
+  if (
+    session.managerAllowlist !== true ||
+    !session.googleSubject ||
+    !session.normalizedEmail ||
+    !isManagerEmail(session.normalizedEmail, runtime) ||
+    session.sub !== `google-manager:${session.googleSubject}` ||
+    session.roleVersion !== 1
+  ) return null;
+  return {
+    userId: session.sub,
+    externalSubject: session.googleSubject,
+    normalizedEmail: session.normalizedEmail,
+    identityIssuer: "https://accounts.google.com",
+    authSource: "google_oidc",
+    role: "owner",
+    roleVersion: 1,
+    capabilities: new Set(CAPABILITIES),
+    sessionId: session.sid,
+    csrfToken: session.csrf,
+  };
+}
+
 export async function principalForSession(session: SessionClaims): Promise<CurrentPrincipal | null> {
   const runtime = await getAuthRuntime();
   const accessCodePrincipal = accessCodePrincipalForSession(session, runtime);
   if (accessCodePrincipal) return accessCodePrincipal;
+  if (session.managerAllowlist === true) {
+    return allowlistedManagerPrincipalForSession(session, runtime);
+  }
   const row = await rowBy(
     `${USER_SELECT}
      WHERE u.id = ?
@@ -110,7 +177,7 @@ export async function principalForSession(session: SessionClaims): Promise<Curre
 }
 
 export async function revokeSession(session: SessionClaims) {
-  if (session.sub === ACCESS_CODE_SUBJECT) return;
+  if (session.sub === ACCESS_CODE_SUBJECT || session.managerAllowlist === true) return;
   const db = await database();
   await db.prepare(`
     INSERT INTO riskshield_session_revocations (session_id, user_id, expires_at, revoked_at)

@@ -22,6 +22,8 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/auth/dev-principal.ts";
 import {
+  allowlistedManagerForGoogleIdentity,
+  allowlistedManagerPrincipalForSession,
   sessionClearsNotBefore,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/auth/identity-adapter.ts";
@@ -142,6 +144,49 @@ test("access-code authentication requires strong server-only secrets and resolve
     csrf: "csrf-2",
     iat: 1,
     exp: 2,
+  }, runtime), null);
+});
+
+test("verified Google manager allowlist authorizes only the configured email and fails closed after removal", () => {
+  const runtime = {
+    RISKSHIELD_MANAGER_EMAILS: " Owner@Example.com, invalid-address ",
+  };
+  const authorized = allowlistedManagerForGoogleIdentity({
+    subject: "google-subject-1",
+    email: "owner@example.com",
+  }, runtime);
+  assert.ok(authorized?.googleIdentity);
+  assert.equal(authorized.userId, "google-manager:google-subject-1");
+  assert.equal(allowlistedManagerForGoogleIdentity({
+    subject: "google-subject-2",
+    email: "someone@example.com",
+  }, runtime), null);
+
+  const session = {
+    sub: authorized.userId,
+    sid: "manager-session",
+    roleVersion: 1,
+    csrf: "csrf-manager",
+    iat: 1,
+    exp: 2,
+    googleSubject: authorized.googleIdentity.subject,
+    normalizedEmail: authorized.googleIdentity.email,
+    managerAllowlist: true as const,
+  };
+  const principal = allowlistedManagerPrincipalForSession(session, runtime);
+  assert.ok(principal);
+  assert.equal(principal.role, "owner");
+  assert.equal(principal.authSource, "google_oidc");
+  assert.deepEqual([...principal.capabilities], [...CAPABILITIES]);
+
+  assert.equal(allowlistedManagerPrincipalForSession(session, {}), null);
+  assert.equal(allowlistedManagerPrincipalForSession({
+    ...session,
+    sub: "google-manager:different-subject",
+  }, runtime), null);
+  assert.equal(allowlistedManagerPrincipalForSession({
+    ...session,
+    normalizedEmail: "someone@example.com",
   }, runtime), null);
 });
 
