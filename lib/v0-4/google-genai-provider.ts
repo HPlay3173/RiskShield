@@ -172,10 +172,10 @@ export class GoogleGenAiProvider implements LiveProvider {
             allowedFunctionNames: [FUNCTION_NAME],
           },
         }}),
-        ...(mode === "gemma_official" ? {} : { generationConfig: {
+        generationConfig: {
           temperature: 0,
           thinkingConfig: { thinkingLevel: "minimal" },
-        }}),
+        },
         ...(mode === "gemma_official" ? {} : { store: false }),
       });
     const send = (mode: typeof preferredRequestMode) => fetch(endpoint, {
