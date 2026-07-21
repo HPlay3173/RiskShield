@@ -5,7 +5,7 @@ export const GOOGLE_GENAI_ENDPOINT = "https://generativelanguage.googleapis.com/
 const FUNCTION_NAME = "submit_riskshield_interpretation";
 const INPUT_START_MARKER = "\n입력 시작\n";
 const INPUT_END_MARKER = "\n입력 끝";
-let preferOpenApiParameters = false;
+let preferredRequestMode: "strict" | "openapi" | "gemma_official" = "strict";
 
 interface ProviderEnvironment {
   RISKSHIELD_INTERPRETER_API_KEY?: string;
@@ -144,40 +144,44 @@ export class GoogleGenAiProvider implements LiveProvider {
 
   async complete(request: Parameters<LiveProvider["complete"]>[0]): Promise<LiveProviderResult> {
     const endpoint = `${GOOGLE_GENAI_ENDPOINT}/models/${this.model}:generateContent`;
-    const requestBody = (openApiParameters: boolean) => ({
+    const requestBody = (mode: typeof preferredRequestMode) => ({
         contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
         systemInstruction: { parts: [{ text: `${request.systemPrompt}\n${gemmaFunctionInstruction(request.userPrompt)}` }] },
         tools: [{
           functionDeclarations: [{
             name: FUNCTION_NAME,
             description: "입력 텍스트의 위험 문맥 분석 결과를 RiskShield Interpreter 형식으로 제출한다.",
-            ...(openApiParameters
+            ...(mode !== "strict"
               ? { parameters: asOpenApiParameters(request.schema) }
               : { parametersJsonSchema: asFunctionParametersJsonSchema(request.schema) }),
           }],
         }],
-        toolConfig: {
+        ...(mode === "gemma_official" ? {} : { toolConfig: {
           functionCallingConfig: {
             mode: "ANY",
             allowedFunctionNames: [FUNCTION_NAME],
           },
-        },
-        generationConfig: {
+        }}),
+        ...(mode === "gemma_official" ? {} : { generationConfig: {
           temperature: 0,
           thinkingConfig: { thinkingLevel: "minimal" },
-        },
-        store: false,
+        }}),
+        ...(mode === "gemma_official" ? {} : { store: false }),
       });
-    const send = (openApiParameters: boolean) => fetch(endpoint, {
+    const send = (mode: typeof preferredRequestMode) => fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
-      body: JSON.stringify(requestBody(openApiParameters)),
+      body: JSON.stringify(requestBody(mode)),
       signal: request.signal,
     });
-    let response = await send(preferOpenApiParameters);
-    if (response.status === 400 && !preferOpenApiParameters) {
-      preferOpenApiParameters = true;
-      response = await send(true);
+    let response = await send(preferredRequestMode);
+    if (response.status === 400 && preferredRequestMode === "strict") {
+      preferredRequestMode = "openapi";
+      response = await send(preferredRequestMode);
+    }
+    if (response.status === 400 && preferredRequestMode === "openapi") {
+      preferredRequestMode = "gemma_official";
+      response = await send(preferredRequestMode);
     }
 
     if (!response.ok) {
