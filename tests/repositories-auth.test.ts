@@ -230,11 +230,13 @@ test("training UI and API share training:run and production fails before body or
   const bodyRead = routeSource.indexOf("const body = await readJsonObject");
   const providerSecret = routeSource.indexOf("RISKSHIELD_INTERPRETER_API_KEY");
   const datasetLookup = routeSource.indexOf("repositories.datasets.getById(datasetId)");
-  const shaVerification = routeSource.indexOf("registeredDataset.data.latestSha256 !== sourceSha256");
+  const selectedVersionVerification = routeSource.indexOf("registeredVersion.data.sha256 !== sourceSha256");
   assert.ok(productionGate > 0);
   assert.ok(bodyRead > productionGate);
   assert.ok(datasetLookup > bodyRead);
-  assert.ok(shaVerification > datasetLookup);
+  assert.ok(selectedVersionVerification > datasetLookup);
+  assert.equal(routeSource.includes("registeredDataset.data.latestSha256 !== sourceSha256"), false);
+  assert.equal(routeSource.includes("registeredDataset.data.latestObjectKey !== registeredVersion.data.objectKey"), false);
   assert.ok(providerSecret > productionGate);
 });
 

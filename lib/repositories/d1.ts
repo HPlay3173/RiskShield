@@ -482,6 +482,7 @@ function generatedSkill(
     severityFloor: 60,
     dominantRisk: false,
     confidence: candidate.confidence ?? 0.6,
+    riskFamily: candidate.riskFamily ?? "general_substantiation",
     riskDomain: candidate.riskDomain || "미분류 광고 위험",
     recentContextTags: ["dataset", "candidate_approved"],
     safeRewrite: [...new Set(draft.safeRewrite.map((value) => value.trim()).filter(Boolean))],
@@ -530,6 +531,7 @@ export class D1CandidateRepository implements CandidateRepository {
       const response = await this.db.prepare(`
         SELECT id, status, payload, created_at
         FROM riskshield_candidates
+        WHERE retention_deadline IS NULL OR retention_deadline > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'held' THEN 1 ELSE 2 END, updated_at DESC
         LIMIT 250
       `).all<CandidateRow>();
@@ -549,7 +551,7 @@ export class D1CandidateRepository implements CandidateRepository {
     if (!this.db) return storageRequired<CandidateRecord | null>();
     try {
       const row = await this.db.prepare(
-        "SELECT id, status, payload, created_at FROM riskshield_candidates WHERE id = ? LIMIT 1",
+        "SELECT id, status, payload, created_at FROM riskshield_candidates WHERE id = ? AND (retention_deadline IS NULL OR retention_deadline > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
       ).bind(id).first<CandidateRow>();
       return ready(row ? parsedCandidate(row) : null, "d1");
     } catch {
@@ -798,6 +800,44 @@ export class D1DatasetRepository implements DatasetRepository {
       return ready(row ? datasetRecord(row) : null, "d1");
     } catch {
       return storageUnavailable<DatasetRecord | null>();
+    }
+  }
+
+  async listVersions(datasetId?: string) {
+    if (!this.db) return storageRequired<RepositoryPage<DatasetVersionRecord>>();
+    try {
+      const response = await this.db.prepare(`
+        SELECT id, dataset_id, version_number, sha256, byte_size, row_count, encoding,
+          delimiter, headers_json, keyword_column, object_key, created_at
+        FROM riskshield_dataset_versions
+        WHERE (? IS NULL OR dataset_id = ?)
+          AND object_key IS NOT NULL
+        ORDER BY created_at DESC, version_number DESC
+        LIMIT 500
+      `).bind(datasetId ?? null, datasetId ?? null).all<DatasetVersionRow>();
+      const items: DatasetVersionRecord[] = [];
+      for (const row of response.results ?? []) {
+        if (!row.object_key || row.encoding !== "utf-8") continue;
+        const headers = JSON.parse(row.headers_json) as unknown;
+        if (!Array.isArray(headers) || !headers.every((value) => typeof value === "string")) continue;
+        items.push({
+          id: row.id,
+          datasetId: row.dataset_id,
+          versionNumber: row.version_number,
+          sha256: row.sha256,
+          byteSize: row.byte_size,
+          rowCount: row.row_count,
+          encoding: "utf-8",
+          delimiter: row.delimiter,
+          headers,
+          keywordColumn: row.keyword_column,
+          objectKey: row.object_key,
+          createdAt: row.created_at,
+        });
+      }
+      return ready({ items, nextCursor: null }, "d1");
+    } catch {
+      return storageUnavailable<RepositoryPage<DatasetVersionRecord>>();
     }
   }
 

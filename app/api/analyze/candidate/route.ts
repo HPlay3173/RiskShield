@@ -12,8 +12,7 @@ const MAX_REQUEST_BYTES = 8 * 1024;
 const MAX_EXPRESSION_CHARS = 500;
 const WINDOW_MS = 60 * 60 * 1_000;
 const SUBMISSION_LIMIT = 5;
-
-const buckets = new Map<string, { startedAt: number; count: number }>();
+const DAILY_SUBMISSION_LIMIT = 20;
 
 const CONSENT_POLICY_VERSION = "public-candidate-2026-07-21";
 const RETENTION_DAYS = 30;
@@ -40,21 +39,38 @@ async function requestKey(request: Request) {
   return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("").slice(0, 24);
 }
 
-async function enforceLimit(request: Request) {
+async function enforceLimit(request: Request, db: D1Database) {
   const key = await requestKey(request);
   const now = Date.now();
-  const current = buckets.get(key);
-  const bucket = !current || now - current.startedAt >= WINDOW_MS
-    ? { startedAt: now, count: 0 }
-    : current;
-  if (bucket.count >= SUBMISSION_LIMIT) {
-    const retryAfter = Math.max(1, Math.ceil((bucket.startedAt + WINDOW_MS - now) / 1_000));
+  const day = new Date(now).toISOString().slice(0, 10);
+  const bucket = await db.prepare(`
+    INSERT INTO riskshield_public_limits
+      (bucket_key, day, day_count, window_started_at, window_count, updated_at)
+    VALUES (?, ?, 1, ?, 1, ?)
+    ON CONFLICT(bucket_key) DO UPDATE SET
+      day = excluded.day,
+      day_count = CASE WHEN riskshield_public_limits.day = excluded.day THEN riskshield_public_limits.day_count + 1 ELSE 1 END,
+      window_started_at = CASE
+        WHEN riskshield_public_limits.day <> excluded.day
+          OR excluded.window_started_at - riskshield_public_limits.window_started_at >= ?
+        THEN excluded.window_started_at ELSE riskshield_public_limits.window_started_at END,
+      window_count = CASE
+        WHEN riskshield_public_limits.day <> excluded.day
+          OR excluded.window_started_at - riskshield_public_limits.window_started_at >= ?
+        THEN 1 ELSE riskshield_public_limits.window_count + 1 END,
+      updated_at = excluded.updated_at
+    RETURNING day_count, window_started_at, window_count
+  `).bind(key, day, now, new Date(now).toISOString(), WINDOW_MS, WINDOW_MS)
+    .first<{ day_count: number; window_started_at: number; window_count: number }>();
+  if (!bucket) return json({ error: "candidate_rate_limit_unavailable" }, 503);
+  if (bucket.window_count > SUBMISSION_LIMIT || bucket.day_count > DAILY_SUBMISSION_LIMIT) {
+    const retryAfter = bucket.window_count > SUBMISSION_LIMIT
+      ? Math.max(1, Math.ceil((bucket.window_started_at + WINDOW_MS - now) / 1_000))
+      : Math.max(1, Math.ceil((Date.parse(`${day}T00:00:00.000Z`) + 86_400_000 - now) / 1_000));
     return json({ error: "candidate_rate_limited", message: "후보 제공 횟수를 초과했습니다." }, 429, {
       "retry-after": String(retryAfter),
     });
   }
-  bucket.count += 1;
-  buckets.set(key, bucket);
   return null;
 }
 
@@ -63,7 +79,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export async function POST(request: Request) {
-  const limited = await enforceLimit(request);
+  let db: D1Database;
+  try {
+    const { env } = await import("cloudflare:workers");
+    if (!env.DB) return json({ error: "candidate_storage_unavailable" }, 503);
+    db = env.DB;
+  } catch {
+    return json({ error: "candidate_storage_unavailable" }, 503);
+  }
+  const limited = await enforceLimit(request, db);
   if (limited) return limited;
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
     return json({ error: "unsupported_media_type", message: "JSON 요청이 필요합니다." }, 415);
@@ -104,6 +128,7 @@ export async function POST(request: Request) {
   } = {
     id,
     expression,
+    riskFamily: "general_substantiation",
     riskDomain: "unclassified",
     status: "pending",
     noveltyScore: null,
@@ -128,16 +153,17 @@ export async function POST(request: Request) {
   };
 
   try {
-    const { env } = await import("cloudflare:workers");
-    if (!env.DB) return json({ error: "candidate_storage_unavailable" }, 503);
-    const reviewedRows = await env.DB.prepare(
+    await db.prepare(
+      "DELETE FROM riskshield_candidates WHERE id LIKE 'public_submission_%' AND retention_deadline IS NOT NULL AND retention_deadline <= ?",
+    ).bind(now).run();
+    const reviewedRows = await db.prepare(
       "SELECT id, review_status, payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
     ).all<{ id: string; review_status: string; payload: string }>();
     const existingRuleResult = analyzeText(expression, resolveActiveReviewedSkills(reviewedRows.results ?? []));
     if (existingRuleResult.matches.length > 0) {
       return json({ error: "known_expression", message: "이미 검토된 규칙과 일치하는 문구는 신규 후보로 저장하지 않습니다." }, 409);
     }
-    const existing = await env.DB.prepare(
+    const existing = await db.prepare(
       "SELECT status, payload FROM riskshield_candidates WHERE id = ? LIMIT 1",
     ).bind(id).first<{ status: string; payload: string }>();
     if (existing?.status === "approved" || existing?.status === "merged" || existing?.status === "rejected") {
@@ -153,14 +179,15 @@ export async function POST(request: Request) {
         payload.submissionCount = 2;
       }
     }
-    await env.DB.prepare(`
-      INSERT INTO riskshield_candidates (id, status, payload, created_at, updated_at)
-      VALUES (?, 'pending', ?, ?, ?)
+    await db.prepare(`
+      INSERT INTO riskshield_candidates (id, status, payload, retention_deadline, created_at, updated_at)
+      VALUES (?, 'pending', ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         payload = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.payload ELSE riskshield_candidates.payload END,
+        retention_deadline = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.retention_deadline ELSE riskshield_candidates.retention_deadline END,
         status = CASE WHEN riskshield_candidates.status = 'held' THEN 'pending' ELSE riskshield_candidates.status END,
         updated_at = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.updated_at ELSE riskshield_candidates.updated_at END
-    `).bind(id, JSON.stringify(payload), now, now).run();
+    `).bind(id, JSON.stringify(payload), retentionDeadline, now, now).run();
     return json({
       acknowledged: true,
       candidateId: id,

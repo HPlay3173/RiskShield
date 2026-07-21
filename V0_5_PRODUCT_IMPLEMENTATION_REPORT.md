@@ -1,180 +1,86 @@
-# RiskShield v0.5 Product Implementation Report
+# RiskShield v0.5 Alpha Implementation Report
 
-## 1. Release identity
+## Release identity
 
 - Product branch: `riskshield/v0.5-product`
-- Base: Commit B `e93526919689e8563f415e43be71b55f750f0367`
-- Deployed source: `c51b406dd18e65d01063fbe75c91add9ba868ec6`
-- Commit B ancestry: verified
-- Worktree at deployment: clean
-- GitHub push: not performed
-- Git tag: not created
-- Sites-internal source push: performed only after explicit authorization; existing internal `main` was fast-forwarded from `96e841cd6cc484df3c709c8255de7063d712dfe7` to the deployed SHA.
+- Product status: alpha
+- Canonical product structure: public Analyzer at `/` plus unified management console at `/manage/*`
+- GitHub is the source of truth for the current commit, PR checks, and review state.
+- Sites is the source of truth for the saved version number and production deployment state.
 
-## 2. Implemented routes and product areas
+## Implemented product boundary
 
-### Public
+- `/` and `POST /api/analyze` are public.
+- `/manage/*` and management APIs require server-side manager authorization.
+- Legacy `/admin/*`, `/dev/*`, and `/owner/*` routes remain compatibility redirects or protected aliases.
+- `/api/skills` is retired with HTTP 410.
+- Public responses do not include the complete skill corpus, matcher patterns, internal skill IDs, prompts, provider configuration, or raw model JSON.
 
-- `/`: Analyzer-only v0.5 experience with text input, examples, balanced/advertising/context profiles, run, cancel, retry, result focus transfer, evidence, uncertainty, novelty, context, rewrite, and another-analysis flow.
-- `/api/analyze`: v4 compatibility kernel with reviewed-only rules, exact evidence, PII masking, bounded request parsing, optional Google context interpretation, contract validation, rules-only fallback, and public-field projection.
-- `/api/skills`: retired for GET, HEAD, POST, PUT, and DELETE with HTTP 410.
+## Analyzer and scoring
 
-### Administrator
+- Analyzer v4 remains the compatibility matcher kernel and loads reviewed skills only.
+- Google Gemma is an optional, strictly validated context interpreter with rules-only fallback.
+- Scoring Policy 3.1 uses one final decision engine.
+- Stable `riskFamily` identifiers replace category-label string inference for managed skills.
+- AI confidence caps are enforced at 0.65, 0.80, and 0.90 boundaries.
+- Rule evidence strengthens AI evidence only when both point to the same evidence span or claim clause.
+- Cross-category score bonuses are not used.
+- AI-only high scores remain `review` until same-claim rule evidence exists.
+- The 0–100 value remains explicitly experimental and is not presented as a calibrated probability.
 
-- `/admin` -> `/admin/review`
-- `/admin/review`: candidate filters, list/detail split view, evidence and context review, positive/negative and red-team evidence, explicit decision buttons, server acknowledgement, and mobile modal sheet.
-- `/admin/skills`: reviewed skill library, filters, sorting, payload detail, revision proposal, and related-test presentation.
-- `/admin/trends`: honest empty/configuration states when trend data is unavailable.
-- `/admin/audit`: repository-backed administrative lifecycle events without fabricated rows.
+## Dataset lineage and training
 
-### Developer
+- CSV bytes are parsed and hashed on the server.
+- Immutable originals are stored in R2 with SHA-256 content-addressed keys.
+- D1 Dataset Versions record object key, SHA-256, byte size, row count, headers, and keyword mapping.
+- Training reads the selected Dataset Version from R2 and revalidates its bytes and metadata.
+- Historical Dataset Versions can be selected and replayed; training no longer compares them with the dataset's latest version.
+- Dataset registration never activates a skill.
+- Cleaner, dedupe/grouping, lexical similarity, optional LLM drafts, generated tests, and review-candidate persistence are implemented; unconfigured semantic/vector and feedback stages remain explicitly unavailable.
 
-- `/dev` -> `/dev/datasets`
-- `/dev/datasets`: byte-exact CSV inspection, encoding/BOM/delimiter/header detection, mapping, duplicate/blank/malformed/replacement-character/PII/formula checks, 50-row sanitized preview, SHA-256, provenance, retention, and staging Dataset Version registration.
-- `/dev/training`: registered Dataset Version and exact SHA enforcement, model/prompt/schema selection, start/cancel/retry controls, and nine-stage MVP status presentation.
-- `/dev/evaluation`: exact test count/pass/fail evidence plus baseline, candidate, code, model, prompt, schema, dataset, quality, fallback, latency, cost, profile, and context-slice fields. Unmeasured values are displayed as unmeasured.
-- `/dev/models`: active/candidate versions, thresholds, profiles, diff and evaluation state. Save and production deploy remain disabled until a real candidate repository and release gate exist.
-- `/dev/audit`: dataset, validation, pipeline, evaluation, model, prompt, release, and rollback lifecycle presentation.
+## Candidate workflow and retention
 
-### Owner
+- Public submissions enter the candidate review repository and never become active automatically.
+- `approve_with_edits` persists the edited draft.
+- `merge` creates a revision proposal instead of silently changing an active skill.
+- Approved candidates create draft skills, not reviewed/active skills.
+- Public candidate submission limits use the shared D1 atomic counter rather than isolate memory.
+- Public submissions carry a 30-day retention deadline, are hidden after expiry, and are physically deleted on the next submission request.
 
-- `/owner/access`: connected to the Google OIDC/RBAC foundation and shows principal, provider, role, state, role version, last verification, revoke state, and release readiness.
+## Authentication and operations
 
-### Protected APIs
+- Production management login uses Google OIDC with PKCE, state, nonce, issuer/audience/signature checks, verified email, signed sessions, D1 role lookup, CSRF, Origin, and Fetch Metadata checks.
+- Production access-code login is retired with HTTP 410.
+- Analyzer request limits and provider budgets use D1 counters.
+- Local fixtures require a non-production build, loopback host, and explicit enablement.
 
-- `/api/admin/*`, `/api/dev/*`, and `/api/owner/*` use server-side capability checks.
-- Mutating control-plane APIs additionally require same-origin JSON, CSRF, Origin, and Fetch Metadata checks.
-- Local development principals require an explicit environment flag and loopback host; production builds do not enable the fixture.
+## Verification
 
-## 3. Backend connections and repository structure
+The release gate is:
 
-The product UI consumes service/repository interfaces instead of embedding storage logic in page components:
+```bash
+npm ci
+npm run typecheck
+npm run lint
+npm run build
+npm test
+git diff --check
+```
 
-- `AnalyzerService`
-- `SkillRepository`
-- `CandidateRepository`
-- `DatasetRepository`
-- `TrainingRepository`
-- `EvaluationRepository`
-- `ModelRepository`
-- `AuditRepository`
-- `PrincipalRepository`
+Current local result: typecheck PASS, lint PASS, production build PASS, and automated tests PASS (`111/111`). GitHub Actions reruns the clean-install gate after push.
 
-Production adapters use D1 read paths where schema support exists and return configuration-required or unavailable states when a backend is absent. Local adapters provide clearly marked development data only when the explicit development fixture is enabled. Optional R2 and vector capabilities remain disabled adapters, not simulated production systems.
+## Remaining limitations
 
-The public Analyzer uses reviewed D1 skills internally and never returns the skill corpus, matcher patterns, internal IDs, prompt text, provider configuration, D1 diagnostics, or raw model JSON.
+- Score weights and thresholds are not calibrated on an external held-out dataset.
+- Compatibility matcher rules still exist in code for legacy behavior; new managed skills use the portable matcher DSL and stable risk families.
+- Semantic clustering, vector search, continuous collection, and feedback learning are not production backends yet.
+- Candidate release and active policy deployment remain separate manual work that requires additional release controls.
+- Retention cleanup is request-driven; a scheduled cleanup job is still desirable for deterministic deletion timing.
+- Production quality, latency, and cost measurements require a real evaluation runner and representative dataset.
 
-## 4. Dataset processing
+## Production
 
-The three initial CSV files were inspected read-only and recorded without modifying or moving the originals:
-
-| File | Rows | Bytes | SHA-256 |
-| --- | ---: | ---: | --- |
-| `controversial_keywords_10000.csv` | 10,000 | 599,541 | `21effaaf3a1285168f6d40cc276c7dc08d249e10baaef212706b5df94fe948ea` |
-| `false_advertising_keywords_10000.csv` | 10,000 | 1,011,091 | `1737abadfad3ee23afedfc80e0dbbb09912cb2f697c851784c5336a88161c15a` |
-| `hate_speech_filtering_dictionary.csv` | 10,000 | 2,460,243 | `ec6777467d8df469f6edd763981da5f81522a71da9f25a0338dbbc3f1f6db572` |
-
-Browser QA validated a 10,000-row CSV through inspection, explicit mapping, preview truncation, provenance entry, and staging acknowledgement. A post-hardening regression registered `local_dataset_e0eee745f506_v1` and verified that Training listed only the registered version and accepted only its exact source SHA.
-
-CSV registration creates a staging Dataset Version; it does not activate a skill or change policy.
-
-## 5. Continual intelligence MVP
-
-The executable development MVP covers:
-
-1. Collector
-2. Cleaner
-3. Cluster
-4. Novelty Detector
-5. Context Analyst
-6. Skill Generator
-7. Red-Team
-8. Confidence Router
-9. Feedback Learner
-
-Implemented work includes cleaning, exact/normalized deduplication, expression grouping, reviewed-skill similarity, candidate batching, optional Google draft generation, positive/negative test generation, retry/cancellation state, and Waiting Review integration when the repository is configured.
-
-The post-hardening local regression used a registered Dataset Version and produced nine stage records and four candidates. Google draft and candidate persistence reported not configured instead of claiming success. Production training is fail-closed with a generic 503 until a production runner and write repository are intentionally configured.
-
-## 6. Apple interaction and accessibility system
-
-- Immediate pointer-down response with click/pointer-up commit semantics
-- Keyboard Space/Enter support for pressable controls
-- 44 by 44 pixel minimum targets
-- Desktop review split pane with direct pointer tracking
-- Mobile candidate modal sheet with focus trap, Escape dismissal, inert background, and focus return
-- System typography, optical sizing, Korean word keeping, and tabular numeric presentation
-- Restrained translucent material only for navigation/filter/sheet chrome; data, evidence, tables, and results use solid surfaces
-- Reduced motion, reduced transparency, increased contrast, and forced-colors support
-- Skip links, landmarks, one route-level `h1`, visible focus, and accessible labels
-- Responsive verification at 390x844, 768x1024, and 1440x1000 with no page-level horizontal overflow
-
-## 7. Verification results
-
-Final verification used the exact deployed commit.
-
-| Gate | Result |
-| --- | --- |
-| Clean `npm ci` | PASS |
-| Production build | PASS |
-| Full automated tests | PASS, 103/103 |
-| Typecheck | PASS |
-| Lint | PASS |
-| `git diff --check` | PASS |
-| Worktree cleanliness | PASS |
-
-The evaluation console records the 103/103 repository test result and does not invent quality, latency, or cost measurements that were not produced by a measurement runner.
-
-Browser QA covered the public Analyzer, result focus, profile emphasis, cancel/retry paths, administrator review and skill views, mobile sheet, keyboard navigation, dataset registration, registered-version Training, evaluation, models, owner access, redirects, and Back/Forward behavior.
-
-## 8. Public boundary and production verification
-
-Production URL: `https://riskshield-studio.horari.chatgpt.site`
-
-Verified after deployment:
-
-- `GET /` -> 200 and Analyzer-only; no public management navigation.
-- `POST /api/analyze` -> 200 with validated rules plus AI interpretation on the tested expression. The browser completed the same analysis and moved focus to the result `h2`.
-- GET, HEAD, POST, PUT, and DELETE `/api/skills` -> 410.
-- `/admin` and `/dev` redirect only to their protected default routes; protected pages redirect only to Google OIDC start.
-- Unauthenticated `/api/admin/*`, `/api/dev/*`, and `/api/owner/*` requests -> 401 with generic `authentication_required`.
-- The root document and all five JavaScript assets it loaded were scanned. Counts for `/api/skills`, Skill Builder, CSV import, Skill Library, Export, management route strings, provider secret name, and interpreter prompt version were all zero.
-- Public responsive checks passed at 390x844, 768x1024, and 1440x1000 with one `h1` and no page-level horizontal overflow.
-- No skill payload, matcher pattern, prompt, secret value, stack trace, raw model output, D1 diagnostic, or internal management data was exposed.
-
-## 9. D1, secret, access, and URL invariants
-
-- No `drizzle/` or `db/` change exists between Commit B and the deployed commit.
-- The Analyzer and repository deployment path contains no D1 write SQL.
-- No migration command was executed and no destructive migration was deployed.
-- Production environment revision remains `1`.
-- The only environment entry remains the pre-existing secret key `RISKSHIELD_INTERPRETER_API_KEY`; its value was neither read nor changed.
-- Site access remains `public`, access policy revision remains `2`, and no groups were added.
-- The production URL and slug were not changed.
-
-## 10. Sites release result
-
-- Project: `appgprj_6a590e98034c8191af5393c355cbe739`
-- Previous saved version: 20
-- Previous source SHA: `96e841cd6cc484df3c709c8255de7063d712dfe7`
-- New saved/deployed version: 21
-- Deployed source SHA: `c51b406dd18e65d01063fbe75c91add9ba868ec6`
-- Deployment: succeeded
-- Deployment environment revision: 1
-- Live URL: `https://riskshield-studio.horari.chatgpt.site`
-
-## 11. Intentionally disabled production capabilities and next backend work
-
-The following remain explicitly disabled or configuration-required rather than mocked:
-
-- Production Training runner and write repository
-- Production candidate decision persistence where schema support is absent
-- R2 dataset blob storage
-- Vector/embedding novelty adapter
-- Semantic context adapter for Training
-- Feedback learner storage
-- Trend aggregation backend
-- Candidate model-version persistence and release adapter
-- Complete production Google OIDC secrets/session signing configuration if not supplied later
-
-The next backend phase is to provision and review those repositories and bindings, add non-destructive migrations through a separate approved release, run measured evaluation for quality/latency/cost slices, and only then enable candidate save or production model release actions.
+- Sites project: `appgprj_6a590e98034c8191af5393c355cbe739`
+- URL: `https://riskshield-studio.horari.chatgpt.site`
+- Access mode: public Analyzer; management remains application-authenticated and fail-closed.
+- Exact deployed commit, Sites version, and smoke-test evidence are recorded in the GitHub PR/release handoff for each deployment.

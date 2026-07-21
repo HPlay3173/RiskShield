@@ -58,8 +58,6 @@ export async function runTrainingRequest(request: Request, allowProduction: bool
   if (
     !registeredDataset.data
     || !["staging", "ready"].includes(registeredDataset.data.status)
-    || registeredDataset.data.latestSha256 !== registeredVersion.data.sha256
-    || registeredDataset.data.latestObjectKey !== registeredVersion.data.objectKey
   ) {
     return controlJson({
       error: "dataset_version_mismatch",
@@ -106,8 +104,6 @@ export async function runTrainingRequest(request: Request, allowProduction: bool
   });
   const sourceSha256 = verified.inspection.sha256;
   if (
-    registeredDataset.data.latestSha256 !== sourceSha256
-    ||
     registeredVersion.data.sha256 !== sourceSha256
     || registeredVersion.data.byteSize !== verified.inspection.byteSize
     || registeredVersion.data.rowCount !== verified.inspection.rowCount

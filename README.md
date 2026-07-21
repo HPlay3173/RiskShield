@@ -84,10 +84,10 @@ npm run dev
 
 - D1: 운영 스킬, 설정, 후보 및 준비된 관리 데이터
 - CSV: 브라우저에서 byte 단위 검사와 staging preview
-- R2: 아직 연결되지 않음
+- R2: Dataset Version 원본을 SHA-256 content-addressed object로 불변 저장
 - Vector/embedding: 아직 연결되지 않음
 
-원본 10,000행 CSV는 공개 번들이나 저장소에 포함하지 않습니다. 현재 Dataset Version은 완전한 immutable blob lineage가 아니므로 재현 가능한 학습 데이터 계보로 주장하지 않습니다.
+원본 10,000행 CSV는 공개 번들이나 저장소에 포함하지 않습니다. Dataset Version은 서버 계산 SHA-256과 R2 object key를 저장하며, 선택한 과거 버전도 동일 원본으로 재현 학습할 수 있습니다.
 
 ## 검증
 
@@ -105,10 +105,10 @@ GitHub Actions는 pull request에서 위 검사와 production dependency audit�
 
 - 점수 가중치와 임계값은 외부 held-out 데이터로 보정되지 않았습니다.
 - 일부 위험 패턴은 코드의 compatibility matcher에 남아 있어 스킬 payload만으로 완전히 재현되지 않습니다.
-- Dataset 원본의 immutable R2 저장과 서버 기준 SHA 계보가 없습니다.
+- Dataset 원본은 immutable R2 저장과 서버 기준 SHA 계보를 사용합니다. 운영 R2 binding과 migration이 필수입니다.
 - 학습 파이프라인의 일부 단계는 휴리스틱 또는 `not_configured` 상태입니다.
-- 후보의 `approve_with_edits`, 실제 merge, release candidate와 active 분리는 완성되지 않았습니다.
-- rate limit와 provider budget은 isolate-local best effort이며 전역 hard quota가 아닙니다.
+- 후보의 `approve_with_edits`와 merge revision 제안은 구현됐지만, release candidate와 active의 최종 배포 단계는 아직 분리 작업이 남아 있습니다.
+- Analyzer와 공개 후보 제출 제한 및 provider budget은 D1 원자적 카운터를 사용합니다. 공개 후보는 30일 기한 후 조회에서 제외되고 다음 제출 시 물리 삭제됩니다.
 - 단일 관리자 허용목록 세션은 운영 D1 기반 다중 사용자 RBAC의 임시 단계입니다.
 - 품질·latency·비용의 실제 운영 지표와 calibration 결과가 아직 없습니다.
 

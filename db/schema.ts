@@ -120,11 +120,13 @@ export const riskshieldCandidates = sqliteTable(
     id: text("id").primaryKey(),
     status: text("status").notNull().default("pending"),
     payload: text("payload").notNull(),
+    retentionDeadline: text("retention_deadline"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
     index("riskshield_candidates_status_idx").on(table.status, table.updatedAt),
+    index("riskshield_candidates_retention_idx").on(table.retentionDeadline),
     check("riskshield_candidates_status_check", sql`${table.status} IN ('pending', 'approved', 'merged', 'held', 'rejected')`),
   ],
 );

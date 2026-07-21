@@ -1,3 +1,6 @@
+// @ts-expect-error Node 22 direct TypeScript execution requires the runtime extension.
+import { RISK_FAMILIES, riskFamilyForPatternType, type ScorableRiskFamily } from "./risk-family.ts";
+
 export const RISK_SKILL_SCHEMA_VERSION = "2.0.0" as const;
 
 export type ReviewStatus = "draft" | "reviewed" | "rejected";
@@ -51,6 +54,8 @@ export interface RiskSkill {
   severityFloor: number;
   dominantRisk: boolean;
   confidence: number;
+  /** Stable scoring identifier. Required for managed skills; inferred only for legacy fixtures. */
+  riskFamily?: ScorableRiskFamily;
   riskDomain: string;
   recentContextTags: string[];
   safeRewrite: string[];
@@ -231,6 +236,7 @@ function seedSkill(
 ): RiskSkill {
   return {
     ...skill,
+    riskFamily: skill.riskFamily ?? riskFamilyForPatternType(skill.patternType),
     schemaVersion: skill.schemaVersion ?? RISK_SKILL_SCHEMA_VERSION,
     revision: skill.revision ?? 1,
     anyOfPatterns: skill.anyOfPatterns ?? [],
@@ -1491,6 +1497,7 @@ export function validateSkill(skill: RiskSkill) {
  */
 export function validateManagedSkill(skill: RiskSkill) {
   const errors = [...validateSkill(skill)];
+  if (!skill.riskFamily) errors.push("관리 스킬에는 안정된 riskFamily 식별자가 필요합니다.");
   const rawPattern = [
     ...skill.triggerPatterns,
     ...skill.contextPatterns,
@@ -1572,6 +1579,7 @@ export function createMockSkillDraft(
     severityFloor: 55,
     dominantRisk: false,
     confidence: 0.45,
+    riskFamily: "general_substantiation",
     riskDomain: input.domain || fallbackDomain,
     recentContextTags: ["검토 필요"],
     safeRewrite: ["구체적인 근거와 적용 조건을 함께 안내합니다."],
@@ -1762,6 +1770,12 @@ export function migrateRiskSkill(
     provenanceValue === "verified" || provenanceValue === "synthetic_unverified"
       ? provenanceValue
       : "provided";
+  const patternType = readString(value, ["pattern_type", "patternType"]);
+  const declaredRiskFamily = readString(value, ["risk_family", "riskFamily"]);
+  const riskFamily = declaredRiskFamily && RISK_FAMILIES.includes(declaredRiskFamily as typeof RISK_FAMILIES[number])
+    && declaredRiskFamily !== "none"
+    ? declaredRiskFamily as ScorableRiskFamily
+    : riskFamilyForPatternType(patternType);
 
   const skill: RiskSkill = {
     schemaVersion: RISK_SKILL_SCHEMA_VERSION,
@@ -1769,7 +1783,7 @@ export function migrateRiskSkill(
     id,
     category: readString(value, ["category"]),
     subcategory: readString(value, ["subcategory"]),
-    patternType: readString(value, ["pattern_type", "patternType"]),
+    patternType,
     triggerPatterns: conditionTrigger.length
       ? conditionTrigger
       : readStrings(value, ["trigger_patterns", "triggerPatterns"]),
@@ -1795,6 +1809,7 @@ export function migrateRiskSkill(
     severityFloor: readNumber(value, ["severity_floor", "severityFloor"], 0),
     dominantRisk: readBoolean(value, ["dominant_risk", "dominantRisk"], false),
     confidence: readNumber(value, ["confidence"], 0),
+    riskFamily,
     riskDomain: readString(value, ["risk_domain", "riskDomain"]),
     recentContextTags: readStrings(value, ["recent_context_tags", "recentContextTags"]),
     safeRewrite: readStrings(value, ["safe_rewrite", "safeRewrite"]),
@@ -1812,7 +1827,10 @@ export function migrateRiskSkill(
     reviewStatus,
   };
 
-  const issues = validateSkill(skill);
+  const issues = [
+    ...(declaredRiskFamily && declaredRiskFamily !== riskFamily ? [`지원하지 않는 riskFamily ${declaredRiskFamily}입니다.`] : []),
+    ...validateSkill(skill),
+  ];
   return issues.length ? { issues } : { skill, issues: [] };
 }
 
@@ -2047,6 +2065,7 @@ export function buildExportBundle(
     severity_floor: skill.severityFloor,
     dominant_risk: skill.dominantRisk,
     confidence: skill.confidence,
+    risk_family: skill.riskFamily ?? riskFamilyForPatternType(skill.patternType),
     risk_domain: skill.riskDomain,
     recent_context_tags: [...skill.recentContextTags].sort(compareText),
     safe_rewrite: skill.safeRewrite,

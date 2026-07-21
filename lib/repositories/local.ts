@@ -284,6 +284,13 @@ export class LocalDatasetRepository implements DatasetRepository {
     return ready(localDatasets.get(id) ?? null, "local_fixture", fixtureOptions);
   }
 
+  async listVersions(datasetId?: string) {
+    const items = [...localDatasetVersions.values()]
+      .filter((version) => !datasetId || version.datasetId === datasetId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.versionNumber - left.versionNumber);
+    return ready(page(items), "local_fixture", fixtureOptions);
+  }
+
   async getVersion(id: string) {
     return ready(localDatasetVersions.get(id) ?? null, "local_fixture", fixtureOptions);
   }

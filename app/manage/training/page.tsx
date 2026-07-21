@@ -6,21 +6,20 @@ import { INTERPRETER_PROMPT_VERSION, INTERPRETER_SCHEMA_VERSION } from "../../..
 
 export default async function ManageTrainingPage() {
   const { principal, presentation, repositories } = await protectedProductPage("/manage/training", "training:run");
-  const [runs, datasets] = await Promise.all([
+  const [runs, datasets, versions] = await Promise.all([
     repositories.training.listRuns(),
     repositories.datasets.list(),
+    repositories.datasets.listVersions(),
   ]);
-  const datasetVersions = datasets.status === "ready"
-    ? datasets.data.items.flatMap((dataset) => dataset.latestSha256 && dataset.versionCount && ["staging", "ready"].includes(dataset.status)
-      ? [{
-          id: `${dataset.id}_v${dataset.versionCount}`,
-          name: dataset.name,
-          sha256: dataset.latestSha256,
-          status: dataset.status,
-        }]
-      : [])
+  const datasetVersions = datasets.status === "ready" && versions.status === "ready"
+    ? versions.data.items.flatMap((version) => {
+      const dataset = datasets.data.items.find((item) => item.id === version.datasetId);
+      return dataset && ["staging", "ready"].includes(dataset.status)
+        ? [{ id: version.id, name: `${dataset.name} · v${version.versionNumber}`, sha256: version.sha256, status: dataset.status }]
+        : [];
+    })
     : [];
-  const runnerAvailable = runs.status === "ready" && datasets.status === "ready";
+  const runnerAvailable = runs.status === "ready" && datasets.status === "ready" && versions.status === "ready";
   const configurationMessage = runnerAvailable
     ? null
     : "D1 관리 migration을 적용한 뒤 데이터셋 등록과 학습 실행을 사용할 수 있습니다.";

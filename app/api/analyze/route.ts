@@ -460,7 +460,7 @@ export async function POST(request: Request) {
               candidateRegistration: "disabled" as const,
             };
       return json({
-        beta: "RiskShield v0.5 public beta",
+        beta: "RiskShield v0.5 alpha",
         profile: {
           id: profile,
           ...ANALYSIS_PROFILES[profile],

@@ -83,6 +83,7 @@ export type SkillAdminRecord = {
 export type CandidateRecord = {
   id: string;
   expression: string;
+  riskFamily?: import("../risk-family").ScorableRiskFamily;
   riskDomain: string;
   status: "pending" | "approved" | "merged" | "held" | "rejected";
   noveltyScore: number | null;
@@ -333,6 +334,7 @@ export interface CandidateRepository {
 
 export interface DatasetRepository {
   list(): Promise<RepositoryResult<RepositoryPage<DatasetRecord>>>;
+  listVersions(datasetId?: string): Promise<RepositoryResult<RepositoryPage<DatasetVersionRecord>>>;
   getById(id: string): Promise<RepositoryResult<DatasetRecord | null>>;
   getVersion(id: string): Promise<RepositoryResult<DatasetVersionRecord | null>>;
   register(input: DatasetRegistrationInput): Promise<RepositoryResult<DatasetRegistrationAcknowledgement>>;

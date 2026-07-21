@@ -6,19 +6,18 @@ import { INTERPRETER_PROMPT_VERSION, INTERPRETER_SCHEMA_VERSION } from "../../..
 
 export default async function TrainingPage() {
   const { principal, presentation, repositories } = await protectedProductPage("/dev/training", "training:run");
-  const [runs, datasets] = await Promise.all([
+  const [runs, datasets, versions] = await Promise.all([
     repositories.training.listRuns(),
     repositories.datasets.list(),
+    repositories.datasets.listVersions(),
   ]);
-  const datasetVersions = datasets.status === "ready"
-    ? datasets.data.items.flatMap((dataset) => dataset.latestSha256 && dataset.versionCount && ["staging", "ready"].includes(dataset.status)
-      ? [{
-          id: `${dataset.id}_v${dataset.versionCount}`,
-          name: dataset.name,
-          sha256: dataset.latestSha256,
-          status: dataset.status,
-        }]
-      : [])
+  const datasetVersions = datasets.status === "ready" && versions.status === "ready"
+    ? versions.data.items.flatMap((version) => {
+      const dataset = datasets.data.items.find((item) => item.id === version.datasetId);
+      return dataset && ["staging", "ready"].includes(dataset.status)
+        ? [{ id: version.id, name: `${dataset.name} · v${version.versionNumber}`, sha256: version.sha256, status: dataset.status }]
+        : [];
+    })
     : [];
   const configurationMessage = runs.status === "configuration_required"
     ? "Production pipeline runner와 run 저장소가 구성되지 않아 실행이 비활성입니다. 명시적 개발 fixture에서만 요청 단위 runner를 사용합니다."

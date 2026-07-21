@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
 import type { AnalysisResult } from "../riskshield.ts";
+// @ts-expect-error Node 22 direct TypeScript execution requires the runtime extension.
+import { RISK_FAMILIES, type RiskFamily } from "../risk-family.ts";
+
+// @ts-expect-error Node 22 direct TypeScript execution requires the runtime extension.
+export { RISK_FAMILIES } from "../risk-family.ts";
+export type { RiskFamily } from "../risk-family";
 
 export const INTERPRETER_SCHEMA_VERSION = "1.1.0" as const;
 export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-21-multiaxis-r1" as const;
@@ -16,17 +22,6 @@ export const CONTEXT_RELATIONS = ["supports", "negates", "warns_about", "reports
 export const ACTORS = ["advertiser", "reporter", "regulator", "consumer", "unknown"] as const;
 export const CLAIM_STRENGTHS = ["absolute", "strong", "limited", "none", "unclear"] as const;
 export const POLICY_RELEVANCES = ["none", "substantiation", "potentially_high", "uncertain"] as const;
-export const RISK_FAMILIES = [
-  "health_claim",
-  "financial_guarantee",
-  "income_claim",
-  "education_outcome",
-  "legal_outcome",
-  "privacy_intrusion",
-  "urgency",
-  "general_substantiation",
-  "none",
-] as const;
 export const POLICY_REASONS = [
   "DIRECT_ABSOLUTE_CLAIM",
   "DIRECT_STRONG_RESULT",
@@ -49,7 +44,6 @@ export type ContextRelation = typeof CONTEXT_RELATIONS[number];
 export type Actor = typeof ACTORS[number];
 export type ClaimStrength = typeof CLAIM_STRENGTHS[number];
 export type PolicyRelevance = typeof POLICY_RELEVANCES[number];
-export type RiskFamily = typeof RISK_FAMILIES[number];
 export type PolicyReason = typeof POLICY_REASONS[number];
 export type HybridStatus = "no_match" | "review" | "attention" | "high";
 

@@ -1,0 +1,33 @@
+export const RISK_FAMILIES = [
+  "health_claim",
+  "financial_guarantee",
+  "income_claim",
+  "education_outcome",
+  "legal_outcome",
+  "privacy_intrusion",
+  "urgency",
+  "general_substantiation",
+  "none",
+] as const;
+
+export type RiskFamily = typeof RISK_FAMILIES[number];
+export type ScorableRiskFamily = Exclude<RiskFamily, "none">;
+
+/**
+ * Stable compatibility mapping for legacy matcher pattern types.
+ * New managed skills persist riskFamily directly; category labels are never
+ * used as scoring identifiers.
+ */
+export function riskFamilyForPatternType(patternType: string): ScorableRiskFamily {
+  const value = patternType.toLowerCase();
+  if (/(health|medical|disease|symptom|body|weight)/u.test(value)) return "health_claim";
+  if (/(income|side_job|earnings|salary)/u.test(value)) return "income_claim";
+  if (/(financial|investment|return_or_loss)/u.test(value)) return "financial_guarantee";
+  if (/(education|admission|exam)/u.test(value)) return "education_outcome";
+  if (/(legal|lawsuit|sentence)/u.test(value)) return "legal_outcome";
+  if (/(privacy|personal_data|surveillance|tracking|concealment|access_or_export)/u.test(value)) {
+    return "privacy_intrusion";
+  }
+  if (/(urgency|deadline|purchase_or_application)/u.test(value)) return "urgency";
+  return "general_substantiation";
+}
