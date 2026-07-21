@@ -7,6 +7,8 @@ import {
 
 export type SkillActivationCheck = RiskSkillRegressionCase & {
   actual: "match" | "no_match";
+  targetMatched: boolean;
+  matchingSkillIds: string[];
   passed: boolean;
 };
 
@@ -15,6 +17,7 @@ export type SkillActivationResult = {
   checks: SkillActivationCheck[];
   passedCount: number;
   totalCount: number;
+  evaluatedSkillCount: number;
 };
 
 function baselineCases(skill: RiskSkill): RiskSkillRegressionCase[] {
@@ -48,12 +51,31 @@ export function activationCases(skill: RiskSkill): RiskSkillRegressionCase[] {
   return [...unique.values()];
 }
 
-export function runSkillActivationRegression(skill: RiskSkill): SkillActivationResult {
+export function runSkillActivationRegression(
+  skill: RiskSkill,
+  activeSkills: readonly RiskSkill[] = [],
+): SkillActivationResult {
+  const evaluationSkills = [
+    ...activeSkills.filter((activeSkill) => (
+      activeSkill.reviewStatus === "reviewed" && activeSkill.id !== skill.id
+    )),
+    skill,
+  ];
   const checks = activationCases(skill).map((regressionCase): SkillActivationCheck => {
-    const actual = analyzeText(regressionCase.input, [skill]).matches.length > 0
-      ? "match"
-      : "no_match";
-    return { ...regressionCase, actual, passed: actual === regressionCase.expected };
+    const matches = analyzeText(regressionCase.input, evaluationSkills).matches;
+    const matchingSkillIds = [...new Set(matches.map((match) => match.skill.id))];
+    const targetMatched = matchingSkillIds.includes(skill.id);
+    const actual = matchingSkillIds.length > 0 ? "match" : "no_match";
+    const passed = regressionCase.expected === "match"
+      ? targetMatched
+      : matchingSkillIds.length === 0;
+    return {
+      ...regressionCase,
+      actual,
+      targetMatched,
+      matchingSkillIds,
+      passed,
+    };
   });
   const passedCount = checks.filter((check) => check.passed).length;
   return {
@@ -61,5 +83,6 @@ export function runSkillActivationRegression(skill: RiskSkill): SkillActivationR
     checks,
     passedCount,
     totalCount: checks.length,
+    evaluatedSkillCount: evaluationSkills.length,
   };
 }

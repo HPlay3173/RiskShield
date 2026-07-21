@@ -50,3 +50,35 @@ test("activation deduplicates equivalent baseline and candidate cases", () => {
   assert.equal(cases.filter((item) => item.input === "느개미" && item.expected === "match").length, 1);
   assert.equal(cases.filter((item) => item.input === "느개미" && item.expected === "no_match").length, 1);
 });
+
+test("activation positive cases must be matched by the target skill itself", () => {
+  const existingCodedSkill = starterSkills.find((skill) => skill.riskFamily === "coded_expression");
+  assert.ok(existingCodedSkill);
+  const target = {
+    ...codedDraft([{ id: "target-positive", input: "느개미", expected: "match" }]),
+    triggerPatterns: ["새로운표현"],
+  };
+  const result = runSkillActivationRegression(target, [existingCodedSkill]);
+  const check = result.checks.find((item) => item.id === "target-positive");
+  assert.ok(check);
+  assert.equal(check.actual, "match");
+  assert.equal(check.targetMatched, false);
+  assert.equal(check.passed, false);
+  assert.ok(check.matchingSkillIds.includes(existingCodedSkill.id));
+});
+
+test("activation negative cases fail when any existing active skill matches", () => {
+  const existingCodedSkill = starterSkills.find((skill) => skill.riskFamily === "coded_expression");
+  assert.ok(existingCodedSkill);
+  const target = {
+    ...codedDraft([{ id: "cross-skill-negative", input: "느개미", expected: "no_match" }]),
+    triggerPatterns: ["새로운표현"],
+  };
+  const result = runSkillActivationRegression(target, [existingCodedSkill]);
+  const check = result.checks.find((item) => item.id === "cross-skill-negative");
+  assert.ok(check);
+  assert.equal(check.targetMatched, false);
+  assert.equal(check.passed, false);
+  assert.ok(check.matchingSkillIds.includes(existingCodedSkill.id));
+  assert.equal(result.evaluatedSkillCount, 2);
+});
