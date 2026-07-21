@@ -65,6 +65,24 @@ type PublicAnalysis = {
   notice: string;
 };
 
+type EvidenceItem = { start: number; end: number; text: string; sources: string[] };
+
+function mergeEvidence(result: PublicAnalysis): EvidenceItem[] {
+  const merged = new Map<string, EvidenceItem>();
+  const add = (item: { start: number; end: number; text: string }, source: string) => {
+    const key = `${item.start}:${item.end}:${item.text.normalize("NFKC")}`;
+    const existing = merged.get(key);
+    if (existing) {
+      if (!existing.sources.includes(source)) existing.sources.push(source);
+      return;
+    }
+    merged.set(key, { ...item, sources: [source] });
+  };
+  result.rules.evidence.forEach((item) => add(item, "검토된 규칙"));
+  result.ai.evidenceSpans.forEach((item) => add(item, "AI 문맥"));
+  return [...merged.values()].sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
 const statusLabels: Record<Status, string> = {
   no_match: "직접 위험 미확인",
   review: "사람 검토 필요",
@@ -88,6 +106,7 @@ export function PublicAnalyzer() {
   const controllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const evidence = result ? mergeEvidence(result) : [];
 
   useEffect(() => { if (result) resultHeadingRef.current?.focus(); }, [result]);
 
@@ -174,7 +193,7 @@ export function PublicAnalyzer() {
 
             {result.scoring.categoryScores.length ? <article className="analysisCard"><span className="analysisCardEyebrow">발견된 위험 범주</span><div className="categoryScoreList">{result.scoring.categoryScores.map((item) => <div key={item.id}><span>{item.label}</span><strong>{item.score}</strong><small>{item.source === "hybrid" ? "규칙 + AI" : item.source === "rule" ? "검토된 규칙" : "AI 문맥"}</small></div>)}</div></article> : null}
 
-            <article className="analysisCard"><span className="analysisCardEyebrow">판단 근거</span><h3>문제가 될 수 있는 정확한 구간</h3>{[...result.rules.evidence, ...result.ai.evidenceSpans.map((span) => ({ ...span, role: "ai" }))].length ? <ul className="evidenceList">{[...result.rules.evidence, ...result.ai.evidenceSpans.map((span) => ({ ...span, role: "ai" }))].map((item, index) => <li key={`${item.start}-${item.end}-${index}`}><mark>{item.text}</mark><span>{item.role === "ai" ? "AI 문맥 근거" : "검토된 규칙 근거"}</span></li>)}</ul> : <p>직접 연결되는 근거 구간이 없습니다. 결과를 안전 판정으로 사용하지 마세요.</p>}</article>
+            <article className="analysisCard"><span className="analysisCardEyebrow">판단 근거</span><h3>문제가 될 수 있는 정확한 구간</h3>{evidence.length ? <ul className="evidenceList">{evidence.map((item) => <li key={`${item.start}-${item.end}-${item.text}`}><mark>{item.text}</mark><span>{item.sources.join(" + ")} 근거</span></li>)}</ul> : <p>직접 연결되는 근거 구간이 없습니다. 결과를 안전 판정으로 사용하지 마세요.</p>}</article>
 
             {result.rules.suggestedRewrite ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 표현</span><h3>{result.rules.suggestedRewrite}</h3><p>집단 일반화와 공격 표현을 줄이고, 구체적인 행동과 사실을 중심으로 다시 작성해 보세요.</p></article> : null}
 

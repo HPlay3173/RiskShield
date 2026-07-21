@@ -64,12 +64,28 @@
 .workflowHeading p { max-width: 28rem; margin: 0; color: var(--ink-600); }
 .workflowMap { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
 .workflowMap li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0.65rem; padding: 0.9rem; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 0.85rem; }
+.workflowMap li[data-state="complete"] { background: #f2fbf7; border-color: #b7dfcd; }
+.workflowMap li[data-state="complete"] > span { background: var(--green-700); }
+.workflowMap li[data-state="next"] { background: var(--blue-100); border-color: #9bbdec; box-shadow: 0 0 0 3px rgb(49 94 175 / 0.08); }
+.workflowMap li[data-state="waiting"] { opacity: 0.78; }
 .workflowMap li > span { display: grid; width: 2rem; height: 2rem; place-items: center; color: #fff; background: var(--blue-600); border-radius: 50%; font-weight: 800; }
 .workflowMap div { display: grid; align-content: start; gap: 0.22rem; }
 .workflowMap small { min-height: 2.5rem; color: var(--ink-600); line-height: 1.4; }
 .workflowMap a { color: var(--blue-700); font-size: 0.82rem; font-weight: 750; text-decoration: none; }
 .knowledgeChips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .knowledgeChips span { padding: 0.45rem 0.7rem; color: var(--blue-700); background: var(--blue-100); border-radius: 99rem; font-size: 0.84rem; font-weight: 730; }
+.managementTaskGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.managementTaskCard { display: grid; min-width: 0; gap: 0.55rem; padding: 1.15rem; color: var(--ink-950); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); text-decoration: none; transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.managementTaskCard:hover { border-color: #9bbdec; box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.managementTaskCard > span { color: var(--blue-700); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; }
+.managementTaskCard > strong { font-size: 1.15rem; }
+.managementTaskCard p { margin: 0; color: var(--ink-600); }
+.managementTaskCard b { color: var(--blue-700); font-size: 0.84rem; }
+.roadmapCard { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; background: linear-gradient(135deg, #fff 0%, #f5f7fb 100%); }
+.roadmapCard h2 { margin: 0.25rem 0 0.45rem; }
+.roadmapCard p { max-width: 42rem; margin: 0; color: var(--ink-600); }
+.roadmapCard ul { display: flex; max-width: 32rem; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.roadmapCard li { padding: 0.45rem 0.7rem; color: var(--ink-600); background: #eceff4; border-radius: 99rem; font-size: 0.8rem; }
 .collectorIntro { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .collectorIntro h2 { margin: 0.25rem 0 0; }
 .collectorFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-block: 1rem; }
@@ -239,6 +255,19 @@
 .datasetStagingActions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 
 .trainingDatasetSection, .trainingConfigurationSection, .trainingRunControls, .trainingStagesSection, .trainingMetricsSection, .trainingCheckpointSection { padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.trainingStepHeading { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 1rem; }
+.trainingStepHeading > span { display: grid; width: 2.15rem; height: 2.15rem; flex: none; place-items: center; color: #fff; background: var(--blue-600); border-radius: 50%; font-weight: 800; }
+.trainingStepHeading h3 { margin: 0; }
+.trainingStepHeading p { margin: 0.2rem 0 0; color: var(--ink-600); font-size: 0.88rem; }
+.trainingSelectedDataset { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; padding: 0.9rem; color: var(--green-700); background: var(--green-100); border: 1px solid #9fcfbb; border-radius: var(--radius-sm); }
+.trainingSelectedDataset > span { display: grid; width: 1.8rem; height: 1.8rem; flex: none; place-items: center; color: #fff; background: var(--green-700); border-radius: 50%; font-weight: 800; }
+.trainingSelectedDataset div { display: grid; gap: 0.1rem; }
+.trainingSelectedDataset small { color: var(--ink-700); }
+.trainingEmptyAction { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
+.trainingEmptyAction p { margin: 0; }
+.trainingAdvancedDetails > summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer; font-weight: 760; }
+.trainingAdvancedDetails > summary small { color: var(--ink-600); font-weight: 500; }
+.trainingAdvancedDetails[open] > summary { margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--line); }
 .trainingNativeFileInput { width: 100%; min-height: 2.75rem; }
 .trainingDatasetVersionPicker { display: grid; gap: 0.3rem; margin-bottom: 0.75rem; color: var(--ink-600); font-size: 0.82rem; }
 .trainingDatasetVersionPicker select { width: 100%; min-height: 2.75rem; padding: 0.55rem 0.7rem; color: var(--ink-950); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
@@ -287,6 +316,9 @@
   .managementNavItem { min-width: max-content; }
   .managementNavGroup { display: none; }
   .workflowMap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .managementTaskGrid { grid-template-columns: 1fr; }
+  .roadmapCard { align-items: flex-start; flex-direction: column; }
+  .roadmapCard ul { justify-content: flex-start; }
   .reviewInboxFilters, .skillLibraryFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

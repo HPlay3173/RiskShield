@@ -348,7 +348,7 @@ export function TrainingConsole({
   }
 
   async function startRun() {
-    if (!prepared || !configurationReady || requestActive) return;
+    if (!selectedDatasetVersion || (developmentFixture && !prepared) || !configurationReady || requestActive) return;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const controller = new AbortController();
@@ -369,9 +369,9 @@ export function TrainingConsole({
           "x-riskshield-csrf": csrfToken,
         },
         body: JSON.stringify({
-          datasetVersionId: prepared.datasetVersionId,
-          sourceSha256: prepared.inspection.sha256,
-          sourceBytesBase64: prepared.sourceBytesBase64,
+          datasetVersionId: selectedDatasetVersion.id,
+          sourceSha256: selectedDatasetVersion.sha256,
+          sourceBytesBase64: prepared?.sourceBytesBase64,
           configuration: {
             model: { id: selectedModel?.id, version: selectedModel?.version },
             prompt: { id: selectedPrompt?.id, version: selectedPrompt?.version },
@@ -416,12 +416,12 @@ export function TrainingConsole({
   }
 
   return (
-    <section className="trainingConsole" aria-label="지속 인텔리전스 Training Pipeline">
+    <section className="trainingConsole" aria-label="새 위험 표현 후보 생성">
       <header className="trainingConsoleHeader">
         <div>
-          <p>CONTINUAL INTELLIGENCE MVP</p>
-          <h2>Training Pipeline</h2>
-          <p>실행되지 않은 단계는 성공으로 표시하지 않으며, 서버가 보고한 item·warning·failure만 표시합니다.</p>
+          <p>STEP 2 · 후보 생성</p>
+          <h2>등록한 자료에서 새 표현 찾기</h2>
+          <p>데이터 하나를 선택하면 중복을 정리하고 새 위험 표현 후보를 만들어 검토함으로 보냅니다.</p>
         </div>
         {developmentFixture ? <strong className="developmentDataBadge">개발 데이터</strong> : null}
       </header>
@@ -437,9 +437,9 @@ export function TrainingConsole({
       ) : null}
 
       <section className="trainingDatasetSection" aria-labelledby="training-dataset-title">
-        <h3 id="training-dataset-title">Dataset Version</h3>
+        <div className="trainingStepHeading"><span>1</span><div><h3 id="training-dataset-title">분석할 데이터 선택</h3><p>가장 최근에 등록한 데이터가 기본으로 선택됩니다.</p></div></div>
         <label className="trainingDatasetVersionPicker">
-          <span>등록된 Dataset Version</span>
+          <span>등록된 데이터</span>
           <select
             value={datasetVersionId}
             disabled={requestActive || datasetLoading || !runnerAvailable}
@@ -452,31 +452,35 @@ export function TrainingConsole({
               setRunError("");
             }}
           >
-            <option value="">선택 필요</option>
+            <option value="">데이터를 선택하세요</option>
             {datasetVersions.map((version) => (
               <option key={version.id} value={version.id} disabled={version.status === "invalid" || version.status === "unavailable"}>
-                {version.name} · {version.id} · {version.status}
+                {version.name}
               </option>
             ))}
           </select>
         </label>
-        {!datasetVersions.length ? <p className="configurationNote">Dataset Console에서 검증한 CSV를 staging Dataset Version으로 먼저 등록해야 합니다.</p> : null}
-        <label htmlFor="training-csv-file">실행할 검증된 로컬 CSV</label>
-        <input
-          ref={fileInputRef}
-          id="training-csv-file"
-          className="trainingNativeFileInput"
-          type="file"
-          accept=".csv,text/csv,text/plain"
-          disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable}
-          onChange={(event) => {
-            void prepareFile(event.currentTarget.files?.[0]);
-            event.currentTarget.value = "";
-          }}
-        />
-        <Pressable disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable} onClick={() => fileInputRef.current?.click()}>
-          검증된 CSV 선택
-        </Pressable>
+        {!datasetVersions.length ? <div className="trainingEmptyAction"><p>먼저 표현 자료를 등록해 주세요.</p><a className="pressable primaryButton" href="/manage/datasets">CSV 데이터 등록</a></div> : null}
+        {selectedDatasetVersion && !developmentFixture ? <div className="trainingSelectedDataset"><span aria-hidden="true">✓</span><div><strong>{selectedDatasetVersion.name}</strong><small>등록된 원본을 서버에서 안전하게 불러옵니다. 파일을 다시 선택할 필요가 없습니다.</small></div></div> : null}
+        {developmentFixture ? <>
+          <label htmlFor="training-csv-file">개발 실행용 원본 CSV</label>
+          <input
+            ref={fileInputRef}
+            id="training-csv-file"
+            className="trainingNativeFileInput"
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable}
+            onChange={(event) => {
+              void prepareFile(event.currentTarget.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+          <Pressable disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable} onClick={() => fileInputRef.current?.click()}>
+            등록 당시 CSV 선택
+          </Pressable>
+          <p className="configurationNote">개발 환경에는 원본 저장소가 없어 등록 당시 CSV를 한 번 더 확인합니다. 실서비스에서는 이 단계가 없습니다.</p>
+        </> : null}
         {datasetLoading ? <StatePanel state="loading" title="전체 CSV를 검증하고 있습니다." description="최대 10,000행을 읽고 SHA와 mapping을 확인합니다." compact /> : null}
         {datasetError ? <StatePanel state="error" title="Dataset Version 준비 실패" description={datasetError} compact /> : null}
         {prepared ? (
@@ -495,8 +499,8 @@ export function TrainingConsole({
         ) : null}
       </section>
 
-      <section className="trainingConfigurationSection" aria-labelledby="training-config-title">
-        <h3 id="training-config-title">모델·Prompt·Schema</h3>
+      <details className="trainingConfigurationSection trainingAdvancedDetails">
+        <summary id="training-config-title"><span>고급 설정</span><small>모델·프롬프트·스키마 기본값 확인</small></summary>
         <div className="trainingConfigurationGrid">
           <label>
             <span>모델</span>
@@ -523,13 +527,13 @@ export function TrainingConsole({
             {selectedSchema?.description ? <small>{selectedSchema.description}</small> : null}
           </label>
         </div>
-      </section>
+      </details>
 
       <section className="trainingRunControls" aria-labelledby="training-run-title">
-        <h3 id="training-run-title">실행 제어</h3>
+        <div className="trainingStepHeading"><span>2</span><div><h3 id="training-run-title">후보 생성</h3><p>생성된 후보는 자동 활성화되지 않고 사람의 검토를 기다립니다.</p></div></div>
         <div className="trainingRunActions">
-          <Pressable disabled={!prepared || !configurationReady || requestActive} onClick={() => void startRun()}>
-            {result || runStatus === "failed" || runStatus === "cancelled" ? "재시도" : "실행 시작"}
+          <Pressable disabled={!selectedDatasetVersion || (developmentFixture && !prepared) || !configurationReady || requestActive} onClick={() => void startRun()}>
+            {result || runStatus === "failed" || runStatus === "cancelled" ? "후보 다시 생성" : "새 후보 생성 시작"}
           </Pressable>
           <Pressable disabled={!requestActive || runStatus === "cancel_requested"} onClick={requestCancellation}>
             {runStatus === "cancel_requested" ? "중단 요청됨" : "실행 중단"}
@@ -545,15 +549,15 @@ export function TrainingConsole({
         ) : null}
       </section>
 
-      <section className="trainingStagesSection" aria-labelledby="training-stages-title">
-        <h3 id="training-stages-title">9개 Stage</h3>
+      <details className="trainingStagesSection trainingAdvancedDetails">
+        <summary id="training-stages-title"><span>처리 단계 상세</span><small>정제·중복 제거·후보 생성 상태</small></summary>
         <ProductDataTable
           caption="Training stage 실제 상태"
           columns={columns}
           rows={stageViews}
           getRowKey={(stage) => stage.id}
         />
-      </section>
+      </details>
 
       {result ? (
         <>
@@ -577,8 +581,8 @@ export function TrainingConsole({
             />
           </section>
 
-          <section className="trainingCheckpointSection" aria-labelledby="training-checkpoint-title">
-            <h3 id="training-checkpoint-title">Checkpoint와 저장 ID</h3>
+          <details className="trainingCheckpointSection trainingAdvancedDetails">
+            <summary id="training-checkpoint-title"><span>기술 정보</span><small>실행 ID·원본 식별값·저장된 후보 ID</small></summary>
             <ProductDefinitionList
               items={[
                 { key: "run", term: "Run ID", description: <code>{result.runId}</code> },
@@ -599,9 +603,9 @@ export function TrainingConsole({
               ) : <p>저장된 후보 ID가 없습니다.</p>}
             </div>
             {result.persistedCandidateIds.length ? (
-              <a className="reviewInboxLink" href={`/admin/review?run=${encodeURIComponent(result.runId)}`}>Review Inbox에서 확인</a>
+              <a className="pressable primaryButton reviewInboxLink" href={`/manage/review?run=${encodeURIComponent(result.runId)}`}>생성된 후보 검토하기 →</a>
             ) : null}
-          </section>
+          </details>
 
           {result.errors.length ? (
             <StatePanel state="error" title="Training error가 보고되었습니다.">
