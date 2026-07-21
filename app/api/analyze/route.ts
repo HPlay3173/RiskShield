@@ -370,7 +370,11 @@ function publicAiFallback(run: InterpreterRun) {
   if (reason.includes("concurrency") || reason.includes("saturated")) return { reasonCode: "temporarily_busy", reasonLabel: "AI 분석 요청이 몰려 잠시 사용할 수 없습니다." };
   if (run.timedOut || reason.includes("timeout") || reason.includes("aborted")) return { reasonCode: "provider_timeout", reasonLabel: "AI 응답 시간이 초과되었습니다." };
   if (reason.includes("429") || reason.includes("resource_exhausted")) return { reasonCode: "provider_rate_limited", reasonLabel: "AI 제공자의 일시적 호출 제한이 적용되었습니다." };
-  if (reason.includes("schema") || reason.includes("validation") || reason.includes("evidence")) return { reasonCode: "response_validation_failed", reasonLabel: "AI 응답을 안전하게 검증하지 못했습니다." };
+  if (reason.includes("http 400")) return { reasonCode: "provider_request_rejected", reasonLabel: "AI 제공자가 분석 요청 형식을 거부했습니다." };
+  if (reason.includes("http 401") || reason.includes("http 403")) return { reasonCode: "provider_credentials_rejected", reasonLabel: "AI 제공자가 현재 인증 설정을 허용하지 않았습니다." };
+  if (reason.includes("http 404")) return { reasonCode: "provider_model_unavailable", reasonLabel: "설정된 AI 모델을 현재 사용할 수 없습니다." };
+  if (reason.includes("http 5")) return { reasonCode: "provider_unavailable", reasonLabel: "AI 제공자 서비스가 일시적으로 응답하지 않습니다." };
+  if (reason.includes("schema") || reason.includes("validation") || reason.includes("evidence") || reason.includes("함수 인자") || reason.includes("enum") || reason.includes("허용되지 않은 필드")) return { reasonCode: "response_validation_failed", reasonLabel: "AI 응답을 안전하게 검증하지 못했습니다." };
   return { reasonCode: "provider_error", reasonLabel: "AI 문맥 분석 중 일시적인 오류가 발생했습니다." };
 }
 
@@ -472,6 +476,7 @@ export async function POST(request: Request) {
               candidateRegistration: run.masked ? "disabled" as const : "available" as const,
             };
       const aiFallback = publicAiFallback(run);
+      if (!run.ok) console.warn("RiskShield interpreter fallback", { reasonCode: aiFallback.reasonCode, timedOut: run.timedOut });
       return json({
         beta: "RiskShield v0.5 alpha",
         profile: {
