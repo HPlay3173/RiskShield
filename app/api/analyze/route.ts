@@ -18,7 +18,7 @@ import {
   type ClaimTarget,
   type InterpreterRun,
 } from "../../../lib/v0-4/interpreter";
-import { PRODUCT_VERSION, SOURCE_COMMIT } from "../../../lib/release";
+import { PRODUCT_VERSION, SITES_VERSION, SOURCE_COMMIT } from "../../../lib/release";
 import {
   INVALID_JSON_BODY,
   JSON_BODY_TOO_LARGE,
@@ -482,6 +482,7 @@ export async function POST(request: Request) {
         beta: "RiskShield v0.5 alpha",
         release: {
           productVersion: PRODUCT_VERSION,
+          sitesVersion: SITES_VERSION,
           sourceCommit: SOURCE_COMMIT,
           interpreterSchema: INTERPRETER_SCHEMA_VERSION,
           interpreterPrompt: INTERPRETER_PROMPT_VERSION,
