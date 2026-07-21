@@ -662,6 +662,15 @@ export class D1CandidateRepository implements CandidateRepository {
         reason: input.note,
       });
       const statements = [
+        ...(
+          input.decision === "hold"
+            ? []
+            : [this.db.prepare(`
+              INSERT INTO riskshield_candidate_terminal_claims
+                (candidate_id, decision_id, actor_id, created_at)
+              VALUES (?, ?, ?, ?)
+            `).bind(input.candidateId, decisionId, input.actorId, now)]
+        ),
         this.db.prepare(`
           INSERT INTO riskshield_candidate_decisions
             (id, candidate_id, decision, note, merge_skill_id, actor_id, created_at)

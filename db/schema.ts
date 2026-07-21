@@ -143,6 +143,13 @@ export const riskshieldCandidateDecisions = sqliteTable(
   (table) => [check("riskshield_candidate_decisions_decision_check", sql`${table.decision} IN ('approve','approve_with_edits','merge','hold','reject')`)],
 );
 
+export const riskshieldCandidateTerminalClaims = sqliteTable("riskshield_candidate_terminal_claims", {
+  candidateId: text("candidate_id").primaryKey().references(() => riskshieldCandidates.id),
+  decisionId: text("decision_id").notNull().unique(),
+  actorId: text("actor_id").notNull().references(() => riskshieldUsers.id),
+  createdAt: text("created_at").notNull(),
+});
+
 export const riskshieldTrainingRuns = sqliteTable("riskshield_training_runs", {
   id: text("id").primaryKey(),
   datasetVersionId: text("dataset_version_id").references(() => riskshieldDatasetVersions.id),
