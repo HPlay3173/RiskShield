@@ -190,6 +190,14 @@ test("verified Google manager allowlist authorizes only the configured email and
   }, runtime), null);
 });
 
+test("Google callback uses a Lax session cookie for the immediate OAuth return redirect", async () => {
+  const callbackSource = await readFile(
+    new URL("../app/api/auth/google/callback/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(callbackSource, /secureCookie\(SESSION_COOKIE,[\s\S]*?sameSite:\s*"Lax"/u);
+});
+
 test("streamed JSON parsing distinguishes oversized, malformed, and non-object JSON", async () => {
   const oversized = await readJsonValue(new Request("http://localhost/api/analyze", {
     method: "POST",

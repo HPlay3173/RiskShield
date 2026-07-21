@@ -44,7 +44,10 @@ export async function GET(request: Request) {
     headers.append("set-cookie", clearCookie(OIDC_STATE_COOKIE, "Lax"));
     headers.append("set-cookie", secureCookie(SESSION_COOKIE, sessionToken, {
       maxAge: sessionTtlSeconds,
-      sameSite: "Strict",
+      // OAuth returns from a cross-site Google navigation. Lax sends the new
+      // session on the immediate top-level redirect while mutation APIs remain
+      // protected by CSRF, Origin, and Fetch Metadata checks.
+      sameSite: "Lax",
     }));
     return new Response(null, { status: 303, headers });
   } catch {
