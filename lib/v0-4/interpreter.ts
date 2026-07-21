@@ -740,6 +740,10 @@ function targetForText(text: string, hint?: ClaimTarget): ClaimTarget {
 }
 
 function riskFamilyForText(text: string, target: ClaimTarget): RiskFamily {
+  if (/(?:죽여|죽인다|패버려|때려죽|칼로|폭행|살해|불을\s*지르)/u.test(text)) return "violent_threat";
+  if (/(?:운지|노알라|일베충|숨은\s*은어|코드\s*표현|도그휘슬)/u.test(text)) return "coded_expression";
+  if (/(?:한남|한녀|김치녀|맘충|틀딱|홍어|장애인|외국인|여자는|남자는)[^.!?\n]{0,40}(?:원래|다|혐오|꺼져|열등|문제|답이\s*없)/u.test(text)) return "hate_discrimination";
+  if (/(?:병신|개새끼|씨발|꺼져|닥쳐|멍청이|쓰레기)[^.!?\n]{0,30}(?:너|새끼|놈|년|인간)?/u.test(text)) return "abusive_language";
   if (target === "health") return "health_claim";
   if (target === "privacy") return "privacy_intrusion";
   if (target === "education") return "education_outcome";

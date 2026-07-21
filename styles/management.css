@@ -38,6 +38,7 @@
 .managementNav a { display: flex; min-height: 2.75rem; align-items: center; padding: 0.55rem 0.7rem; color: var(--ink-700); border-radius: 0.65rem; text-decoration: none; }
 .managementNav a:hover, .managementNav a[aria-current="page"] { color: var(--ink-950); background: var(--surface); }
 .managementNavigation ul { display: grid; gap: 0.25rem; margin: 0; padding: 0; list-style: none; }
+.managementNavGroup { display: block; margin: 1rem 0.7rem 0.35rem; color: var(--ink-500); font-size: 0.7rem; font-weight: 780; letter-spacing: 0.08em; text-transform: uppercase; }
 .managementNavItem { display: flex; min-height: 3.35rem; align-items: center; justify-content: space-between; gap: 0.7rem; padding: 0.55rem 0.7rem; color: var(--ink-700); border-radius: 0.7rem; text-decoration: none; }
 .managementNavItem:hover, .managementNavItemCurrent { color: var(--ink-950); background: var(--surface); box-shadow: 0 1px 2px rgb(15 23 42 / 0.04); }
 .managementNavItemCurrent .managementNavCopy strong::after { content: " · 현재"; color: var(--blue-700); font-size: 0.78rem; }
@@ -53,6 +54,31 @@
 .managementPageDescription { max-width: 52rem; color: var(--ink-600); }
 .managementPageDescription > :last-child { margin-bottom: 0; }
 .managementPageBody { display: grid; min-width: 0; gap: 1rem; }
+.manageHero { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding: clamp(1.25rem, 3vw, 2rem); color: #fff; background: linear-gradient(125deg, #111827 0%, #243b67 58%, #315eaf 100%); border-radius: 1.25rem; box-shadow: var(--shadow-lg); }
+.manageHero h2 { margin: 0.25rem 0 0.45rem; color: #fff; font-size: clamp(1.55rem, 3vw, 2.25rem); }
+.manageHero p { max-width: 40rem; margin: 0; color: #dbe7ff; }
+.manageHero .primaryButton { color: var(--ink-950); background: #fff; white-space: nowrap; }
+.manageHeroEyebrow { color: #75a7ff; font-size: 0.76rem; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; }
+.workflowHeading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
+.workflowHeading h2 { margin: 0.25rem 0 0; }
+.workflowHeading p { max-width: 28rem; margin: 0; color: var(--ink-600); }
+.workflowMap { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; margin: 1.25rem 0 0; padding: 0; list-style: none; }
+.workflowMap li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0.65rem; padding: 0.9rem; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 0.85rem; }
+.workflowMap li > span { display: grid; width: 2rem; height: 2rem; place-items: center; color: #fff; background: var(--blue-600); border-radius: 50%; font-weight: 800; }
+.workflowMap div { display: grid; align-content: start; gap: 0.22rem; }
+.workflowMap small { min-height: 2.5rem; color: var(--ink-600); line-height: 1.4; }
+.workflowMap a { color: var(--blue-700); font-size: 0.82rem; font-weight: 750; text-decoration: none; }
+.knowledgeChips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.knowledgeChips span { padding: 0.45rem 0.7rem; color: var(--blue-700); background: var(--blue-100); border-radius: 99rem; font-size: 0.84rem; font-weight: 730; }
+.collectorIntro { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.collectorIntro h2 { margin: 0.25rem 0 0; }
+.collectorFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-block: 1rem; }
+.communityCollector > .formField { display: grid; gap: 0.35rem; }
+.communityCollector textarea { width: 100%; resize: vertical; }
+.collectorSummary { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.65rem 0 1rem; }
+.collectorSummary span { padding: 0.3rem 0.55rem; color: var(--ink-600); background: var(--surface-soft); border-radius: 99rem; font-size: 0.8rem; }
+.collectorSuccess { padding: 0.9rem 1rem; color: var(--green-700); background: var(--green-100); border-radius: var(--radius-sm); }
+.collectorGuide ol { display: grid; gap: 0.35rem; margin-bottom: 0; padding-left: 1.25rem; color: var(--ink-700); }
 .managementPageBody > *, .reviewInbox, .skillLibrary, .datasetConsole, .trainingConsole { min-width: 0; }
 .routeHeader { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.5rem; }
 .routeEyebrow { color: var(--blue-700); font-size: 0.8rem; font-weight: 780; letter-spacing: 0.09em; }
@@ -259,6 +285,8 @@
   .managementSidebar { overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   .managementNavigation ul { display: flex; }
   .managementNavItem { min-width: max-content; }
+  .managementNavGroup { display: none; }
+  .workflowMap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .reviewInboxFilters, .skillLibraryFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -267,6 +295,8 @@
   .managementTopBarActions { flex: 1 1 14rem; justify-content: flex-end; }
   .managementIdentity { justify-content: flex-end; overflow-wrap: anywhere; }
   .managementMain { padding: 1rem 0.7rem 2rem; }
+  .manageHero, .workflowHeading { align-items: flex-start; flex-direction: column; }
+  .workflowMap { grid-template-columns: 1fr; }
   .routeHeader { align-items: flex-start; flex-direction: column; }
   .metricGrid, .managementGrid, .definitionGrid, .productMetricGrid, .productDefinitionList { grid-template-columns: 1fr; }
   .splitPane { display: block; min-height: 0; }
@@ -279,6 +309,7 @@
   .pipelineStage { grid-template-columns: 2rem minmax(0, 1fr); }
   .pipelineStage > .statusPill { grid-column: 2; justify-self: start; }
   .reviewInboxFilters, .skillLibraryFilters, .datasetColumnMappingGrid, .datasetProvenanceGrid, .trainingConfigurationGrid { grid-template-columns: 1fr; }
+  .collectorFields { grid-template-columns: 1fr; }
   .reviewInboxHeading, .skillLibraryHeading, .datasetConsoleHeader, .trainingConsoleHeader { flex-direction: column; }
   .reviewInboxSplitPane .splitPaneSecondary { display: none; }
 }

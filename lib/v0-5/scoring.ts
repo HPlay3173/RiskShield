@@ -3,7 +3,7 @@ import { riskFamilyForPatternType, type ScorableRiskFamily } from "../risk-famil
 import type { AnalysisResult, PatternHit } from "../riskshield.ts";
 import type { EvidenceSpan, InterpreterPayload } from "../v0-4/interpreter.ts";
 
-export const SCORING_POLICY_VERSION = "3.1.0" as const;
+export const SCORING_POLICY_VERSION = "3.2.0" as const;
 
 export const SCORING_AXES = [
   "relevance", "certainty", "harm", "deception", "vulnerability", "privacy_intrusion", "evidence_strength",
@@ -58,6 +58,10 @@ const LABELS: Record<ScorableRiskFamily, string> = {
   education_outcome: "교육·합격 결과",
   legal_outcome: "법률·판정 결과",
   privacy_intrusion: "개인정보·감시",
+  hate_discrimination: "혐오·차별",
+  abusive_language: "욕설·공격",
+  coded_expression: "숨은 은어·코드 표현",
+  violent_threat: "폭력·위협",
   urgency: "희소성·구매 압박",
   general_substantiation: "일반 입증 필요 주장",
 };
@@ -74,6 +78,10 @@ const WEIGHTS: Record<ScorableRiskFamily, WeightSet> = {
   education_outcome: { ...BASE, certainty: 0.25, vulnerability: 0.15, privacy_intrusion: 0, deception: 0.1 },
   legal_outcome: { ...BASE, certainty: 0.25, harm: 0.15, deception: 0.2, privacy_intrusion: 0 },
   privacy_intrusion: { ...BASE, relevance: 0.1, certainty: 0.1, harm: 0.2, deception: 0.1, vulnerability: 0.1, privacy_intrusion: 0.3, evidence_strength: 0.1 },
+  hate_discrimination: { ...BASE, relevance: 0.18, certainty: 0.12, harm: 0.26, deception: 0.04, vulnerability: 0.2, privacy_intrusion: 0, evidence_strength: 0.2 },
+  abusive_language: { ...BASE, relevance: 0.2, certainty: 0.16, harm: 0.24, deception: 0.02, vulnerability: 0.14, privacy_intrusion: 0, evidence_strength: 0.24 },
+  coded_expression: { ...BASE, relevance: 0.2, certainty: 0.14, harm: 0.2, deception: 0.08, vulnerability: 0.12, privacy_intrusion: 0, evidence_strength: 0.26 },
+  violent_threat: { ...BASE, relevance: 0.16, certainty: 0.2, harm: 0.3, deception: 0, vulnerability: 0.14, privacy_intrusion: 0, evidence_strength: 0.2 },
   urgency: { ...BASE, relevance: 0.2, harm: 0.1, deception: 0.25, vulnerability: 0.1, privacy_intrusion: 0 },
   general_substantiation: { ...BASE, relevance: 0.2, certainty: 0.2, harm: 0.1, deception: 0.2, privacy_intrusion: 0 },
 };
@@ -156,7 +164,7 @@ function fallbackAssessment(payload: InterpreterPayload): CategoryAssessment[] {
     certainty,
     harm: payload.policy_relevance === "potentially_high" ? 3 : 2,
     deception: certainty,
-    vulnerability: payload.risk_family === "health_claim" || payload.risk_family === "legal_outcome" ? 3 : 1,
+    vulnerability: ["health_claim", "legal_outcome", "hate_discrimination", "violent_threat"].includes(payload.risk_family) ? 3 : 1,
     privacy_intrusion: payload.risk_family === "privacy_intrusion" ? 4 : 0,
     evidence_strength: payload.evidence_spans.length > 1 ? 4 : 3,
   }];

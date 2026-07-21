@@ -1,18 +1,8 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import {
-  ManagementShell,
-  type ManagementIdentity,
-  type ManagementNavItem,
-} from "./ManagementShell";
+import { ManagementShell, type ManagementIdentity, type ManagementNavItem } from "./ManagementShell";
 
-export type AreaPrincipal = {
-  displayName: string;
-  secondaryText?: string;
-  roleLabel: string;
-  developmentFixture?: boolean;
-};
-
+export type AreaPrincipal = { displayName: string; secondaryText?: string; roleLabel: string; developmentFixture?: boolean };
 export type AreaShellProps = {
   currentHref: string;
   principal: AreaPrincipal;
@@ -25,27 +15,22 @@ export type AreaShellProps = {
 };
 
 const managementNavigation = [
-  { href: "/manage/review", label: "후보 검토", description: "AI 후보와 사람의 결정" },
-  { href: "/manage/skills", label: "스킬", description: "검토 상태와 revision" },
-  { href: "/manage/datasets", label: "데이터셋", description: "CSV 검증과 등록" },
-  { href: "/manage/training", label: "학습", description: "정제부터 검토함까지" },
-  { href: "/manage/evaluation", label: "평가", description: "회귀 결과와 품질" },
-  { href: "/manage/models", label: "모델", description: "Gemma와 계약 버전" },
-  { href: "/manage/trends", label: "트렌드", description: "신규 표현 데이터 상태" },
-  { href: "/manage/audit", label: "감사", description: "결정과 변경 이력" },
-  { href: "/manage/access", label: "접근", description: "관리 세션과 권한" },
+  { href: "/manage", label: "관리 홈", description: "현재 상태와 다음 작업", group: "시작" },
+  { href: "/manage/review", label: "후보 검토", description: "새 표현을 사람이 판단", group: "분석 지식" },
+  { href: "/manage/skills", label: "위험 표현 DB", description: "활성 규칙과 수정 이력", group: "분석 지식" },
+  { href: "/manage/collect", label: "커뮤니티 자료 수집", description: "공개 글 묶음을 안전하게 등록", group: "데이터 수집" },
+  { href: "/manage/datasets", label: "CSV 데이터 등록", description: "정리된 표현 자료 추가", group: "데이터 수집" },
+  { href: "/manage/training", label: "후보 생성", description: "등록 데이터에서 후보 찾기", group: "데이터 수집" },
+  { href: "/manage/evaluation", label: "품질 확인", description: "탐지와 오탐 결과 확인", group: "품질" },
+  { href: "/manage/trends", label: "발견 동향", description: "새 표현과 유입 상태", group: "품질" },
+  { href: "/manage/models", label: "AI 설정", description: "모델과 분석 계약", group: "고급 설정" },
+  { href: "/manage/audit", label: "변경 기록", description: "결정과 변경 이력", group: "고급 설정" },
+  { href: "/manage/access", label: "팀원·권한", description: "관리 사용자 설정", group: "고급 설정" },
 ] as const;
 
 const legacyMap: Record<string, string> = {
-  "/admin/review": "/manage/review",
-  "/admin/skills": "/manage/skills",
-  "/admin/trends": "/manage/trends",
-  "/admin/audit": "/manage/audit",
-  "/dev/datasets": "/manage/datasets",
-  "/dev/training": "/manage/training",
-  "/dev/evaluation": "/manage/evaluation",
-  "/dev/models": "/manage/models",
-  "/dev/audit": "/manage/audit",
+  "/admin/review": "/manage/review", "/admin/skills": "/manage/skills", "/admin/trends": "/manage/trends", "/admin/audit": "/manage/audit",
+  "/dev/datasets": "/manage/datasets", "/dev/training": "/manage/training", "/dev/evaluation": "/manage/evaluation", "/dev/models": "/manage/models", "/dev/audit": "/manage/audit",
   "/owner/access": "/manage/access",
 };
 
@@ -57,49 +42,29 @@ function normalizedPath(href: string) {
 
 function navigationFor(currentHref: string): ManagementNavItem[] {
   const current = normalizedPath(currentHref);
-  return managementNavigation.map((item) => ({
-    ...item,
-    current: current === item.href || current.startsWith(`${item.href}/`),
-  }));
+  return managementNavigation.map((item) => ({ ...item, current: current === item.href || (item.href !== "/manage" && current.startsWith(`${item.href}/`)) }));
 }
 
-function identityFor(principal: AreaPrincipal): ManagementIdentity {
-  return {
-    displayName: principal.displayName,
-    secondaryText: principal.secondaryText,
-    roleLabel: principal.roleLabel,
-    developmentFixture: principal.developmentFixture,
-  };
-}
+function identityFor(principal: AreaPrincipal): ManagementIdentity { return { ...principal }; }
 
 function UnifiedManagementShell(props: AreaShellProps) {
   return (
     <ManagementShell
-      areaLabel="통합 관리 메뉴"
+      areaLabel="RiskShield 관리 메뉴"
       brandLabel="RiskShield Manage"
       brandHref="/manage"
-      eyebrow="UNIFIED MANAGEMENT"
+      eyebrow="RISK KNOWLEDGE WORKSPACE"
       title={props.title}
       description={props.description}
       navigation={navigationFor(props.currentHref)}
       identity={identityFor(props.principal)}
       actions={props.actions}
-      navigationFooter={props.navigationFooter ?? <Link href="/">공개 Analyzer로 돌아가기</Link>}
+      navigationFooter={props.navigationFooter ?? <Link href="/">공개 분석기로 돌아가기</Link>}
       className={props.className}
-    >
-      {props.children}
-    </ManagementShell>
+    >{props.children}</ManagementShell>
   );
 }
 
-export function AdminShell(props: AreaShellProps) {
-  return <UnifiedManagementShell {...props} />;
-}
-
-export function DeveloperShell(props: AreaShellProps) {
-  return <UnifiedManagementShell {...props} />;
-}
-
-export function OwnerShell(props: AreaShellProps) {
-  return <UnifiedManagementShell {...props} />;
-}
+export function AdminShell(props: AreaShellProps) { return <UnifiedManagementShell {...props} />; }
+export function DeveloperShell(props: AreaShellProps) { return <UnifiedManagementShell {...props} />; }
+export function OwnerShell(props: AreaShellProps) { return <UnifiedManagementShell {...props} />; }

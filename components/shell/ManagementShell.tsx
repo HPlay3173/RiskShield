@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 export type ManagementNavItem = {
   href: string;
   label: string;
+  group?: string;
   description?: string;
   current?: boolean;
   badge?: ReactNode;
@@ -52,9 +53,7 @@ export function ManagementShell({
 }: ManagementShellProps) {
   return (
     <div className={classes("managementShell", className)} data-management-shell="">
-      <a className="skipLink managementSkipLink" href={`#${mainId}`}>
-        본문으로 건너뛰기
-      </a>
+      <a className="skipLink managementSkipLink" href={`#${mainId}`}>본문으로 건너뛰기</a>
       <header className="managementTopBar floatingMaterial">
         <a className="managementBrand" href={brandHref} aria-label={`${brandLabel} 홈`}>
           <span className="managementBrandMark" aria-hidden="true">R</span>
@@ -62,7 +61,7 @@ export function ManagementShell({
         </a>
         <div className="managementTopBarActions">
           {identity ? (
-            <div className="managementIdentity" aria-label="현재 접근 주체">
+            <div className="managementIdentity" aria-label="현재 로그인 사용자">
               <span className="managementIdentityName">{identity.displayName}</span>
               {identity.secondaryText ? <span className="managementIdentitySecondary">{identity.secondaryText}</span> : null}
               {identity.roleLabel ? <span className="managementIdentityRole">{identity.roleLabel}</span> : null}
@@ -76,13 +75,10 @@ export function ManagementShell({
         <aside className="managementSidebar">
           <nav className="managementNavigation" aria-label={areaLabel}>
             <ul>
-              {navigation.map((item) => (
+              {navigation.map((item, index) => (
                 <li key={item.href}>
-                  <a
-                    className={classes("managementNavItem", item.current && "managementNavItemCurrent")}
-                    href={item.href}
-                    aria-current={item.current ? "page" : undefined}
-                  >
+                  {item.group && navigation[index - 1]?.group !== item.group ? <span className="managementNavGroup">{item.group}</span> : null}
+                  <a className={classes("managementNavItem", item.current && "managementNavItemCurrent")} href={item.href} aria-current={item.current ? "page" : undefined}>
                     <span className="managementNavCopy">
                       <strong>{item.label}</strong>
                       {item.description ? <small>{item.description}</small> : null}

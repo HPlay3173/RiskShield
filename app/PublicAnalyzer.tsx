@@ -4,27 +4,25 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 const MAX_INPUT_CHARS = 2_000;
 const EXAMPLES = [
-  "이 제품은 업계 최고의 배터리 성능을 보장합니다.",
-  "부작용 없이 누구나 한 달 안에 감량할 수 있습니다.",
-  "100% 수익 보장이라는 표현은 사용하지 마세요.",
+  "여자는 원래 다 운전을 못해.",
+  "너 같은 멍청이는 그냥 꺼져.",
+  "‘여자는 원래 다 문제다’라는 표현은 성차별이므로 사용하지 마세요.",
+  "원금 손실 없이 매달 20% 수익을 보장합니다.",
 ];
 
+type Status = "no_match" | "review" | "attention" | "high";
 type ProfileId = "balanced" | "advertising" | "context";
-
+const PROFILES: Array<{ id: ProfileId; label: string; description: string }> = [
+  { id: "balanced", label: "균형 분석", description: "전체 위험 범주를 고르게 보여줍니다." },
+  { id: "advertising", label: "광고·주장", description: "과장·보장·기만 신호를 먼저 봅니다." },
+  { id: "context", label: "문맥 우선", description: "인용·비판·경고 여부를 먼저 봅니다." },
+];
 type PublicAnalysis = {
-  profile: {
-    id: ProfileId;
-    label: string;
-    focus: string;
-    emphasis: "balanced" | "claims" | "context";
-    kernel: "v4-compatibility";
-  };
+  profile: { focus: string; emphasis: "balanced" | "claims" | "context" };
   rules: {
     finalScore: number;
-    grade: string;
-    status: "no_match" | "review" | "attention" | "high";
+    status: Status;
     statusLabel: string;
-    speechAct: string;
     recommendation: string;
     reason: string | null;
     suggestedRewrite: string | null;
@@ -34,389 +32,145 @@ type PublicAnalysis = {
   scoring: {
     policyVersion: string;
     finalScore: number;
-    status: "no_match" | "review" | "attention" | "high";
+    status: Status;
     confidence: number | null;
     highRequiresReview: boolean;
-    formula: string;
     experimental: boolean;
-    primaryCategory: {
-      id: string;
-      label: string;
-      score: number;
-      ruleScore: number;
-      aiScore: number;
-      source: "rule" | "ai" | "hybrid";
-      contextMultiplier: number;
-    } | null;
-    categoryScores: Array<{
-      id: string;
-      label: string;
-      score: number;
-      ruleScore: number;
-      aiScore: number;
-      source: "rule" | "ai" | "hybrid";
-      contextMultiplier: number;
-      axes: Record<string, number> | null;
-    }>;
+    primaryCategory: { id: string; label: string; score: number; ruleScore: number; aiScore: number; source: "rule" | "ai" | "hybrid" } | null;
+    categoryScores: Array<{ id: string; label: string; score: number; ruleScore: number; aiScore: number; source: "rule" | "ai" | "hybrid" }>;
   };
   ai: {
     state: "ready" | "fallback";
     confidence: number | null;
-    riskIntent: string | null;
     speechAct: string | null;
     contextRelation: string | null;
-    policyRelevance: string | null;
     riskFamily: string | null;
     evidenceSpans: Array<{ start: number; end: number; text: string }>;
-    masked: boolean;
   };
-  hybrid: {
-    status: "no_match" | "review" | "attention" | "high";
-    score: number | null;
-    conflict: boolean;
-    reason: string;
-  };
+  hybrid: { status: Status; score: number | null; conflict: boolean; reason: string };
   uncertainty: { level: "low" | "medium" | "high"; reason: string };
-  novelty: {
-    state: "known_pattern" | "possible_new_expression" | "insufficient_evidence";
-    label: string;
-    reason: string;
-    candidateRegistration: "disabled" | "available";
-  };
+  novelty: { state: "known_pattern" | "possible_new_expression" | "insufficient_evidence"; label: string; reason: string; candidateRegistration: "disabled" | "available" };
   notice: string;
 };
 
-function statusCopy(status: PublicAnalysis["hybrid"]["status"]) {
-  if (status === "high") return "높은 위험";
-  if (status === "attention") return "주의 필요";
-  if (status === "review") return "사람 검토 필요";
-  return "직접 위험 미확인";
-}
+const statusLabels: Record<Status, string> = {
+  no_match: "직접 위험 미확인",
+  review: "사람 검토 필요",
+  attention: "주의 필요",
+  high: "높은 위험",
+};
 
-function uncertaintyCopy(level: PublicAnalysis["uncertainty"]["level"]) {
-  if (level === "high") return "불확실성 높음";
-  if (level === "medium") return "불확실성 보통";
-  return "불확실성 낮음";
-}
+const contextLabels: Record<string, string> = {
+  claim: "직접 주장", quote: "인용", criticism: "비판", warning: "경고", report: "보도·설명", definition: "정의", condition: "조건부 표현",
+  supports: "위험 의미를 뒷받침", negates: "위험 의미를 부정", warns_about: "위험을 경고", reports: "사례를 전달", defines: "의미를 설명", conditions: "조건을 명시",
+};
 
 export function PublicAnalyzer() {
   const [text, setText] = useState("");
   const [result, setResult] = useState<PublicAnalysis | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [lastRequest, setLastRequest] = useState<{ text: string } | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [profile, setProfile] = useState<ProfileId>("balanced");
   const [candidateState, setCandidateState] = useState<"idle" | "submitting" | "submitted" | "failed">("idle");
+  const [lastText, setLastText] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const resultHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
-  useEffect(() => {
-    if (result) resultHeadingRef.current?.focus();
-  }, [result]);
+  useEffect(() => { if (result) resultHeadingRef.current?.focus(); }, [result]);
 
-  async function analyze(input: { text: string }) {
+  async function analyze(value: string) {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    setLoading(true);
-    setError("");
-    setCopyState("idle");
-    setCandidateState("idle");
-    setLastRequest(input);
+    setLoading(true); setError(""); setCandidateState("idle"); setLastText(value);
     try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      const payload = (await response.json()) as PublicAnalysis & { message?: string };
-      if (!response.ok) {
-        const retryAfter = response.headers.get("retry-after");
-        throw new Error(
-          retryAfter
-            ? `${payload.message ?? "요청이 많습니다."} ${retryAfter}초 뒤 다시 시도해 주세요.`
-            : payload.message ?? "분석을 완료하지 못했습니다.",
-        );
-      }
+      const response = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: value, profile }), cache: "no-store", signal: controller.signal });
+      const payload = await response.json() as PublicAnalysis & { message?: string };
+      if (!response.ok) throw new Error(payload.message ?? "분석을 완료하지 못했습니다.");
       setResult(payload);
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
       setError(caught instanceof Error ? caught.message : "분석을 완료하지 못했습니다.");
     } finally {
-      if (controllerRef.current === controller) {
-        controllerRef.current = null;
-        setLoading(false);
-      }
+      if (controllerRef.current === controller) { controllerRef.current = null; setLoading(false); }
     }
   }
 
-  async function submit(event?: FormEvent) {
-    event?.preventDefault();
+  async function submit(event: FormEvent) {
+    event.preventDefault();
     const value = text.trim();
-    if (!value) {
-      setError("분석할 문구를 입력해 주세요.");
-      inputRef.current?.focus();
-      return;
-    }
-    await analyze({ text: value });
-  }
-
-  function cancel() {
-    controllerRef.current?.abort();
-    controllerRef.current = null;
-    setLoading(false);
-    setError("분석을 중단했습니다. 입력한 문구는 그대로 유지됩니다.");
-  }
-
-  async function copyRewrite() {
-    const rewrite = result?.rules.suggestedRewrite;
-    if (!rewrite) return;
-    try {
-      await navigator.clipboard.writeText(rewrite);
-      setCopyState("copied");
-    } catch {
-      setCopyState("failed");
-    }
+    if (!value) { setError("분석할 글을 입력해 주세요."); inputRef.current?.focus(); return; }
+    await analyze(value);
   }
 
   async function submitCandidate() {
-    if (!result || !lastRequest || result.novelty.candidateRegistration !== "available") return;
+    if (!result || result.novelty.candidateRegistration !== "available") return;
     setCandidateState("submitting");
     try {
-      const response = await fetch("/api/analyze/candidate", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          consent: true,
-          text: lastRequest.text,
-        }),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error("candidate_submission_failed");
+      const response = await fetch("/api/analyze/candidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, text: lastText }), cache: "no-store" });
+      if (!response.ok && response.status !== 409) throw new Error("candidate_failed");
       setCandidateState("submitted");
-    } catch {
-      setCandidateState("failed");
-    }
+    } catch { setCandidateState("failed"); }
   }
 
-  function startAnother() {
-    setText("");
-    setResult(null);
-    setError("");
-    setCopyState("idle");
-    setCandidateState("idle");
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }
+  function reset() { setText(""); setResult(null); setError(""); setCandidateState("idle"); requestAnimationFrame(() => inputRef.current?.focus()); }
 
   return (
     <div className="publicAnalyzerShell">
       <a className="skipLink" href="#analyzer-main">분석기로 바로가기</a>
       <header className="publicAnalyzerHeader">
-        <div className="publicBrandLockup">
-          <span className="publicAnalyzerMark" aria-hidden="true">R</span>
-          <div>
-            <strong>RiskShield</strong>
-            <span>Public Analyzer · v0.5</span>
-          </div>
-        </div>
-        <p>표현의 위험 신호와 문맥을 정리해, 최종 판단을 더 정확하게 돕습니다.</p>
+        <div className="publicBrandLockup"><span className="publicAnalyzerMark" aria-hidden="true">R</span><div><strong>RiskShield</strong><span>Context Risk Analyzer · Alpha</span></div></div>
+        <a className="quietButton pressable" href="/manage">관리 도구</a>
       </header>
-
       <main id="analyzer-main" className="publicAnalyzerMain" tabIndex={-1}>
         <section className="publicAnalyzerIntro" aria-labelledby="analyzer-title">
-          <span className="publicAnalyzerEyebrow">ANALYZE BEFORE YOU PUBLISH</span>
-          <h1 id="analyzer-title">말하기 전에,<br />위험을 읽습니다.</h1>
-          <p>
-            단어부터 광고 문구까지 입력하세요. 검증된 규칙 분석과 제한된 AI 문맥 해석을 함께 보여주며,
-            어떤 결과도 자동 승인이나 법률 판단으로 사용하지 않습니다.
-          </p>
+          <span className="publicAnalyzerEyebrow">READ THE CONTEXT, NOT JUST THE WORD</span>
+          <h1 id="analyzer-title">글 속에 숨은 위험까지<br />맥락으로 읽습니다.</h1>
+          <p>문장이나 게시글을 넣으면 과장·기만, 혐오·차별, 욕설·공격, 숨은 커뮤니티 은어, 폭력·위협 신호를 찾고 왜 위험한지 근거와 함께 보여줍니다.</p>
         </section>
 
         <form className="publicAnalyzerForm" onSubmit={submit} aria-busy={loading}>
-          <div className="publicAnalyzerFieldHeader">
-            <label htmlFor="public-analysis-input">분석할 표현</label>
-            <span>{text.length.toLocaleString("ko-KR")} / {MAX_INPUT_CHARS.toLocaleString("ko-KR")}</span>
-          </div>
-          <textarea
-            ref={inputRef}
-            id="public-analysis-input"
-            value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-              if (error) setError("");
-            }}
-            maxLength={MAX_INPUT_CHARS}
-            rows={7}
-            placeholder="단어, 문장, 제품 설명 또는 광고 문구를 입력하세요."
-            disabled={loading}
-          />
-          <div className="publicAnalyzerFormMeta">
-            <span>이름·연락처 등 개인정보는 입력하지 마세요.</span>
-          </div>
-
-          <div className="publicAnalyzerExamples" aria-label="분석 예시">
-            {EXAMPLES.map((example) => (
-              <button className="pressable quietButton" key={example} type="button" onClick={() => setText(example)} disabled={loading}>
-                {example}
-              </button>
-            ))}
-          </div>
+          <div className="publicAnalyzerFieldHeader"><label htmlFor="public-analysis-input">분석할 문장 또는 글</label><span>{text.length.toLocaleString("ko-KR")} / {MAX_INPUT_CHARS.toLocaleString("ko-KR")}</span></div>
+          <textarea ref={inputRef} id="public-analysis-input" value={text} onChange={(event) => { setText(event.target.value); setError(""); }} maxLength={MAX_INPUT_CHARS} rows={8} placeholder="SNS 글, 댓글, 광고 문구, 커뮤니티 게시글 등을 붙여 넣으세요." disabled={loading} />
+          <div className="publicAnalyzerFormMeta"><span>이름·연락처·주소 등 개인정보는 입력하지 마세요.</span><span>단어 하나보다 앞뒤 문맥이 포함된 문장이 더 정확합니다.</span></div>
+          <fieldset className="profilePicker"><legend>결과 보기 방식</legend><div>{PROFILES.map((item) => <label className={profile === item.id ? "isSelected" : ""} key={item.id}><input type="radio" name="profile" value={item.id} checked={profile === item.id} onChange={() => setProfile(item.id)} disabled={loading} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div><p>보기 방식만 바뀌며 같은 글의 잠긴 위험 점수는 바뀌지 않습니다.</p></fieldset>
+          <div className="publicAnalyzerExamples" aria-label="분석 예시">{EXAMPLES.map((example) => <button className="pressable quietButton" key={example} type="button" onClick={() => setText(example)} disabled={loading}>{example}</button>)}</div>
           <div className="publicAnalyzerActions">
-            <button className="pressable primaryButton" type="submit" disabled={loading || !text.trim()}>
-              {loading ? "분석 중…" : "위험 신호 분석"}
-            </button>
-            {loading && (
-              <button className="pressable secondaryButton" type="button" onClick={cancel}>분석 중단</button>
-            )}
+            <button className="pressable primaryButton" type="submit" disabled={loading || !text.trim()}>{loading ? "맥락 분석 중…" : "글 전체 위험 신호 분석"}</button>
+            {loading ? <button className="pressable secondaryButton" type="button" onClick={() => controllerRef.current?.abort()}>분석 중단</button> : null}
           </div>
-          <div className="publicAnalyzerStatus" aria-live="polite" aria-atomic="true">
-            {loading && <span>규칙 결과와 AI 문맥 분석을 확인하고 있습니다. 진행률은 추정하지 않습니다.</span>}
-            {result && !loading && !error && <span>분석이 완료되어 결과로 이동했습니다.</span>}
-            {error && (
-              <div role="alert">
-                <span>{error}</span>
-                {lastRequest && !loading && (
-                  <button className="pressable inlineButton" type="button" onClick={() => analyze(lastRequest)}>다시 시도</button>
-                )}
-              </div>
-            )}
-          </div>
+          <div className="publicAnalyzerStatus" aria-live="polite">{error ? <div role="alert"><span>{error}</span>{lastText ? <button className="pressable inlineButton" type="button" onClick={() => analyze(lastText)}>다시 시도</button> : null}</div> : loading ? <span>규칙 근거와 AI 문맥 해석을 함께 확인하고 있습니다.</span> : null}</div>
         </form>
 
-        <p className="publicAnalyzerNotice">
-          기본 균형 분석으로 실행하며 광고·주장과 문맥 우선 신호를 한 결과 안에서 함께 설명합니다.<br />
-          이 분석은 사람의 최종 검토를 돕는 보조 도구입니다. <code>no_match</code>는 안전 판정이나 게시 승인이 아닙니다.
-        </p>
+        <p className="publicAnalyzerNotice">이 결과는 사람의 최종 판단을 돕는 검토 보조 신호입니다. <code>no_match</code>도 안전 판정이나 게시 승인이 아닙니다.</p>
 
-        {result && (
+        {result ? (
           <section className={`publicAnalyzerResults profile-${result.profile.emphasis}`} aria-labelledby="result-title">
-            {result.ai.state === "fallback" && (
-              <div className="analysisBanner" role="status">
-                <strong>Rules-only 안전 모드</strong>
-                <span>AI 문맥 해석을 사용할 수 없어 검증된 규칙 결과만 표시합니다.</span>
-              </div>
-            )}
-
+            <p className="analysisProfileFocus"><strong>결과 보기:</strong> {result.profile.focus}</p>
+            {result.ai.state === "fallback" ? <div className="analysisBanner" role="status"><strong>규칙 중심 안전 모드</strong><span>AI 문맥 해석 없이 검토된 위험 규칙만 사용했습니다.</span></div> : null}
             <div className={`publicAnalyzerVerdict status-${result.hybrid.status}`}>
-              <div>
-                <span>실험 위험 점수</span>
-                <h2 ref={resultHeadingRef} id="result-title" tabIndex={-1}>{statusCopy(result.hybrid.status)}</h2>
-                <p>{result.hybrid.reason}</p>
-              </div>
-              <strong
-                className="riskScore"
-                aria-label={`실험 위험 점수 ${result.scoring.finalScore}점. 점수 정책 ${result.scoring.policyVersion}`}
-              >
-                {result.scoring.finalScore}<small>/100</small>
-                <em>{result.scoring.primaryCategory?.label ?? "직접 위험 근거 미확인"}</em>
-              </strong>
-            </div>
-
-            <p className="analysisProfileFocus">
-              <strong>결과 배열 기준</strong>
-              <span>{result.profile.focus}</span>
-            </p>
-
-            <div className="resultSignalStrip" aria-label="결과 보조 신호">
-              <div><span>불확실성</span><strong>{uncertaintyCopy(result.uncertainty.level)}</strong><small>{result.uncertainty.reason}</small></div>
-              <div><span>신규 표현 가능성</span><strong>{result.novelty.label}</strong><small>{result.novelty.reason}</small></div>
-              <div><span>분석 모드</span><strong>{result.ai.state === "ready" ? "규칙 + AI" : "규칙 전용"}</strong><small>AI만으로 높은 위험을 만들지 않습니다.</small></div>
+              <div><span>글 전체 위험도 · 실험 점수</span><strong>{result.scoring.finalScore}<small>/100</small></strong></div>
+              <div><span>현재 판정</span><h2 id="result-title" ref={resultHeadingRef} tabIndex={-1}>{statusLabels[result.hybrid.status]}</h2><p>{result.hybrid.reason}</p></div>
             </div>
 
             <div className="publicAnalyzerResultGrid">
-              <article className="resultCard categoryCard">
-                <h3>주요 분야별 위험</h3>
-                {result.scoring.categoryScores.length ? (
-                  <ul className="publicAnalyzerScores">
-                    {result.scoring.categoryScores.map((category) => (
-                      <li key={category.id}>
-                        <span>{category.label}<small>{category.source === "hybrid" ? "규칙 + AI" : category.source === "rule" ? "규칙" : "AI 문맥"}</small></span>
-                        <div aria-hidden="true"><i style={{ width: `${category.score}%` }} /></div>
-                        <strong>{category.score}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="emptyCopy">현재 표시할 분야별 위험 축이 없습니다.</p>}
-                <p className="scoringPolicyNote">실험 점수 {result.scoring.policyVersion} · 가장 높은 분야 점수만 사용하며 교차 분야 가산은 하지 않습니다.</p>
-              </article>
-
-              <article className="resultCard contextCard">
-                <h3>문맥 해석</h3>
-                <dl className="publicAnalyzerContext">
-                  <div><dt>발화 유형</dt><dd>{result.ai.speechAct ?? result.rules.speechAct}</dd></div>
-                  <div><dt>정책 관련성</dt><dd>{result.ai.policyRelevance ?? "확인 필요"}</dd></div>
-                  <div><dt>문맥 관계</dt><dd>{result.ai.contextRelation ?? "규칙 결과만 사용"}</dd></div>
-                  <div><dt>AI 신뢰도</dt><dd>{result.ai.confidence === null ? "제공되지 않음" : `${Math.round(result.ai.confidence * 100)}%`}</dd></div>
-                </dl>
-              </article>
-
-              <article className="resultCard evidenceCard">
-                <h3>판단 근거와 evidence</h3>
-                <p>{result.rules.reason ?? result.rules.recommendation}</p>
-                {result.rules.evidence.length > 0 ? (
-                  <ul className="publicAnalyzerEvidence">
-                    {result.rules.evidence.map((item, index) => (
-                      <li key={`${item.start}-${item.end}-${index}`}><mark>{item.text}</mark><span>{item.role}</span></li>
-                    ))}
-                  </ul>
-                ) : <p className="emptyCopy">정확히 일치한 규칙 근거 구간이 없습니다. 안전하다는 뜻은 아닙니다.</p>}
-                {result.ai.evidenceSpans.length > 0 ? (
-                  <>
-                    <h4>AI 문맥 근거</h4>
-                    <ul className="publicAnalyzerEvidence">
-                      {result.ai.evidenceSpans.map((item, index) => (
-                        <li key={`ai-${item.start}-${item.end}-${index}`}><mark>{item.text}</mark><span>AI 문맥</span></li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-              </article>
-
-              <article className="resultCard rewriteCard">
-                <h3>대체 문구</h3>
-                <p>{result.rules.suggestedRewrite ?? "단정적인 표현을 줄이고 확인 가능한 조건과 근거를 함께 제시하세요."}</p>
-                <button
-                  className="pressable secondaryButton"
-                  type="button"
-                  onClick={copyRewrite}
-                  disabled={!result.rules.suggestedRewrite}
-                >
-                  {copyState === "copied" ? "복사됨" : copyState === "failed" ? "복사 실패" : "대체 문구 복사"}
-                </button>
-              </article>
+              <article className="analysisCard"><span className="analysisCardEyebrow">주요 위험</span><h3>{result.scoring.primaryCategory?.label ?? "직접 위험 근거 없음"}</h3><p>{result.scoring.primaryCategory ? `규칙 ${result.scoring.primaryCategory.ruleScore} · AI ${result.scoring.primaryCategory.aiScore}` : "현재 지식과 문맥 분석에서 직접 위험을 확인하지 못했습니다."}</p></article>
+              <article className="analysisCard"><span className="analysisCardEyebrow">문맥 해석</span><h3>{result.ai.speechAct ? contextLabels[result.ai.speechAct] ?? result.ai.speechAct : "확인 필요"}</h3><p>{result.ai.contextRelation ? contextLabels[result.ai.contextRelation] ?? result.ai.contextRelation : result.uncertainty.reason}</p></article>
+              <article className="analysisCard"><span className="analysisCardEyebrow">불확실성</span><h3>{result.uncertainty.level === "high" ? "높음" : result.uncertainty.level === "medium" ? "보통" : "낮음"}</h3><p>{result.uncertainty.reason}</p></article>
             </div>
 
-            <div className="resultFooterActions">
-              <button className="pressable primaryButton" type="button" onClick={startAnother}>다른 문구 분석</button>
-              <span>공개 분석 결과는 자동 학습이나 후보 등록에 사용되지 않습니다.</span>
-            </div>
-            {result.novelty.candidateRegistration === "available" && (
-              <div className="candidateOptIn">
-                <div>
-                  <strong>새 위험 표현 개선에 제공</strong>
-                  <p>개인정보가 없는 현재 문구를 검토 대기 후보로 저장합니다. 자동으로 규칙에 추가되지는 않습니다.</p>
-                </div>
-                <button
-                  className="pressable secondaryButton"
-                  type="button"
-                  onClick={submitCandidate}
-                  disabled={candidateState === "submitting" || candidateState === "submitted"}
-                >
-                  {candidateState === "submitting" ? "제공 중" : candidateState === "submitted" ? "후보 제공 완료" : "동의하고 후보 제공"}
-                </button>
-                {candidateState === "failed" && <p role="alert">후보를 저장하지 못했습니다. 분석 결과에는 영향이 없습니다.</p>}
-              </div>
-            )}
-            <p className="publicAnalyzerNotice">{result.notice}</p>
+            {result.scoring.categoryScores.length ? <article className="analysisCard"><span className="analysisCardEyebrow">발견된 위험 범주</span><div className="categoryScoreList">{result.scoring.categoryScores.map((item) => <div key={item.id}><span>{item.label}</span><strong>{item.score}</strong><small>{item.source === "hybrid" ? "규칙 + AI" : item.source === "rule" ? "검토된 규칙" : "AI 문맥"}</small></div>)}</div></article> : null}
+
+            <article className="analysisCard"><span className="analysisCardEyebrow">판단 근거</span><h3>문제가 될 수 있는 정확한 구간</h3>{[...result.rules.evidence, ...result.ai.evidenceSpans.map((span) => ({ ...span, role: "ai" }))].length ? <ul className="evidenceList">{[...result.rules.evidence, ...result.ai.evidenceSpans.map((span) => ({ ...span, role: "ai" }))].map((item, index) => <li key={`${item.start}-${item.end}-${index}`}><mark>{item.text}</mark><span>{item.role === "ai" ? "AI 문맥 근거" : "검토된 규칙 근거"}</span></li>)}</ul> : <p>직접 연결되는 근거 구간이 없습니다. 결과를 안전 판정으로 사용하지 마세요.</p>}</article>
+
+            {result.rules.suggestedRewrite ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 표현</span><h3>{result.rules.suggestedRewrite}</h3><p>집단 일반화와 공격 표현을 줄이고, 구체적인 행동과 사실을 중심으로 다시 작성해 보세요.</p></article> : null}
+
+            <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">새 표현 발견</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" ? <button className="pressable secondaryButton" type="button" onClick={submitCandidate} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토 후보로 전달됨" : candidateState === "submitting" ? "전달 중…" : "새 표현 후보로 제공"}</button> : null}{candidateState === "failed" ? <p role="alert">후보를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
+            <div className="publicAnalyzerResultActions"><button className="pressable primaryButton" type="button" onClick={reset}>다른 글 분석</button><span>Scoring Policy {result.scoring.policyVersion} · 실험 점수</span></div>
           </section>
-        )}
+        ) : null}
       </main>
-      <footer className="publicAnalyzerFooter">
-        <a href="/access">관리자 로그인</a>
-      </footer>
     </div>
   );
 }

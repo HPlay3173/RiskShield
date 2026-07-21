@@ -3,9 +3,8 @@ import { headers } from "next/headers";
 import "./globals.css";
 
 const title = "RiskShield | 말하기 전에, 위험을 읽습니다";
-const betaTitle = "RiskShield Public Analyzer v0.5";
-const description =
-  "단어·문장·광고 문구의 위험 신호와 문맥을 정리해 사람의 최종 판단을 돕는 공개 RiskShield Analyzer";
+const betaTitle = "RiskShield Context Risk Analyzer";
+const description = "과장·기만, 혐오·차별, 욕설·공격, 숨은 은어와 폭력·위협을 글 전체의 맥락과 근거 구간으로 분석합니다.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -25,7 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       type: "website",
       locale: "ko_KR",
-      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield Public Beta Analyzer" }],
+      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield 맥락 기반 텍스트 위험 분석기" }],
     },
     twitter: {
       card: "summary_large_image",
