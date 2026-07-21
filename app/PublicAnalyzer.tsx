@@ -41,6 +41,8 @@ type PublicAnalysis = {
   };
   ai: {
     state: "ready" | "fallback";
+    reasonCode: string | null;
+    reasonLabel: string | null;
     confidence: number | null;
     speechAct: string | null;
     contextRelation: string | null;
@@ -50,6 +52,7 @@ type PublicAnalysis = {
   hybrid: { status: Status; score: number | null; conflict: boolean; reason: string };
   uncertainty: { level: "low" | "medium" | "high"; reason: string };
   novelty: { state: "known_pattern" | "possible_new_expression" | "insufficient_evidence"; label: string; reason: string; candidateRegistration: "disabled" | "available" };
+  feedback: { missedDetectionAvailable: boolean; falsePositiveAvailable: boolean };
   notice: string;
 };
 
@@ -104,11 +107,11 @@ export function PublicAnalyzer() {
     await analyze(value);
   }
 
-  async function submitCandidate() {
+  async function submitCandidate(reportType: "missed_detection" | "false_positive" | "new_expression") {
     if (!result || result.novelty.candidateRegistration !== "available") return;
     setCandidateState("submitting");
     try {
-      const response = await fetch("/api/analyze/candidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, text: lastText }), cache: "no-store" });
+      const response = await fetch("/api/analyze/candidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, text: lastText, reportType }), cache: "no-store" });
       if (!response.ok && response.status !== 409) throw new Error("candidate_failed");
       setCandidateState("submitted");
     } catch { setCandidateState("failed"); }
@@ -148,9 +151,9 @@ export function PublicAnalyzer() {
         {result ? (
           <section className={`publicAnalyzerResults profile-${result.profile.emphasis}`} aria-labelledby="result-title">
             <p className="analysisProfileFocus"><strong>결과 보기:</strong> {result.profile.focus}</p>
-            {result.ai.state === "fallback" ? <div className="analysisBanner" role="status"><strong>규칙 중심 안전 모드</strong><span>AI 문맥 해석 없이 검토된 위험 규칙만 사용했습니다.</span></div> : null}
+            {result.ai.state === "fallback" ? <div className="analysisBanner" role="status"><strong>규칙 중심 안전 모드</strong><span>{result.ai.reasonLabel ?? "AI 문맥 해석 없이 검토된 위험 규칙만 사용했습니다."}</span></div> : <div className="analysisBanner isReady" role="status"><strong>AI 문맥 분석 사용됨</strong><span>검토된 규칙과 AI 문맥 해석을 함께 반영했습니다.</span></div>}
             <div className={`publicAnalyzerVerdict status-${result.hybrid.status}`}>
-              <div><span>글 전체 위험도 · 실험 점수</span><strong>{result.scoring.finalScore}<small>/100</small></strong></div>
+              <div><span>현재 발견된 최고 위험도 · 실험 점수</span><strong>{result.scoring.finalScore}<small>/100</small></strong></div>
               <div><span>현재 판정</span><h2 id="result-title" ref={resultHeadingRef} tabIndex={-1}>{statusLabels[result.hybrid.status]}</h2><p>{result.hybrid.reason}</p></div>
             </div>
 
@@ -166,7 +169,7 @@ export function PublicAnalyzer() {
 
             {result.rules.suggestedRewrite ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 표현</span><h3>{result.rules.suggestedRewrite}</h3><p>집단 일반화와 공격 표현을 줄이고, 구체적인 행동과 사실을 중심으로 다시 작성해 보세요.</p></article> : null}
 
-            <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">새 표현 발견</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" ? <button className="pressable secondaryButton" type="button" onClick={submitCandidate} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토 후보로 전달됨" : candidateState === "submitting" ? "전달 중…" : "새 표현 후보로 제공"}</button> : null}{candidateState === "failed" ? <p role="alert">후보를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
+            <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">결과 개선 참여</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" ? <div className="publicAnalyzerActions">{result.feedback.missedDetectionAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("missed_detection")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토함에 전달됨" : candidateState === "submitting" ? "전달 중…" : "위험한 표현인데 놓쳤어요"}</button> : null}{result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("false_positive")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토함에 전달됨" : candidateState === "submitting" ? "전달 중…" : "위험하지 않은데 잘못 잡았어요"}</button> : null}{!result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("new_expression")} disabled={candidateState === "submitting" || candidateState === "submitted"}>새 표현 후보로 제공</button> : null}</div> : null}{candidateState === "failed" ? <p role="alert">신고를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
             <div className="publicAnalyzerResultActions"><button className="pressable primaryButton" type="button" onClick={reset}>다른 글 분석</button><span>Scoring Policy {result.scoring.policyVersion} · 실험 점수</span></div>
           </section>
         ) : null}

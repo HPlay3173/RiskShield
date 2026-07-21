@@ -39,6 +39,7 @@ export type SkillLibraryItem = {
 export type SkillLibraryProps = {
   skills: SkillLibraryItem[];
   revisionEndpoint: string;
+  activationEndpoint: string;
   csrfToken: string;
   initialSkillId?: string;
   developmentFixture?: boolean;
@@ -148,6 +149,7 @@ function RegressionPanel({ tests }: { tests: SkillRegressionCase[] }) {
 export function SkillLibrary({
   skills,
   revisionEndpoint,
+  activationEndpoint,
   csrfToken,
   initialSkillId,
   developmentFixture = false,
@@ -161,6 +163,7 @@ export function SkillLibrary({
   const [selectedId, setSelectedId] = useState(initialSkillId ?? skills[0]?.id ?? "");
   const [drafts, setDrafts] = useState<Record<string, RevisionDraft>>({});
   const [revisionState, setRevisionState] = useState<RevisionState>({ state: "idle" });
+  const [activationState, setActivationState] = useState<{ state: "idle" | "submitting" | "success" | "error"; skillId?: string; message?: string }>({ state: "idle" });
 
   const categories = useMemo(
     () => [...new Set(skills.map((skill) => skill.category))].sort((left, right) => left.localeCompare(right, "ko-KR")),
@@ -256,6 +259,25 @@ export function SkillLibrary({
         skillId: selectedSkill.id,
         message: error instanceof Error ? error.message : "revision 제안을 저장하지 못했습니다.",
       });
+    }
+  }
+
+  async function activateSkill() {
+    if (!selectedSkill || selectedSkill.reviewStatus !== "draft" || activationState.state === "submitting") return;
+    setActivationState({ state: "submitting", skillId: selectedSkill.id });
+    try {
+      const response = await fetch(sameOriginEndpoint(activationEndpoint), {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken },
+        body: JSON.stringify({ skillId: selectedSkill.id }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(isRecord(payload) && typeof payload.message === "string" ? payload.message : "스킬을 활성화하지 못했습니다.");
+      setActivationState({ state: "success", skillId: selectedSkill.id, message: isRecord(payload) && typeof payload.message === "string" ? payload.message : "Analyzer에 반영했습니다." });
+    } catch (error) {
+      setActivationState({ state: "error", skillId: selectedSkill.id, message: error instanceof Error ? error.message : "스킬을 활성화하지 못했습니다." });
     }
   }
 
@@ -384,6 +406,8 @@ export function SkillLibrary({
               </section>
 
               <RegressionPanel tests={selectedSkill.regressionTests} />
+
+              {selectedSkill.reviewStatus === "draft" ? <section className="skillRevisionForm" aria-labelledby="skill-activation-title"><h3 id="skill-activation-title">분석 규칙으로 활성화</h3><p>단독 탐지와 “사용하지 마세요” 경고 문맥을 서버에서 검사한 뒤 통과한 스킬만 Analyzer에 반영합니다.</p><Pressable className="skillRevisionSubmit" disabled={activationState.state === "submitting"} onClick={() => void activateSkill()}>{activationState.state === "submitting" ? "검증 중…" : "검증 후 활성화"}</Pressable>{activationState.skillId === selectedSkill.id && activationState.message ? <p className="serverAcknowledgement" data-status={activationState.state === "error" ? "error" : "success"}>{activationState.message}{activationState.state === "success" ? " · 이제 공개 분석기에서 같은 표현을 다시 확인할 수 있습니다." : ""}</p> : null}</section> : null}
 
               <section className="skillRevisionForm" aria-labelledby="skill-revision-title">
                 <h3 id="skill-revision-title">새 revision 제안</h3>

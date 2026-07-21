@@ -40,6 +40,8 @@ export interface RiskSkill {
   category: string;
   subcategory: string;
   patternType: string;
+  /** Atomic lexemes may match on one reviewed expression; composite rules require trigger + context. */
+  matchMode?: "atomic_lexeme" | "trigger_and_context";
   triggerPatterns: string[];
   contextPatterns: string[];
   anyOfPatterns: string[];
@@ -642,9 +644,10 @@ export const starterSkills: RiskSkill[] = [
     category: "숨은 은어·코드 표현",
     subcategory: "커뮤니티 기반 혐오 은어",
     patternType: "ilbe + community_slang",
+    matchMode: "atomic_lexeme",
     riskFamily: "coded_expression",
-    triggerPatterns: ["운지", "노알라", "일베충", "홍어"],
-    contextPatterns: ["운지", "노알라", "일베", "홍어", "조롱"],
+    triggerPatterns: ["운지", "노알라", "일베충", "홍어", "느개미", "느금마", "느금"],
+    contextPatterns: [],
     exclusionPatterns: ["용어의 뜻", "혐오 표현", "사용하지 마세요", "문제되는 은어", "사전적 의미"],
     surfaceMeaning: "특정 커뮤니티에서 조롱이나 혐오 의미로 쓰이는 코드 표현을 사용합니다.",
     riskSummary: "겉으로 의미가 드러나지 않아도 특정 인물·지역·집단을 비하하는 신호가 될 수 있습니다.",
@@ -1202,7 +1205,7 @@ function supportsAdjacentSentenceMatching(skill: RiskSkill) {
 }
 
 function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
-  if (!skill.triggerPatterns.length || !skill.contextPatterns.length) return null;
+  if (!skill.triggerPatterns.length) return null;
   const normalized = normalizeWithMap(input);
   const ranges = supportsAdjacentSentenceMatching(skill)
     ? adjacentSentenceRanges(normalized.text)
@@ -1210,6 +1213,37 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
   const maxDistance = clamp(Math.round(skill.maxDistance), 0, 2_000);
   const triggerPatterns = normalizedPatternVariants(skill, "trigger");
   const contextPatterns = normalizedPatternVariants(skill, "context");
+
+  if (skill.matchMode === "atomic_lexeme") {
+    for (const range of ranges) {
+      const triggerHits = findPatternHits(input, normalized, range, triggerPatterns, "trigger");
+      const exclusionHits = findPatternHits(input, normalized, range, skill.exclusionPatterns ?? [], "context");
+      const scopedText = normalized.text.slice(range.start, range.end);
+      for (const trigger of triggerHits) {
+        const clause = candidateClauseRange(
+          scopedText,
+          trigger.normalizedStart - range.start,
+          trigger.normalizedEnd - range.start,
+        );
+        const clauseStart = range.start + clause.start;
+        const clauseEnd = range.start + clause.end;
+        if (exclusionHits.some((hit) => hit.normalizedStart >= clauseStart && hit.normalizedEnd <= clauseEnd)) continue;
+        const hit: PatternHit = {
+          pattern: trigger.pattern,
+          role: trigger.role,
+          start: trigger.start,
+          end: trigger.end,
+          text: trigger.text,
+          sentenceIndex: trigger.sentenceIndex,
+        };
+        if (isPostMatchContextGuarded(input, skill, [hit])) continue;
+        return { skill, hits: [hit], score: clamp(Math.round(skill.severityFloor), 0, 100) };
+      }
+    }
+    return null;
+  }
+
+  if (!skill.contextPatterns.length) return null;
 
   type Candidate = {
     trigger: InternalHit;
@@ -1519,10 +1553,13 @@ export function validateSkill(skill: RiskSkill) {
   if (!skill.category.trim()) errors.push("카테고리가 필요합니다.");
   if (!skill.subcategory.trim()) errors.push("세부 유형이 필요합니다.");
   if (!skill.patternType.trim()) errors.push("조합 패턴 유형이 필요합니다.");
+  if (skill.matchMode && !["atomic_lexeme", "trigger_and_context"].includes(skill.matchMode)) {
+    errors.push("matchMode는 atomic_lexeme 또는 trigger_and_context여야 합니다.");
+  }
   if (!skill.triggerPatterns.length || skill.triggerPatterns.some((pattern) => !pattern.trim())) {
     errors.push("유효한 트리거 패턴이 한 개 이상 필요합니다.");
   }
-  if (!skill.contextPatterns.length || skill.contextPatterns.some((pattern) => !pattern.trim())) {
+  if ((skill.matchMode !== "atomic_lexeme" && !skill.contextPatterns.length) || skill.contextPatterns.some((pattern) => !pattern.trim())) {
     errors.push("유효한 맥락 패턴이 한 개 이상 필요합니다.");
   }
   if (skill.exclusionPatterns?.some((pattern) => !pattern.trim())) {
@@ -1859,6 +1896,7 @@ export function migrateRiskSkill(
       ? provenanceValue
       : "provided";
   const patternType = readString(value, ["pattern_type", "patternType"]);
+  const declaredMatchMode = readString(value, ["match_mode", "matchMode"]);
   const declaredRiskFamily = readString(value, ["risk_family", "riskFamily"]);
   const riskFamily = declaredRiskFamily && RISK_FAMILIES.includes(declaredRiskFamily as typeof RISK_FAMILIES[number])
     && declaredRiskFamily !== "none"
@@ -1872,6 +1910,7 @@ export function migrateRiskSkill(
     category: readString(value, ["category"]),
     subcategory: readString(value, ["subcategory"]),
     patternType,
+    matchMode: declaredMatchMode === "atomic_lexeme" ? "atomic_lexeme" : "trigger_and_context",
     triggerPatterns: conditionTrigger.length
       ? conditionTrigger
       : readStrings(value, ["trigger_patterns", "triggerPatterns"]),
@@ -2132,6 +2171,7 @@ export function buildExportBundle(
     category: skill.category,
     subcategory: skill.subcategory,
     pattern_type: skill.patternType,
+    match_mode: skill.matchMode ?? "trigger_and_context",
     trigger_patterns: skill.triggerPatterns,
     context_patterns: skill.contextPatterns,
     exclusion_patterns: skill.exclusionPatterns ?? [],

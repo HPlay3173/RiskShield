@@ -94,8 +94,13 @@ export type ReviewCandidate = {
   draft: {
     title: string;
     riskSummary: string;
+    riskFamily: string;
+    riskDomain: string;
+    matchMode: "atomic_lexeme" | "trigger_and_context";
     triggerPatterns: string[];
     contextPatterns: string[];
+    exclusionPatterns: string[];
+    severityFloor: number;
     safeRewrite: string[];
   } | null;
 };
@@ -361,8 +366,13 @@ export function ReviewInbox({
   const [mergeSkillId, setMergeSkillId] = useState("");
   const [draftTitle, setDraftTitle] = useState(initialCandidate?.draft?.title ?? "");
   const [draftSummary, setDraftSummary] = useState(initialCandidate?.draft?.riskSummary ?? "");
+  const [draftRiskFamily, setDraftRiskFamily] = useState(initialCandidate?.draft?.riskFamily ?? "general_substantiation");
+  const [draftRiskDomain, setDraftRiskDomain] = useState(initialCandidate?.draft?.riskDomain ?? initialCandidate?.riskDomain ?? "미분류 텍스트 위험");
+  const [draftMatchMode, setDraftMatchMode] = useState<"atomic_lexeme" | "trigger_and_context">(initialCandidate?.draft?.matchMode ?? "trigger_and_context");
   const [draftTriggers, setDraftTriggers] = useState(initialCandidate?.draft?.triggerPatterns.join("\n") ?? "");
   const [draftContexts, setDraftContexts] = useState(initialCandidate?.draft?.contextPatterns.join("\n") ?? "");
+  const [draftExclusions, setDraftExclusions] = useState(initialCandidate?.draft?.exclusionPatterns.join("\n") ?? "");
+  const [draftSeverity, setDraftSeverity] = useState(initialCandidate?.draft?.severityFloor ?? 60);
   const [draftRewrites, setDraftRewrites] = useState(initialCandidate?.draft?.safeRewrite.join("\n") ?? "");
   const [decisionState, setDecisionState] = useState<DecisionState>({ state: "idle" });
 
@@ -399,8 +409,13 @@ export function ReviewInbox({
   function loadDraft(candidate: ReviewCandidate) {
     setDraftTitle(candidate.draft?.title ?? "");
     setDraftSummary(candidate.draft?.riskSummary ?? "");
+    setDraftRiskFamily(candidate.draft?.riskFamily ?? "general_substantiation");
+    setDraftRiskDomain(candidate.draft?.riskDomain ?? candidate.riskDomain);
+    setDraftMatchMode(candidate.draft?.matchMode ?? "trigger_and_context");
     setDraftTriggers(candidate.draft?.triggerPatterns.join("\n") ?? "");
     setDraftContexts(candidate.draft?.contextPatterns.join("\n") ?? "");
+    setDraftExclusions(candidate.draft?.exclusionPatterns.join("\n") ?? "");
+    setDraftSeverity(candidate.draft?.severityFloor ?? 60);
     setDraftRewrites(candidate.draft?.safeRewrite.join("\n") ?? "");
   }
 
@@ -426,15 +441,20 @@ export function ReviewInbox({
     const editedDraft = {
       title: draftTitle.trim(),
       riskSummary: draftSummary.trim(),
+      riskFamily: draftRiskFamily,
+      riskDomain: draftRiskDomain.trim(),
+      matchMode: draftMatchMode,
       triggerPatterns: draftTriggers.split("\n").map((value) => value.trim()).filter(Boolean),
       contextPatterns: draftContexts.split("\n").map((value) => value.trim()).filter(Boolean),
+      exclusionPatterns: draftExclusions.split("\n").map((value) => value.trim()).filter(Boolean),
+      severityFloor: draftSeverity,
       safeRewrite: draftRewrites.split("\n").map((value) => value.trim()).filter(Boolean),
     };
     if (
       decision === "approve_with_edits"
-      && (!editedDraft.title || !editedDraft.riskSummary || !editedDraft.triggerPatterns.length || !editedDraft.contextPatterns.length || !editedDraft.safeRewrite.length)
+      && (!editedDraft.title || !editedDraft.riskSummary || !editedDraft.riskDomain || !editedDraft.triggerPatterns.length || (editedDraft.matchMode !== "atomic_lexeme" && !editedDraft.contextPatterns.length) || !editedDraft.safeRewrite.length)
     ) {
-      setDecisionState({ state: "error", candidateId: selectedCandidate.id, message: "수정 후 승인에는 제목·요약·trigger·context·대체 문구가 모두 필요합니다." });
+      setDecisionState({ state: "error", candidateId: selectedCandidate.id, message: "위험 분류, 제목, 요약, 탐지 패턴과 대체 문구를 확인해 주세요." });
       return;
     }
 
@@ -616,8 +636,13 @@ export function ReviewInbox({
               <legend>수정 후 승인 초안</legend>
               <label><span>제목</span><input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} /></label>
               <label><span>위험 요약</span><textarea rows={3} value={draftSummary} onChange={(event) => setDraftSummary(event.target.value)} /></label>
+              <label><span>위험 범주</span><select value={draftRiskFamily} onChange={(event) => setDraftRiskFamily(event.target.value)}><option value="hate_discrimination">혐오·차별</option><option value="abusive_language">욕설·공격</option><option value="coded_expression">숨은 은어·코드 표현</option><option value="violent_threat">폭력·위협</option><option value="health_claim">의료·효능 주장</option><option value="financial_guarantee">금융 보장</option><option value="income_claim">수익·소득 주장</option><option value="general_substantiation">일반 과장·입증</option></select></label>
+              <label><span>화면 표시 분야</span><input value={draftRiskDomain} onChange={(event) => setDraftRiskDomain(event.target.value)} /></label>
+              <label><span>탐지 방식</span><select value={draftMatchMode} onChange={(event) => setDraftMatchMode(event.target.value as "atomic_lexeme" | "trigger_and_context")}><option value="atomic_lexeme">단일 표현</option><option value="trigger_and_context">표현 + 문맥 조합</option></select></label>
               <label><span>Trigger 패턴 · 한 줄에 하나</span><textarea rows={4} value={draftTriggers} onChange={(event) => setDraftTriggers(event.target.value)} /></label>
               <label><span>Context 패턴 · 한 줄에 하나</span><textarea rows={4} value={draftContexts} onChange={(event) => setDraftContexts(event.target.value)} /></label>
+              <label><span>제외 문맥 · 한 줄에 하나</span><textarea rows={3} value={draftExclusions} onChange={(event) => setDraftExclusions(event.target.value)} /></label>
+              <label><span>기본 위험도</span><input type="number" min={1} max={100} value={draftSeverity} onChange={(event) => setDraftSeverity(Number(event.target.value))} /></label>
               <label><span>대체 문구 · 한 줄에 하나</span><textarea rows={3} value={draftRewrites} onChange={(event) => setDraftRewrites(event.target.value)} /></label>
             </fieldset>
             <div className="candidateDecisionActions" aria-label="후보 결정">

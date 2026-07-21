@@ -85,6 +85,7 @@ export type CandidateRecord = {
   expression: string;
   riskFamily?: import("../risk-family").ScorableRiskFamily;
   riskDomain: string;
+  reportType?: "missed_detection" | "false_positive" | "new_expression";
   status: "pending" | "approved" | "merged" | "held" | "rejected";
   noveltyScore: number | null;
   confidence: number | null;
@@ -117,8 +118,13 @@ export type CandidateRecord = {
   draft?: {
     title: string;
     riskSummary: string;
+    riskFamily?: import("../risk-family").ScorableRiskFamily;
+    riskDomain?: string;
+    matchMode?: "atomic_lexeme" | "trigger_and_context";
     triggerPatterns: readonly string[];
     contextPatterns: readonly string[];
+    exclusionPatterns?: readonly string[];
+    severityFloor?: number;
     safeRewrite: readonly string[];
   } | null;
   lineage?: {

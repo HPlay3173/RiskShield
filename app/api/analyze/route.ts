@@ -362,6 +362,18 @@ function json(body: unknown, status = 200, extraHeaders: HeadersInit = {}) {
   });
 }
 
+function publicAiFallback(run: InterpreterRun) {
+  if (run.ok) return { reasonCode: null, reasonLabel: null };
+  const reason = run.errors.join(" ").toLocaleLowerCase("en-US");
+  if (reason.includes("server_secret_unavailable")) return { reasonCode: "configuration_missing", reasonLabel: "AI 설정이 준비되지 않았습니다." };
+  if (reason.includes("budget")) return { reasonCode: "daily_limit", reasonLabel: "오늘의 AI 분석 한도에 도달했습니다." };
+  if (reason.includes("concurrency") || reason.includes("saturated")) return { reasonCode: "temporarily_busy", reasonLabel: "AI 분석 요청이 몰려 잠시 사용할 수 없습니다." };
+  if (run.timedOut || reason.includes("timeout") || reason.includes("aborted")) return { reasonCode: "provider_timeout", reasonLabel: "AI 응답 시간이 초과되었습니다." };
+  if (reason.includes("429") || reason.includes("resource_exhausted")) return { reasonCode: "provider_rate_limited", reasonLabel: "AI 제공자의 일시적 호출 제한이 적용되었습니다." };
+  if (reason.includes("schema") || reason.includes("validation") || reason.includes("evidence")) return { reasonCode: "response_validation_failed", reasonLabel: "AI 응답을 안전하게 검증하지 못했습니다." };
+  return { reasonCode: "provider_error", reasonLabel: "AI 문맥 분석 중 일시적인 오류가 발생했습니다." };
+}
+
 export async function POST(request: Request) {
   const runtime = await getRuntimeEnvironment();
   const limited = await enforceRateLimit(request, runtime);
@@ -444,7 +456,7 @@ export async function POST(request: Request) {
             state: "known_pattern" as const,
             label: "알려진 패턴과 연결",
             reason: "검토된 규칙의 정확한 evidence 구간이 있습니다.",
-            candidateRegistration: "disabled" as const,
+            candidateRegistration: run.masked ? "disabled" as const : "available" as const,
           }
         : aiOnlyCategoryCount > 0
           ? {
@@ -457,8 +469,9 @@ export async function POST(request: Request) {
               state: "insufficient_evidence" as const,
               label: "근거 부족",
               reason: "신규성이나 기존 패턴 여부를 확정할 근거가 충분하지 않습니다.",
-              candidateRegistration: "disabled" as const,
+              candidateRegistration: run.masked ? "disabled" as const : "available" as const,
             };
+      const aiFallback = publicAiFallback(run);
       return json({
         beta: "RiskShield v0.5 alpha",
         profile: {
@@ -473,6 +486,7 @@ export async function POST(request: Request) {
         },
         ai: {
           state: run.ok ? "ready" : "fallback",
+          ...aiFallback,
           confidence: payload?.confidence ?? null,
           riskIntent: payload?.risk_intent ?? null,
           speechAct: payload?.speech_act ?? null,
@@ -482,6 +496,10 @@ export async function POST(request: Request) {
           riskFamily: payload?.risk_family ?? null,
           evidenceSpans: payload?.evidence_spans ?? [],
           masked: run.masked,
+        },
+        feedback: {
+          missedDetectionAvailable: !run.masked && exactEvidenceCount === 0,
+          falsePositiveAvailable: !run.masked && exactEvidenceCount > 0,
         },
         hybrid: {
           status: scoring.status,

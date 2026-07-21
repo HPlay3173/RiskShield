@@ -3,6 +3,7 @@ import { requireMutationIntegrity } from "../../../../../lib/auth/request-integr
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject, repositoryFailure } from "../../../../../lib/http/control-response";
 import { createRepositoryServices } from "../../../../../lib/repositories";
 import type { CandidateDecisionInput } from "../../../../../lib/repositories/contracts";
+import { RISK_FAMILIES } from "../../../../../lib/risk-family";
 
 const DECISIONS = new Set<CandidateDecisionInput["decision"]>([
   "approve",
@@ -41,15 +42,24 @@ export async function POST(request: Request) {
   const editedDraft = draftValue ? {
     title: typeof draftValue.title === "string" ? draftValue.title.trim().slice(0, 200) : "",
     riskSummary: typeof draftValue.riskSummary === "string" ? draftValue.riskSummary.trim().slice(0, 1_000) : "",
+    riskFamily: typeof draftValue.riskFamily === "string" && draftValue.riskFamily !== "none" && (RISK_FAMILIES as readonly string[]).includes(draftValue.riskFamily) ? draftValue.riskFamily as NonNullable<CandidateDecisionInput["editedDraft"]>["riskFamily"] : undefined,
+    riskDomain: typeof draftValue.riskDomain === "string" ? draftValue.riskDomain.trim().slice(0, 200) : "",
+    matchMode: draftValue.matchMode === "atomic_lexeme" ? "atomic_lexeme" as const : "trigger_and_context" as const,
     triggerPatterns: strings(draftValue.triggerPatterns),
     contextPatterns: strings(draftValue.contextPatterns),
+    exclusionPatterns: strings(draftValue.exclusionPatterns ?? []),
+    severityFloor: typeof draftValue.severityFloor === "number" && Number.isFinite(draftValue.severityFloor) ? Math.min(100, Math.max(1, Math.round(draftValue.severityFloor))) : 60,
     safeRewrite: strings(draftValue.safeRewrite, 16, 1_000),
   } : null;
   const validEditedDraft = editedDraft
     && editedDraft.title
     && editedDraft.riskSummary
+    && editedDraft.riskFamily
+    && editedDraft.riskDomain
     && editedDraft.triggerPatterns
     && editedDraft.contextPatterns
+    && (editedDraft.matchMode === "atomic_lexeme" || editedDraft.contextPatterns.length > 0)
+    && editedDraft.exclusionPatterns
     && editedDraft.safeRewrite
       ? editedDraft as NonNullable<CandidateDecisionInput["editedDraft"]>
       : null;

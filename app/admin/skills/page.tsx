@@ -39,6 +39,7 @@ export async function renderAdminSkillsPage(returnTo = "/admin/skills") {
       <SkillLibrary
         skills={skills}
         revisionEndpoint="/api/manage/skills/revisions"
+        activationEndpoint="/api/manage/skills/activate"
         csrfToken={principal.csrfToken}
         developmentFixture={result.fixture}
         degradedMessage={invalidCount ? `검증할 수 없는 payload ${invalidCount}건은 상세 목록에서 제외했습니다.` : result.fixture ? "개발 데이터입니다. production D1을 변경하지 않습니다." : null}

@@ -53,8 +53,13 @@ function candidateView(record: CandidateRecord): ReviewCandidate {
     draft: record.draft ? {
       title: record.draft.title,
       riskSummary: record.draft.riskSummary,
+      riskFamily: record.draft.riskFamily ?? record.riskFamily ?? "general_substantiation",
+      riskDomain: record.draft.riskDomain ?? record.riskDomain,
+      matchMode: record.draft.matchMode ?? (record.draft.contextPatterns.length ? "trigger_and_context" : "atomic_lexeme"),
       triggerPatterns: [...record.draft.triggerPatterns],
       contextPatterns: [...record.draft.contextPatterns],
+      exclusionPatterns: [...(record.draft.exclusionPatterns ?? [])],
+      severityFloor: record.draft.severityFloor ?? 60,
       safeRewrite: [...record.draft.safeRewrite],
     } : null,
   };

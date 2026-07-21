@@ -176,7 +176,7 @@ type BetaAnalysis = {
   ai: {
     state: "ready" | "fallback";
     confidence: number | null;
-    riskIntent: "direct_promotional" | "contextual_only" | "uncertain" | null;
+    riskIntent: "direct_promotional" | "direct_harmful" | "contextual_only" | "uncertain" | null;
     speechAct: "claim" | "quote" | "warning" | "criticism" | "report" | "definition" | "condition" | null;
     contextRelation: string | null;
     claimStrength: string | null;
@@ -326,6 +326,7 @@ function speechActLabel(value: BetaAnalysis["ai"]["speechAct"]) {
 
 function riskIntentLabel(value: BetaAnalysis["ai"]["riskIntent"]) {
   if (value === "direct_promotional") return "직접 광고·홍보 주장";
+  if (value === "direct_harmful") return "직접 유해 발화";
   if (value === "contextual_only") return "문맥상 직접 주장 아님";
   if (value === "uncertain") return "의도 불확실";
   return "분석 실패";

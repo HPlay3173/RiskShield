@@ -78,6 +78,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type ReportType = "missed_detection" | "false_positive" | "new_expression";
+
+function reportTypeOf(value: unknown): ReportType {
+  return value === "false_positive" || value === "new_expression" ? value : "missed_detection";
+}
+
+function suggestedClassification(expression: string) {
+  const text = expression.normalize("NFKC").toLocaleLowerCase("ko-KR");
+  if (/(?:느개미|느금마|느금|운지|노알라|일베충|도그휘슬)/u.test(text)) {
+    return { riskFamily: "coded_expression" as const, riskDomain: "숨은 은어·코드 표현", severityFloor: 65 };
+  }
+  if (/(?:죽여|죽인다|패버려|때려죽|칼로|살해)/u.test(text)) {
+    return { riskFamily: "violent_threat" as const, riskDomain: "폭력·위협 표현", severityFloor: 80 };
+  }
+  if (/(?:병신|개새끼|씨발|꺼져|닥쳐|멍청이|쓰레기)/u.test(text)) {
+    return { riskFamily: "abusive_language" as const, riskDomain: "욕설·공격 표현", severityFloor: 68 };
+  }
+  if (/(?:한남|한녀|김치녀|맘충|틀딱|홍어|장애인|외국인|여자는|남자는)/u.test(text)) {
+    return { riskFamily: "hate_discrimination" as const, riskDomain: "혐오·차별 표현", severityFloor: 75 };
+  }
+  return { riskFamily: "general_substantiation" as const, riskDomain: "미분류 텍스트 위험", severityFloor: 55 };
+}
+
 export async function POST(request: Request) {
   let db: D1Database;
   try {
@@ -108,6 +131,7 @@ export async function POST(request: Request) {
     return json({ error: "explicit_consent_required", message: "후보 제공 동의가 필요합니다." }, 400);
   }
   const expression = body.text.trim();
+  const reportType = reportTypeOf(body.reportType);
   if (!expression || expression.length > MAX_EXPRESSION_CHARS) {
     return json({ error: "invalid_expression", message: `후보 문구는 ${MAX_EXPRESSION_CHARS}자 이하여야 합니다.` }, 400);
   }
@@ -116,7 +140,8 @@ export async function POST(request: Request) {
     return json({ error: "personal_data_detected", message: "개인정보가 포함된 문구는 학습 후보로 제공할 수 없습니다." }, 400);
   }
 
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(expression.normalize("NFKC")));
+  const classification = suggestedClassification(expression);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${reportType}:${expression.normalize("NFKC")}`));
   const hash = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
   const id = `public_submission_${hash.slice(0, 32)}`;
   const now = new Date().toISOString();
@@ -128,22 +153,36 @@ export async function POST(request: Request) {
   } = {
     id,
     expression,
-    riskFamily: "general_substantiation",
-    riskDomain: "unclassified",
+    riskFamily: classification.riskFamily,
+    riskDomain: classification.riskDomain,
+    reportType,
     status: "pending",
     noveltyScore: null,
     confidence: null,
     sourceCount: 1,
     createdAt: now,
     expressionGroup: [expression],
-    contextSummary: "공개 Analyzer 사용자가 명시적으로 동의해 제공한 미분류 표현입니다. 서버가 위험 점수나 분야를 신뢰해 사전 기입하지 않습니다.",
+    contextSummary: reportType === "false_positive"
+      ? "공개 Analyzer 사용자가 위험하지 않은 문맥을 잘못 탐지했다고 신고했습니다."
+      : "공개 Analyzer 사용자가 놓친 위험 표현이라고 명시적으로 신고했습니다. 위험 분류는 검토자가 확정해야 합니다.",
     evidence: [expression],
-    positiveTests: [],
-    negativeTests: [],
+    positiveTests: reportType === "false_positive" ? [] : [expression],
+    negativeTests: [`“${expression}”라는 표현은 사용하지 마세요.`],
     redTeam: null,
     modelConflict: null,
     policyChange: null,
-    draft: null,
+    draft: reportType === "false_positive" ? null : {
+      title: "사용자 신고 표현 검토",
+      riskSummary: "사용자가 탐지 누락으로 신고한 표현입니다. 의미와 사용 맥락을 확인한 뒤 분류를 확정하세요.",
+      riskFamily: classification.riskFamily,
+      riskDomain: classification.riskDomain,
+      matchMode: "atomic_lexeme",
+      triggerPatterns: [expression],
+      contextPatterns: [],
+      exclusionPatterns: ["뜻", "의미", "표현은 쓰지 마세요", "사용하지 마세요"],
+      severityFloor: classification.severityFloor,
+      safeRewrite: ["비하·공격 표현 대신 대상과 상황을 사실 중심으로 구체적으로 설명해 주세요."],
+    },
     lineage: null,
     sources: [{ title: "Public Analyzer opt-in", url: "", date: now.slice(0, 10) }],
     autoInclusionBlockedReason: "출처 검증, 문맥 분류, 양성·음성·반례 테스트와 사람 승인이 끝날 때까지 active skill로 편입하지 않습니다.",
@@ -160,7 +199,7 @@ export async function POST(request: Request) {
       "SELECT id, review_status, payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
     ).all<{ id: string; review_status: string; payload: string }>();
     const existingRuleResult = analyzeText(expression, resolveActiveReviewedSkills(reviewedRows.results ?? []));
-    if (existingRuleResult.matches.length > 0) {
+    if (existingRuleResult.matches.length > 0 && reportType !== "false_positive") {
       return json({ error: "known_expression", message: "이미 검토된 규칙과 일치하는 문구는 신규 후보로 저장하지 않습니다." }, 409);
     }
     const existing = await db.prepare(
