@@ -33,6 +33,13 @@ export interface RiskSource {
   provenanceStatus?: "provided" | "verified" | "synthetic_unverified";
 }
 
+export interface RiskSkillRegressionCase {
+  id: string;
+  input: string;
+  expected: "match" | "no_match";
+  contextSlice?: string;
+}
+
 export interface RiskSkill {
   schemaVersion: typeof RISK_SKILL_SCHEMA_VERSION;
   revision: number;
@@ -46,6 +53,8 @@ export interface RiskSkill {
   contextPatterns: string[];
   anyOfPatterns: string[];
   exclusionPatterns?: string[];
+  /** Candidate-authored examples that must pass before a draft can become active. */
+  regressionTests?: RiskSkillRegressionCase[];
   conditionScope: PatternScope;
   maxDistance: number;
   surfaceMeaning: string;
@@ -1575,6 +1584,29 @@ export function validateSkill(skill: RiskSkill) {
     const issue = patternIssue(pattern);
     if (issue) errors.push(`${pattern.slice(0, 48)}: ${issue}`);
   }
+  const regressionTests = skill.regressionTests ?? [];
+  if (regressionTests.length > 40) {
+    errors.push("회귀 테스트는 스킬당 최대 40개까지 등록할 수 있습니다.");
+  }
+  const regressionIds = new Set<string>();
+  regressionTests.forEach((regressionCase, index) => {
+    if (!regressionCase.id.trim() || regressionCase.id.length > 200) {
+      errors.push(`회귀 테스트 ${index + 1}의 ID가 유효하지 않습니다.`);
+    } else if (regressionIds.has(regressionCase.id)) {
+      errors.push(`중복된 회귀 테스트 ID입니다: ${regressionCase.id}`);
+    } else {
+      regressionIds.add(regressionCase.id);
+    }
+    if (!regressionCase.input.trim() || regressionCase.input.length > 2_000) {
+      errors.push(`회귀 테스트 ${index + 1}의 입력은 1~2,000자여야 합니다.`);
+    }
+    if (regressionCase.expected !== "match" && regressionCase.expected !== "no_match") {
+      errors.push(`회귀 테스트 ${index + 1}의 expected 값이 유효하지 않습니다.`);
+    }
+    if ((regressionCase.contextSlice?.length ?? 0) > 240) {
+      errors.push(`회귀 테스트 ${index + 1}의 문맥 설명은 240자 이하여야 합니다.`);
+    }
+  });
   if (skill.conditionScope !== "sentence" && skill.conditionScope !== "paragraph") {
     errors.push("적용 범위는 sentence 또는 paragraph여야 합니다.");
   }

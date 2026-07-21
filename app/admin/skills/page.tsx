@@ -18,7 +18,12 @@ function skillView(record: SkillAdminRecord): SkillLibraryItem | null {
     updatedAt: record.updatedAt,
     active: record.active ?? record.reviewStatus === "reviewed",
     payload: record.payload as unknown as SerializableJson,
-    regressionTests: [],
+    regressionTests: (record.payload.regressionTests ?? []).map((regressionCase) => ({
+      ...regressionCase,
+      contextSlice: regressionCase.contextSlice ?? null,
+      actual: null,
+      passed: null,
+    })),
   };
 }
 

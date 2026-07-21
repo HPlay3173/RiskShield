@@ -102,11 +102,16 @@
 .publicAnalyzerStatus [role="alert"] { display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: var(--red-800); }
 .publicAnalyzerNotice { margin: 1rem 0 0; color: var(--ink-600); font-size: 0.9rem; }
 .publicAnalyzerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
   width: min(100% - 2rem, 68rem);
   margin-inline: auto;
   padding: 0 0 2rem;
   text-align: right;
 }
+.publicAnalyzerFooter span { color: var(--ink-600); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
 .publicAnalyzerFooter a {
   display: inline-flex;
   min-height: 2.75rem;
@@ -211,6 +216,7 @@
   .publicAnalyzerMain { width: min(100% - 1.25rem, 42rem); padding-top: 3.5rem; }
   .profilePicker > div, .resultSignalStrip, .publicAnalyzerResultGrid { grid-template-columns: 1fr; }
   .publicAnalyzerFormMeta, .publicAnalyzerResultActions { align-items: flex-start; flex-direction: column; }
+  .publicAnalyzerFooter { align-items: flex-end; flex-direction: column; gap: 0; }
   .resultSignalStrip > div { border-right: 0; border-bottom: 1px solid var(--line); }
   .resultSignalStrip > div:last-child { border-bottom: 0; }
   .publicAnalyzerVerdict { align-items: flex-start; }

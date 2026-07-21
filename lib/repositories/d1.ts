@@ -473,6 +473,20 @@ function generatedSkill(
     contextPatterns: [...new Set(draft.contextPatterns.map((value) => value.trim()).filter(Boolean))],
     anyOfPatterns: [],
     exclusionPatterns: [...new Set((draft.exclusionPatterns ?? []).map((value) => value.trim()).filter(Boolean))],
+    regressionTests: [
+      ...(candidate.positiveTests ?? []).map((input, index) => ({
+        id: `${candidate.id}:positive:${index + 1}`,
+        input: input.trim(),
+        expected: "match" as const,
+        contextSlice: "후보 생성 단계에서 등록된 양성 예시",
+      })),
+      ...(candidate.negativeTests ?? []).map((input, index) => ({
+        id: `${candidate.id}:negative:${index + 1}`,
+        input: input.trim(),
+        expected: "no_match" as const,
+        contextSlice: "후보 생성 단계에서 등록된 음성·경고 문맥 예시",
+      })),
+    ].filter((regressionCase) => regressionCase.input),
     conditionScope: "sentence",
     maxDistance: 96,
     surfaceMeaning: candidate.expression,
@@ -511,6 +525,10 @@ function mergedSkillProposal(target: RiskSkill, generated: RiskSkill, now: strin
     contextPatterns: [...new Set([...target.contextPatterns, ...generated.contextPatterns])],
     anyOfPatterns: [...new Set([...target.anyOfPatterns, ...generated.anyOfPatterns])],
     exclusionPatterns: [...new Set([...(target.exclusionPatterns ?? []), ...(generated.exclusionPatterns ?? [])])],
+    regressionTests: [...new Map(
+      [...(target.regressionTests ?? []), ...(generated.regressionTests ?? [])]
+        .map((regressionCase) => [`${regressionCase.expected}\u0000${regressionCase.input}`, regressionCase]),
+    ).values()],
     safeRewrite: [...new Set([...target.safeRewrite, ...generated.safeRewrite])],
     updatedAt: now,
     reviewStatus: "draft",

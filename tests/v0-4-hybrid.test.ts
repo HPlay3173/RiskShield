@@ -46,7 +46,7 @@ function payloadFor(text: string, overrides: Partial<InterpreterPayload> = {}): 
   };
 }
 
-test("Schema 1.1.0 strict validator accepts grounded JSON and rejects extra fields or fabricated spans", () => {
+test("current Interpreter schema accepts grounded JSON and rejects extra fields or fabricated spans", () => {
   const text = "지금 신청하면 결과가 크게 개선됩니다";
   const prepared = prepareInterpreterInput(text);
   const valid = validateInterpreterPayload(payloadFor(text), prepared);
@@ -205,7 +205,7 @@ test("hybrid fusion requires rule evidence for high and suppresses contextual wa
   assert.equal(suppressed.suppressedHigh, true);
 });
 
-test("Schema 1.1.0 invalid Interpreter output and risk-family conflict always route to review", async () => {
+test("current Interpreter schema invalid output and risk-family conflict always route to review", async () => {
   const rules = analyzeText("15초만에 형량 분석", starterSkills);
   const invalidRun = {
     ...(await new MockInterpreter().interpret({ text: "15초만에 형량 분석" })),

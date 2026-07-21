@@ -79,6 +79,16 @@ test("meaningful negative and false-positive cases do not become active findings
   }
 });
 
+test("reviewed coded expressions match atomically while warning context is suppressed", () => {
+  const direct = analyzeText("느개미", starterSkills);
+  assert.equal(direct.primaryMatch?.skill.riskFamily, "coded_expression");
+  assert.ok(direct.finalScore >= 78);
+
+  const warning = analyzeText("느개미라는 표현은 사용하지 마세요", starterSkills);
+  assert.equal(warning.matches.length, 0);
+  assert.equal(warning.finalScore, 0);
+});
+
 test("required groups never combine across sentence boundaries", () => {
   const result = analyzeText(
     "15초만에 상담 접수가 끝났습니다. 형량 분석은 별도로 진행됩니다.",

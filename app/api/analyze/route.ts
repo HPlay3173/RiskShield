@@ -18,6 +18,7 @@ import {
   type ClaimTarget,
   type InterpreterRun,
 } from "../../../lib/v0-4/interpreter";
+import { PRODUCT_VERSION, SOURCE_COMMIT } from "../../../lib/release";
 import {
   INVALID_JSON_BODY,
   JSON_BODY_TOO_LARGE,
@@ -479,6 +480,13 @@ export async function POST(request: Request) {
       if (!run.ok) console.warn("RiskShield interpreter fallback", { reasonCode: aiFallback.reasonCode, timedOut: run.timedOut });
       return json({
         beta: "RiskShield v0.5 alpha",
+        release: {
+          productVersion: PRODUCT_VERSION,
+          sourceCommit: SOURCE_COMMIT,
+          interpreterSchema: INTERPRETER_SCHEMA_VERSION,
+          interpreterPrompt: INTERPRETER_PROMPT_VERSION,
+          scoringPolicy: scoring.policyVersion,
+        },
         profile: {
           id: profile,
           ...ANALYSIS_PROFILES[profile],

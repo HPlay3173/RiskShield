@@ -8,8 +8,8 @@ import { RISK_FAMILIES, type RiskFamily } from "../risk-family.ts";
 export { RISK_FAMILIES } from "../risk-family.ts";
 export type { RiskFamily } from "../risk-family";
 
-export const INTERPRETER_SCHEMA_VERSION = "1.1.0" as const;
-export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-21-multiaxis-r1" as const;
+export const INTERPRETER_SCHEMA_VERSION = "1.2.0" as const;
+export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-22-context-risk-r2" as const;
 export const HIGH_CONFIDENCE_THRESHOLD = 0.82;
 export const MEDIUM_CONFIDENCE_THRESHOLD = 0.55;
 export const SAFE_NO_MATCH_CONFIDENCE_THRESHOLD = 0.5;

@@ -46,7 +46,7 @@ function payloadFor(text: string, confidence: number, overrides: Partial<Interpr
   };
 }
 
-test("Scoring Policy 3.1 applies exact confidence caps at every boundary", () => {
+test("current Scoring Policy applies exact confidence caps at every boundary", () => {
   const text = "합격을 반드시 보장합니다";
   const rules = analyzeText(text, []);
   const cases = [

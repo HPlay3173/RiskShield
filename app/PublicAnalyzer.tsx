@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { PRODUCT_VERSION, SOURCE_COMMIT } from "../lib/release";
 
 const MAX_INPUT_CHARS = 2_000;
 const EXAMPLES = [
@@ -18,6 +19,13 @@ const PROFILES: Array<{ id: ProfileId; label: string; description: string }> = [
   { id: "context", label: "문맥 우선", description: "인용·비판·경고 여부를 먼저 봅니다." },
 ];
 type PublicAnalysis = {
+  release: {
+    productVersion: string;
+    sourceCommit: string;
+    interpreterSchema: string;
+    interpreterPrompt: string;
+    scoringPolicy: string;
+  };
   profile: { focus: string; emphasis: "balanced" | "claims" | "context" };
   rules: {
     finalScore: number;
@@ -170,10 +178,14 @@ export function PublicAnalyzer() {
             {result.rules.suggestedRewrite ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 표현</span><h3>{result.rules.suggestedRewrite}</h3><p>집단 일반화와 공격 표현을 줄이고, 구체적인 행동과 사실을 중심으로 다시 작성해 보세요.</p></article> : null}
 
             <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">결과 개선 참여</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" ? <div className="publicAnalyzerActions">{result.feedback.missedDetectionAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("missed_detection")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토함에 전달됨" : candidateState === "submitting" ? "전달 중…" : "위험한 표현인데 놓쳤어요"}</button> : null}{result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("false_positive")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토함에 전달됨" : candidateState === "submitting" ? "전달 중…" : "위험하지 않은데 잘못 잡았어요"}</button> : null}{!result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("new_expression")} disabled={candidateState === "submitting" || candidateState === "submitted"}>새 표현 후보로 제공</button> : null}</div> : null}{candidateState === "failed" ? <p role="alert">신고를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
-            <div className="publicAnalyzerResultActions"><button className="pressable primaryButton" type="button" onClick={reset}>다른 글 분석</button><span>Scoring Policy {result.scoring.policyVersion} · 실험 점수</span></div>
+            <div className="publicAnalyzerResultActions"><button className="pressable primaryButton" type="button" onClick={reset}>다른 글 분석</button><span>Source {result.release.sourceCommit} · Interpreter {result.release.interpreterSchema} · Scoring {result.release.scoringPolicy}</span></div>
           </section>
         ) : null}
       </main>
+      <footer className="publicAnalyzerFooter">
+        <span>RiskShield {PRODUCT_VERSION} · Source {SOURCE_COMMIT} · Sites production</span>
+        <a href="/manage">관리 도구</a>
+      </footer>
     </div>
   );
 }
