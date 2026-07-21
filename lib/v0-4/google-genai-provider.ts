@@ -70,16 +70,26 @@ function asFunctionParametersJsonSchema(schema: Record<string, unknown>): Record
 }
 
 function asOpenApiParameters(schema: Record<string, unknown>): Record<string, unknown> {
+  const int64SchemaKeys = new Set([
+    "maxItems",
+    "minItems",
+    "maxLength",
+    "minLength",
+    "maxProperties",
+    "minProperties",
+  ]);
   function convert(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(convert);
     if (!value || typeof value !== "object") return value;
     const source = value as Record<string, unknown>;
     const target: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(source)) {
-      if (key === "additionalProperties" || key === "minLength") continue;
+      if (key === "additionalProperties") continue;
       if (key === "const") {
         target.enum = [child];
         if (typeof child === "string") target.type = "STRING";
+      } else if (int64SchemaKeys.has(key) && typeof child === "number") {
+        target[key] = String(child);
       } else if (key === "type" && typeof child === "string") {
         target.type = child.toUpperCase();
       } else {
