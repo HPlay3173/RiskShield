@@ -1,5 +1,6 @@
 import {
   DEFAULT_SEVERITY_RULES,
+  COMPATIBILITY_MATCHER_POLICY_VERSION,
   analyzeText,
   parseSeverityRules,
   type AnalysisResult,
@@ -12,7 +13,6 @@ import {
   INTERPRETER_PROMPT_VERSION,
   INTERPRETER_SCHEMA_VERSION,
   LiveInterpreter,
-  combinePrivateBetaHybrid,
   hashInterpreterInput,
   prepareInterpreterInput,
   type ClaimTarget,
@@ -23,7 +23,7 @@ import {
   JSON_BODY_TOO_LARGE,
   readJsonValue,
 } from "../../../lib/http/control-response";
-import { calculateDeterministicScore } from "../../../lib/v0-5/scoring";
+import { calculateDeterministicScore, decisionReasonForScore } from "../../../lib/v0-5/scoring";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -61,17 +61,8 @@ type CacheEntry = {
   run: InterpreterRun;
 };
 
-type AbuseBucket = {
-  day: string;
-  dayCount: number;
-  windowStartedAt: number;
-  windowCount: number;
-};
-
 const verifiedResultCache = new Map<string, CacheEntry>();
 const inFlightInterpreterRuns = new Map<string, Promise<InterpreterRun>>();
-const abuseBuckets = new Map<string, AbuseBucket>();
-let providerBudget = { day: utcDay(), calls: 0 };
 let activeProviderCalls = 0;
 
 async function getRuntimeEnvironment() {
@@ -109,6 +100,7 @@ function cacheKeyFor(text: string, skills: readonly RiskSkill[], severityRules: 
       schema: INTERPRETER_SCHEMA_VERSION,
       prompt: INTERPRETER_PROMPT_VERSION,
       model: GEMMA_LIVE_PILOT_MODEL,
+      matcherPolicy: COMPATIBILITY_MATCHER_POLICY_VERSION,
       skills: skills.map((skill) => [skill.id, skill.revision, skill.updatedAt]),
       severityRules,
       text: prepared.modelText,
@@ -171,21 +163,42 @@ async function readSeverityRules(runtime: RuntimeEnvironment): Promise<SeverityR
   }
 }
 
-async function runInterpreter(text: string, domainHint: ClaimTarget | undefined, apiKey: string) {
+async function reserveProviderCall(runtime: RuntimeEnvironment) {
+  if (!runtime.DB) return developmentRuleFallback(runtime);
+  const day = utcDay();
+  const result = await runtime.DB.prepare(`
+    INSERT INTO riskshield_provider_budgets (day, call_count, updated_at)
+    VALUES (?, 1, ?)
+    ON CONFLICT(day) DO UPDATE SET
+      call_count = riskshield_provider_budgets.call_count + 1,
+      updated_at = excluded.updated_at
+    WHERE riskshield_provider_budgets.call_count < ?
+    RETURNING call_count
+  `).bind(day, new Date().toISOString(), DAILY_PROVIDER_CALL_LIMIT).first<{ call_count: number }>();
+  return Boolean(result && result.call_count <= DAILY_PROVIDER_CALL_LIMIT);
+}
+
+async function runInterpreter(
+  text: string,
+  domainHint: ClaimTarget | undefined,
+  apiKey: string,
+  runtime: RuntimeEnvironment,
+) {
+  if (!await reserveProviderCall(runtime)) {
+    return unavailableRun(hashInterpreterInput(text), text, "provider_budget_exhausted");
+  }
   const interpreter = new LiveInterpreter(new GoogleGenAiProvider(apiKey));
-  providerBudget.calls += 1;
   const run = await interpreter.interpret({ text, domainHint });
   if (!run.resourceExhausted) return run;
   if (
     run.retryAfterSeconds === null ||
     run.retryAfterSeconds === undefined ||
     run.retryAfterSeconds > MAX_RETRY_AFTER_SECONDS ||
-    !hasProviderBudget()
+    !await reserveProviderCall(runtime)
   ) {
     return run;
   }
   await new Promise((resolve) => setTimeout(resolve, run.retryAfterSeconds! * 1_000));
-  providerBudget.calls += 1;
   return interpreter.interpret({ text, domainHint });
 }
 
@@ -194,6 +207,7 @@ function runInterpreterOnce(
   text: string,
   domainHint: ClaimTarget | undefined,
   apiKey: string,
+  runtime: RuntimeEnvironment,
 ) {
   const existing = inFlightInterpreterRuns.get(key);
   if (existing) return existing;
@@ -201,7 +215,7 @@ function runInterpreterOnce(
     return Promise.resolve(unavailableRun(key, text, "provider_concurrency_saturated"));
   }
   activeProviderCalls += 1;
-  const pending = runInterpreter(text, domainHint, apiKey).finally(() => {
+  const pending = runInterpreter(text, domainHint, apiKey, runtime).finally(() => {
     inFlightInterpreterRuns.delete(key);
     activeProviderCalls = Math.max(0, activeProviderCalls - 1);
   });
@@ -250,12 +264,6 @@ function projectRules(rules: AnalysisResult, profile: AnalysisProfile) {
   };
 }
 
-function hasProviderBudget() {
-  const day = utcDay();
-  if (providerBudget.day !== day) providerBudget = { day, calls: 0 };
-  return providerBudget.calls < DAILY_PROVIDER_CALL_LIMIT;
-}
-
 async function abuseKey(request: Request) {
   const day = utcDay();
   const address =
@@ -269,37 +277,53 @@ async function abuseKey(request: Request) {
     .slice(0, 32);
 }
 
-async function enforceRateLimit(request: Request) {
+async function enforceRateLimit(request: Request, runtime: RuntimeEnvironment) {
   const key = await abuseKey(request);
   const now = Date.now();
   const day = utcDay();
-  if (abuseBuckets.size > 10_000) {
-    for (const [bucketKey, value] of abuseBuckets) {
-      if (value.day !== day) abuseBuckets.delete(bucketKey);
-    }
+  if (!runtime.DB) {
+    return developmentRuleFallback(runtime)
+      ? null
+      : json({ error: "rate_limit_storage_unavailable", message: "요청 제한 저장소를 사용할 수 없습니다." }, 503);
   }
-  const current = abuseBuckets.get(key);
-  const bucket: AbuseBucket = !current || current.day !== day
-    ? { day, dayCount: 0, windowStartedAt: now, windowCount: 0 }
-    : current;
-  if (now - bucket.windowStartedAt >= BURST_WINDOW_MS) {
-    bucket.windowStartedAt = now;
-    bucket.windowCount = 0;
-  }
-  const burstBlocked = bucket.windowCount >= BURST_LIMIT;
-  const dailyBlocked = bucket.dayCount >= DAILY_REQUEST_LIMIT;
+  const bucket = await runtime.DB.prepare(`
+    INSERT INTO riskshield_public_limits
+      (bucket_key, day, day_count, window_started_at, window_count, updated_at)
+    VALUES (?, ?, 1, ?, 1, ?)
+    ON CONFLICT(bucket_key) DO UPDATE SET
+      day = excluded.day,
+      day_count = CASE
+        WHEN riskshield_public_limits.day = excluded.day THEN riskshield_public_limits.day_count + 1
+        ELSE 1
+      END,
+      window_started_at = CASE
+        WHEN riskshield_public_limits.day <> excluded.day
+          OR excluded.window_started_at - riskshield_public_limits.window_started_at >= ?
+        THEN excluded.window_started_at
+        ELSE riskshield_public_limits.window_started_at
+      END,
+      window_count = CASE
+        WHEN riskshield_public_limits.day <> excluded.day
+          OR excluded.window_started_at - riskshield_public_limits.window_started_at >= ?
+        THEN 1
+        ELSE riskshield_public_limits.window_count + 1
+      END,
+      updated_at = excluded.updated_at
+    RETURNING day_count, window_started_at, window_count
+  `).bind(key, day, now, new Date(now).toISOString(), BURST_WINDOW_MS, BURST_WINDOW_MS)
+    .first<{ day_count: number; window_started_at: number; window_count: number }>();
+  if (!bucket) return json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503);
+  const burstBlocked = bucket.window_count > BURST_LIMIT;
+  const dailyBlocked = bucket.day_count > DAILY_REQUEST_LIMIT;
   if (burstBlocked || dailyBlocked) {
     const retryAfter = burstBlocked
-      ? Math.max(1, Math.ceil((bucket.windowStartedAt + BURST_WINDOW_MS - now) / 1_000))
+      ? Math.max(1, Math.ceil((bucket.window_started_at + BURST_WINDOW_MS - now) / 1_000))
       : Math.max(1, Math.ceil((Date.parse(`${day}T00:00:00.000Z`) + 86_400_000 - now) / 1_000));
     return Response.json(
       { error: "rate_limited", message: "요청이 많습니다. 잠시 후 다시 시도해 주세요." },
       { status: 429, headers: { "retry-after": String(retryAfter), "cache-control": "no-store" } },
     );
   }
-  bucket.windowCount += 1;
-  bucket.dayCount += 1;
-  abuseBuckets.set(key, bucket);
   return null;
 }
 
@@ -339,7 +363,8 @@ function json(body: unknown, status = 200, extraHeaders: HeadersInit = {}) {
 }
 
 export async function POST(request: Request) {
-  const limited = await enforceRateLimit(request);
+  const runtime = await getRuntimeEnvironment();
+  const limited = await enforceRateLimit(request, runtime);
   if (limited) return limited;
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
     return json({ error: "unsupported_media_type", message: "JSON 요청이 필요합니다." }, 415);
@@ -369,7 +394,6 @@ export async function POST(request: Request) {
   const text = body.text.trim();
   const profile = analysisProfile(body.profile);
   try {
-    const runtime = await getRuntimeEnvironment();
     const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
     const [skills, severityRules] = await Promise.all([
       readReviewedSkills(runtime),
@@ -379,39 +403,32 @@ export async function POST(request: Request) {
     const key = cacheKeyFor(text, skills, severityRules);
     let run = readCached(key);
 
-    const providerBudgetAvailable = hasProviderBudget();
-    if (!run && apiKey && providerBudgetAvailable) {
+    if (!run && apiKey) {
       run = await runInterpreterOnce(
         key,
         text,
         domainHintFor(rules.primaryMatch ? [rules.primaryMatch.skill] : []),
         apiKey,
+        runtime,
       );
       writeCached(key, run);
     }
     run ??= unavailableRun(
       key,
       text,
-      apiKey && !providerBudgetAvailable ? "provider_budget_exhausted" : "server_secret_unavailable",
+      "server_secret_unavailable",
     );
 
-      const hybrid = combinePrivateBetaHybrid(rules, run);
       const payload = run.payload;
-      const contextSuppressed = hybrid.status === "no_match"
-        && payload?.risk_intent === "contextual_only"
-        && payload.policy_relevance === "none";
-      const scoring = calculateDeterministicScore(rules, payload, {
-        suppressContext: contextSuppressed,
-        forceReview: hybrid.conflict,
-      });
-      const uncertainty = !run.ok || hybrid.conflict || hybrid.status === "review"
+      const scoring = calculateDeterministicScore(rules, payload);
+      const uncertainty = !run.ok || scoring.conflict || scoring.status === "review"
         ? {
             level: "high" as const,
             reason: !run.ok
               ? "AI 문맥 해석을 사용할 수 없어 사람의 확인이 더 중요합니다."
               : "규칙과 문맥 신호가 충돌하거나 검토 경계에 있습니다.",
           }
-        : hybrid.status === "no_match" || (payload?.confidence ?? 0) < 0.75
+        : scoring.status === "no_match" || (payload?.confidence ?? 0) < 0.75
           ? {
               level: "medium" as const,
               reason: "직접 위험 근거가 없거나 문맥 신뢰도가 제한적입니다.",
@@ -469,8 +486,8 @@ export async function POST(request: Request) {
         hybrid: {
           status: scoring.status,
           score: scoring.finalScore,
-          conflict: hybrid.conflict,
-          reason: hybrid.reason,
+          conflict: scoring.conflict,
+          reason: decisionReasonForScore(scoring),
         },
         uncertainty,
         novelty,

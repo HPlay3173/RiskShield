@@ -4,6 +4,7 @@ import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject, repositoryFailure } f
 import { createRepositoryServices } from "../../../../../lib/repositories";
 import { readCsvDataset } from "../../../../../lib/datasets/csv";
 import { decodeSourceBase64 } from "../../../../../lib/datasets/source-bytes";
+import { readDatasetSource } from "../../../../../lib/datasets/object-store";
 import { GoogleTrainingDraftProvider } from "../../../../../lib/training/google-draft-provider";
 import {
   runTrainingMvp,
@@ -39,28 +40,26 @@ export async function runTrainingRequest(request: Request, allowProduction: bool
   if (body === JSON_BODY_TOO_LARGE) {
     return controlJson({ error: "training_payload_too_large", message: "한 실행은 10,000행과 3MiB 이하만 지원합니다." }, 413);
   }
-  const sourceBytes = decodeSourceBase64(body?.sourceBytesBase64);
   const datasetVersionId = typeof body?.datasetVersionId === "string" && body.datasetVersionId.trim()
     ? body.datasetVersionId.trim().slice(0, 200)
     : null;
-  if (!sourceBytes || !datasetVersionId) {
-    return controlJson({ error: "invalid_training_input", message: "검증된 dataset version, SHA-256과 1~10,000개 expression 행이 필요합니다." }, 400);
+  if (!datasetVersionId) {
+    return controlJson({ error: "invalid_training_input", message: "검증된 dataset version이 필요합니다." }, 400);
   }
 
-  const versionMatch = /^(.+)_v([1-9][0-9]*)$/u.exec(datasetVersionId);
-  const datasetId = versionMatch?.[1] ?? "";
-  const versionNumber = Number(versionMatch?.[2] ?? 0);
-  if (!datasetId || !Number.isSafeInteger(versionNumber)) {
-    return controlJson({ error: "invalid_dataset_version", message: "등록된 Dataset Version이 필요합니다." }, 400);
+  const registeredVersion = await repositories.datasets.getVersion(datasetVersionId);
+  if (registeredVersion.status !== "ready") return repositoryFailure(registeredVersion);
+  if (!registeredVersion.data) {
+    return controlJson({ error: "invalid_dataset_version", message: "불변 원본에 연결된 Dataset Version을 찾지 못했습니다." }, 409);
   }
+  const datasetId = registeredVersion.data.datasetId;
   const registeredDataset = await repositories.datasets.getById(datasetId);
   if (registeredDataset.status !== "ready") return repositoryFailure(registeredDataset);
   if (
     !registeredDataset.data
     || !["staging", "ready"].includes(registeredDataset.data.status)
-    || registeredDataset.data.versionCount !== versionNumber
-    || !registeredDataset.data.latestSha256
-    || !registeredDataset.data.latestKeywordColumn
+    || registeredDataset.data.latestSha256 !== registeredVersion.data.sha256
+    || registeredDataset.data.latestObjectKey !== registeredVersion.data.objectKey
   ) {
     return controlJson({
       error: "dataset_version_mismatch",
@@ -68,19 +67,50 @@ export async function runTrainingRequest(request: Request, allowProduction: bool
     }, 409);
   }
 
+  let sourceBytes: Uint8Array | null = null;
+  if (repositories.developmentFixture) {
+    sourceBytes = decodeSourceBase64(body?.sourceBytesBase64);
+  } else {
+    try {
+      const { env } = await import("cloudflare:workers");
+      if (!env.DATASETS) {
+        return controlJson({
+          error: "dataset_object_storage_required",
+          message: "학습 원본을 읽을 R2 DATASETS binding이 필요합니다.",
+          state: "configuration_required",
+        }, 503);
+      }
+      sourceBytes = await readDatasetSource(
+        env.DATASETS,
+        registeredVersion.data.objectKey,
+        registeredVersion.data.sha256,
+      );
+    } catch (error) {
+      console.error("[RiskShield training] immutable dataset read failed", error instanceof Error ? error.name : "unknown_error");
+      return controlJson({ error: "dataset_object_read_failed", message: "등록된 불변 데이터셋 원본을 읽지 못했습니다." }, 503);
+    }
+  }
+  if (!sourceBytes) {
+    return controlJson({ error: "dataset_source_required", message: "개발 실행에는 등록 당시와 동일한 원본 CSV가 필요합니다." }, 400);
+  }
+
   const preliminary = await readCsvDataset(sourceBytes.buffer as ArrayBuffer, { previewRows: 0 });
-  const keywordIndex = preliminary.inspection.headers.indexOf(registeredDataset.data.latestKeywordColumn);
+  const keywordIndex = preliminary.inspection.headers.indexOf(registeredVersion.data.keywordColumn);
   if (keywordIndex < 0) {
     return controlJson({ error: "dataset_mapping_mismatch", message: "등록된 keyword 열이 원본 CSV에 없습니다." }, 409);
   }
   const verified = await readCsvDataset(sourceBytes.buffer as ArrayBuffer, {
     mapping: { keyword: keywordIndex },
-    delimiter: preliminary.inspection.delimiter,
+    delimiter: registeredVersion.data.delimiter as "," | ";" | "\t" | "|",
     previewRows: 0,
   });
   const sourceSha256 = verified.inspection.sha256;
   if (
     registeredDataset.data.latestSha256 !== sourceSha256
+    ||
+    registeredVersion.data.sha256 !== sourceSha256
+    || registeredVersion.data.byteSize !== verified.inspection.byteSize
+    || registeredVersion.data.rowCount !== verified.inspection.rowCount
     || !verified.inspection.canStage
     || !verified.rows.length
     || verified.rows.length > MAX_ROWS

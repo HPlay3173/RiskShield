@@ -2,6 +2,7 @@ import { principalFromRequest, requireApiCapability } from "../../../../../lib/a
 import { requireMutationIntegrity } from "../../../../../lib/auth/request-integrity";
 import { CSV_FIELD_ROLES, readCsvDataset, type CsvDelimiter, type CsvManualMapping } from "../../../../../lib/datasets/csv";
 import { decodeSourceBase64 } from "../../../../../lib/datasets/source-bytes";
+import { datasetObjectKey, persistDatasetSource } from "../../../../../lib/datasets/object-store";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject, repositoryFailure } from "../../../../../lib/http/control-response";
 import { createRepositoryServices } from "../../../../../lib/repositories";
 
@@ -73,6 +74,26 @@ export async function POST(request: Request) {
   }
 
   const repositories = await createRepositoryServices({ request });
+  let objectKey = datasetObjectKey(verified.inspection.sha256);
+  if (!repositories.developmentFixture) {
+    try {
+      const { env } = await import("cloudflare:workers");
+      if (!env.DATASETS) {
+        return controlJson({
+          error: "dataset_object_storage_required",
+          message: "원본 데이터셋을 보존할 R2 DATASETS binding이 필요합니다.",
+          state: "configuration_required",
+        }, 503);
+      }
+      objectKey = await persistDatasetSource(env.DATASETS, sourceBytes, verified.inspection.sha256);
+    } catch (error) {
+      console.error("[RiskShield dataset registration] object persistence failed", error instanceof Error ? error.name : "unknown_error");
+      return controlJson({
+        error: "dataset_object_write_failed",
+        message: "검증된 원본 데이터셋을 불변 저장소에 기록하지 못했습니다.",
+      }, 503);
+    }
+  }
   const result = await repositories.datasets.register({
     name,
     sha256: verified.inspection.sha256,
@@ -82,6 +103,7 @@ export async function POST(request: Request) {
     delimiter: verified.inspection.delimiter,
     headers: verified.inspection.headers,
     keywordColumn: verified.inspection.mapping.keyword.header,
+    objectKey,
     owner,
     license,
     allowedPurpose,

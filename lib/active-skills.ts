@@ -1,5 +1,6 @@
 import {
   starterSkills,
+  validateManagedSkill,
   validateSkill,
   type RiskSkill,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
@@ -15,7 +16,7 @@ function parseReviewedSkill(row: StoredSkillPayloadRow): RiskSkill | null {
   if (row.review_status !== "reviewed") return null;
   try {
     const parsed = JSON.parse(row.payload) as RiskSkill;
-    return parsed.reviewStatus === "reviewed" && validateSkill(parsed).length === 0
+    return parsed.reviewStatus === "reviewed" && validateManagedSkill(parsed).length === 0
       ? parsed
       : null;
   } catch {

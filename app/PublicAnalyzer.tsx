@@ -9,25 +9,7 @@ const EXAMPLES = [
   "100% 수익 보장이라는 표현은 사용하지 마세요.",
 ];
 
-const PROFILES = [
-  {
-    id: "balanced",
-    label: "균형 분석",
-    description: "검증된 v4 규칙과 문맥 해석을 함께 봅니다.",
-  },
-  {
-    id: "advertising",
-    label: "광고·주장",
-    description: "동일한 v4 점수에서 광고·효능·보장 분야를 결과 상단에 배치합니다.",
-  },
-  {
-    id: "context",
-    label: "문맥 우선",
-    description: "동일한 v4 점수에서 문맥 관계와 불확실성 설명을 먼저 보여줍니다.",
-  },
-] as const;
-
-type ProfileId = (typeof PROFILES)[number]["id"];
+type ProfileId = "balanced" | "advertising" | "context";
 
 type PublicAnalysis = {
   profile: {
@@ -119,11 +101,10 @@ function uncertaintyCopy(level: PublicAnalysis["uncertainty"]["level"]) {
 
 export function PublicAnalyzer() {
   const [text, setText] = useState("");
-  const [profile, setProfile] = useState<ProfileId>("balanced");
   const [result, setResult] = useState<PublicAnalysis | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [lastRequest, setLastRequest] = useState<{ text: string; profile: ProfileId } | null>(null);
+  const [lastRequest, setLastRequest] = useState<{ text: string } | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [candidateState, setCandidateState] = useState<"idle" | "submitting" | "submitted" | "failed">("idle");
   const controllerRef = useRef<AbortController | null>(null);
@@ -134,7 +115,7 @@ export function PublicAnalyzer() {
     if (result) resultHeadingRef.current?.focus();
   }, [result]);
 
-  async function analyze(input: { text: string; profile: ProfileId }) {
+  async function analyze(input: { text: string }) {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -180,7 +161,7 @@ export function PublicAnalyzer() {
       inputRef.current?.focus();
       return;
     }
-    await analyze({ text: value, profile });
+    await analyze({ text: value });
   }
 
   function cancel() {
@@ -276,26 +257,6 @@ export function PublicAnalyzer() {
             <span>이름·연락처 등 개인정보는 입력하지 마세요.</span>
           </div>
 
-          <fieldset className="profilePicker" hidden>
-            <legend>분석 프로필</legend>
-            <div>
-              {PROFILES.map((item) => (
-                <label key={item.id} className={profile === item.id ? "isSelected" : undefined}>
-                  <input
-                    type="radio"
-                    name="analysis-profile"
-                    value={item.id}
-                    checked={profile === item.id}
-                    onChange={() => setProfile(item.id)}
-                    disabled={loading}
-                  />
-                  <span><strong>{item.label}</strong><small>{item.description}</small></span>
-                </label>
-              ))}
-            </div>
-            <p>프로필은 해석 관점을 정하며 검증된 v4 점수 기준은 바꾸지 않습니다.</p>
-          </fieldset>
-
           <div className="publicAnalyzerExamples" aria-label="분석 예시">
             {EXAMPLES.map((example) => (
               <button className="pressable quietButton" key={example} type="button" onClick={() => setText(example)} disabled={loading}>
@@ -326,11 +287,12 @@ export function PublicAnalyzer() {
         </form>
 
         <p className="publicAnalyzerNotice">
+          기본 균형 분석으로 실행하며 광고·주장과 문맥 우선 신호를 한 결과 안에서 함께 설명합니다.<br />
           이 분석은 사람의 최종 검토를 돕는 보조 도구입니다. <code>no_match</code>는 안전 판정이나 게시 승인이 아닙니다.
         </p>
 
         {result && (
-          <section className="publicAnalyzerResults" aria-labelledby="result-title">
+          <section className={`publicAnalyzerResults profile-${result.profile.emphasis}`} aria-labelledby="result-title">
             {result.ai.state === "fallback" && (
               <div className="analysisBanner" role="status">
                 <strong>Rules-only 안전 모드</strong>
@@ -340,7 +302,7 @@ export function PublicAnalyzer() {
 
             <div className={`publicAnalyzerVerdict status-${result.hybrid.status}`}>
               <div>
-                <span>실험 위험 점수 · {result.profile.label}</span>
+                <span>실험 위험 점수</span>
                 <h2 ref={resultHeadingRef} id="result-title" tabIndex={-1}>{statusCopy(result.hybrid.status)}</h2>
                 <p>{result.hybrid.reason}</p>
               </div>
@@ -354,7 +316,7 @@ export function PublicAnalyzer() {
             </div>
 
             <p className="analysisProfileFocus">
-              <strong>프로필 초점</strong>
+              <strong>결과 배열 기준</strong>
               <span>{result.profile.focus}</span>
             </p>
 
@@ -364,7 +326,7 @@ export function PublicAnalyzer() {
               <div><span>분석 모드</span><strong>{result.ai.state === "ready" ? "규칙 + AI" : "규칙 전용"}</strong><small>AI만으로 높은 위험을 만들지 않습니다.</small></div>
             </div>
 
-            <div className={`publicAnalyzerResultGrid profile-${result.profile.emphasis}`}>
+            <div className="publicAnalyzerResultGrid">
               <article className="resultCard categoryCard">
                 <h3>주요 분야별 위험</h3>
                 {result.scoring.categoryScores.length ? (

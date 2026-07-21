@@ -108,11 +108,22 @@ export async function authorizedUserForGoogleIdentity(
   try {
     const user = await userForGoogleIdentity(identity);
     if (user) return { userId: user.user_id, roleVersion: user.role_version };
+    const allowlisted = allowlistedManagerForGoogleIdentity(identity, runtime);
+    if (!allowlisted || !runtime.DB) return null;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity.subject));
+    const userId = `google_user_${Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("").slice(0, 24)}`;
+    const now = new Date().toISOString();
+    await runtime.DB.prepare(`
+      INSERT INTO riskshield_users
+        (id, identity_provider, external_subject, normalized_email, role_name, status, role_version, session_not_before, created_at, updated_at)
+      VALUES (?, 'google', ?, ?, 'owner', 'active', 1, NULL, ?, ?)
+      ON CONFLICT(identity_provider, external_subject) DO NOTHING
+    `).bind(userId, identity.subject, identity.email.trim().toLowerCase(), now, now).run();
+    const provisioned = await userForGoogleIdentity(identity);
+    return provisioned ? { userId: provisioned.user_id, roleVersion: provisioned.role_version } : null;
   } catch {
-    // The verified-email allowlist supports a single manager while the optional
-    // D1 RBAC schema is not installed. No database write occurs in this flow.
+    return null;
   }
-  return allowlistedManagerForGoogleIdentity(identity, runtime);
 }
 
 export function allowlistedManagerPrincipalForSession(
@@ -145,9 +156,7 @@ export async function principalForSession(session: SessionClaims): Promise<Curre
   const runtime = await getAuthRuntime();
   const accessCodePrincipal = accessCodePrincipalForSession(session, runtime);
   if (accessCodePrincipal) return accessCodePrincipal;
-  if (session.managerAllowlist === true) {
-    return allowlistedManagerPrincipalForSession(session, runtime);
-  }
+  if (session.managerAllowlist === true) return null;
   const row = await rowBy(
     `${USER_SELECT}
      WHERE u.id = ?
@@ -177,7 +186,7 @@ export async function principalForSession(session: SessionClaims): Promise<Curre
 }
 
 export async function revokeSession(session: SessionClaims) {
-  if (session.sub === ACCESS_CODE_SUBJECT || session.managerAllowlist === true) return;
+  if (session.sub === ACCESS_CODE_SUBJECT) return;
   const db = await database();
   await db.prepare(`
     INSERT INTO riskshield_session_revocations (session_id, user_id, expires_at, revoked_at)

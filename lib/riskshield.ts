@@ -820,107 +820,94 @@ function compilePattern(pattern: string) {
   }
 }
 
-function normalizedPatternVariants(
-  skill: RiskSkill,
-  role: "trigger" | "context",
-) {
-  const additions: string[] = [];
-  const type = skill.patternType;
+export const COMPATIBILITY_MATCHER_POLICY_VERSION = "1.0.0" as const;
 
-  if (type === "health_safety + absolute_absence") {
-    if (role === "trigger") {
-      additions.push("re:안전(?:성|한|하다|합니다|하다고)?");
-    } else {
-      additions.push(
+export const COMPATIBILITY_MATCHER_REGISTRY: Readonly<Record<string, {
+  trigger?: readonly string[];
+  context?: readonly string[];
+}>> = {
+  "health_safety + absolute_absence": {
+    trigger: ["re:안전(?:성|한|하다|합니다|하다고)?"],
+    context: [
         "re:(?:하나도|전혀|절대|조금도)?\\s*없(?:습니다|어요|다|음|고|는|다고)",
         "re:(?:완전(?:히)?|100\\s*%)",
         "re:보장(?:합니다|한다|해|됨|된다)?",
-      );
-    }
-  }
-
-  if (type === "body_or_weight_result + certainty_or_period") {
-    if (role === "trigger") {
-      additions.push("re:(?:키|신장|성장|체형|몸매)");
-    } else {
-      additions.push(
+    ],
+  },
+  "body_or_weight_result + certainty_or_period": {
+    trigger: ["re:(?:키|신장|성장|체형|몸매)"],
+    context: [
         "re:\\d+(?:[.]\\d+)?\\s*cm\\s*(?:까지|씩|이상|더)?[^.!?\\n]{0,16}(?:자라|자랍|커지|커집|큽|큰다|늘|성장)",
         "re:\\d+(?:[.]\\d+)?\\s*(?:~|-|∼)\\s*\\d+(?:[.]\\d+)?\\s*cm[^.!?\\n]{0,16}(?:키|신장|자라|커지|늘|성장)",
         "re:(?:자라|커지|큰다|늘|성장)[^.!?\\n]{0,16}\\d+(?:[.]\\d+)?\\s*cm",
-      );
-    }
-  }
-
-  if (type === "education_outcome + universal_promise" || type === "education_outcome + guarantee") {
-    if (role === "trigger") {
-      additions.push("re:(?:특채|채용|입사)");
-    } else {
-      additions.push(
+    ],
+  },
+  "education_outcome + universal_promise": {
+    trigger: ["re:(?:특채|채용|입사)"],
+    context: [
         "re:시켜\\s*(?:드립|드립니다|드려|드리|줍|준다|드립니다)",
         "re:(?:전원|모두|누구나)",
         "re:확정(?:됩니다|된다|함|이다|입니다)?",
-      );
-    }
-  }
-
-  if (type === "education_superlative_or_metric + service_subject") {
-    if (role === "trigger") additions.push("re:(?:합격률|진학률|취업률)");
-    else additions.push("re:(?:재원생|수강생|대학|진학|합격자)");
-  }
-
-  if (type === "legal_outcome + certainty_or_promise") {
-    if (role === "trigger") additions.push("re:승소");
-    else additions.push(
+    ],
+  },
+  "education_outcome + guarantee": {
+    trigger: ["re:(?:특채|채용|입사)"],
+    context: ["re:시켜\\s*(?:드립|드립니다|드려|드리|줍|준다|드립니다)", "re:(?:전원|모두|누구나)", "re:확정(?:됩니다|된다|함|이다|입니다)?"],
+  },
+  "education_superlative_or_metric + service_subject": {
+    trigger: ["re:(?:합격률|진학률|취업률)"],
+    context: ["re:(?:재원생|수강생|대학|진학|합격자)"],
+  },
+  "legal_outcome + certainty_or_promise": {
+    trigger: ["re:승소"],
+    context: [
       "re:(?:결과(?:를|은|까지)?[^.!?\\n]{0,18})?(?:책임지|책임집|책임질|약속하)",
-    );
-  }
-
-  if (type === "financial_return_or_loss + guarantee_or_recovery" && role === "context") {
-    additions.push("re:전액[^.!?\\n]{0,12}돌려\\s*드(?:립|립니다|려요|림)");
-  }
-
-  if (type === "legal_superlative_or_authority + substantiation_signal") {
-    if (role === "trigger") additions.push("re:(?:승소|전관예우|전관)");
-    else additions.push(
+    ],
+  },
+  "financial_return_or_loss + guarantee_or_recovery": {
+    context: ["re:전액[^.!?\\n]{0,12}돌려\\s*드(?:립|립니다|려요|림)"],
+  },
+  "legal_superlative_or_authority + substantiation_signal": {
+    trigger: ["re:(?:승소|전관예우|전관)"],
+    context: [
       "re:(?:승소\\s*)?(?:가능성|예상|확률)",
       "re:(?:판사|검사|전관)[^.!?\\n]{0,18}(?:출신|경력|인맥|영향력|직접|해결)",
       "re:(?:인맥|영향력|출신|변호사|법무법인|로펌)",
-    );
-  }
-
-  if (type === "app_installation + concealment_signal") {
-    if (role === "trigger") additions.push("re:(?:앱|애플리케이션|프로그램|설치)");
-    else additions.push(
+    ],
+  },
+  "app_installation + concealment_signal": {
+    trigger: ["re:(?:앱|애플리케이션|프로그램|설치)"],
+    context: [
       "re:(?:숨겨진|은밀한|비밀)\\s*모드",
       "re:아이콘(?:을|이|은|는)?[^.!?\\n]{0,18}(?:숨기|숨겨|숨김|표시되지|보이지)",
       "re:(?:실행\\s*중인\\s*)?앱\\s*목록(?:에|에서)?[^.!?\\n]{0,24}(?:표시되지|보이지|나타나지)",
-    );
-  }
-
-  if (type === "personal_data_asset + covert_surveillance") {
-    if (role === "trigger") additions.push("re:(?:메신저|채팅|채팅방|알림|추적|감시)");
-    else additions.push(
+    ],
+  },
+  "personal_data_asset + covert_surveillance": {
+    trigger: ["re:(?:메신저|채팅|채팅방|알림|추적|감시)"],
+    context: [
       "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:모르게|알지\\s*못하게|눈치채지\\s*못하게)",
       "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:절대\\s*)?알\\s*수\\s*없",
       "re:(?:들키지|발각되지|눈치채지)\\s*않게",
       "re:몰래[^.!?\\n]{0,24}(?:보는|읽는|확인하는)\\s*방법",
       "re:(?:알림|통보|표시)[^.!?\\n]{0,20}(?:삭제|숨기|남지|표시되지)",
-    );
-  }
-
-  if (type === "privacy_tracking + lack_of_consent") {
-    if (role === "trigger") additions.push(
+    ],
+  },
+  "privacy_tracking + lack_of_consent": {
+    trigger: [
       "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:모르게|알지\\s*못하게)",
       "re:(?:들키지|발각되지)\\s*않게",
-    );
-  }
+    ],
+  },
+  "data_asset + access_or_export": {
+    trigger: ["re:(?:대화|채팅|채팅방|메신저)"],
+    context: ["re:(?:보는|읽는|열어보는)\\s*방법"],
+  },
+};
 
-  if (type === "data_asset + access_or_export") {
-    if (role === "trigger") additions.push("re:(?:대화|채팅|채팅방|메신저)");
-    else additions.push("re:(?:보는|읽는|열어보는)\\s*방법");
-  }
-
+function normalizedPatternVariants(skill: RiskSkill, role: "trigger" | "context") {
   const base = role === "trigger" ? skill.triggerPatterns : skill.contextPatterns;
+  const additions = COMPATIBILITY_MATCHER_REGISTRY[skill.patternType]?.[role] ?? [];
   return [...new Set([...base, ...additions])];
 }
 
@@ -1493,6 +1480,25 @@ export function validateSkill(skill: RiskSkill) {
     if (skill.source.provenanceStatus === "synthetic_unverified") {
       errors.push("검증되지 않은 합성 출처는 검토 완료 상태로 내보낼 수 없습니다.");
     }
+  }
+  return errors;
+}
+
+/**
+ * Managed and model-generated skills use the portable matcher DSL only.
+ * Raw JavaScript regular expressions remain confined to the versioned,
+ * code-reviewed compatibility kernel so a D1 write cannot introduce ReDoS.
+ */
+export function validateManagedSkill(skill: RiskSkill) {
+  const errors = [...validateSkill(skill)];
+  const rawPattern = [
+    ...skill.triggerPatterns,
+    ...skill.contextPatterns,
+    ...skill.anyOfPatterns,
+    ...(skill.exclusionPatterns ?? []),
+  ].find((pattern) => pattern.startsWith("re:"));
+  if (rawPattern) {
+    errors.push(`관리 스킬은 raw regex를 사용할 수 없습니다: ${rawPattern.slice(0, 48)}`);
   }
   return errors;
 }

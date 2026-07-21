@@ -17,6 +17,29 @@ interface D1Database {
   dump(): Promise<ArrayBuffer>;
 }
 
+interface R2Object {
+  key: string;
+  size: number;
+  customMetadata?: Record<string, string>;
+}
+
+interface R2ObjectBody extends R2Object {
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+interface R2Bucket {
+  head(key: string): Promise<R2Object | null>;
+  get(key: string): Promise<R2ObjectBody | null>;
+  put(
+    key: string,
+    value: ArrayBuffer | ArrayBufferView | string,
+    options?: {
+      httpMetadata?: { contentType?: string };
+      customMetadata?: Record<string, string>;
+    },
+  ): Promise<R2Object>;
+}
+
 interface Fetcher {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
@@ -24,6 +47,7 @@ interface Fetcher {
 declare module "cloudflare:workers" {
   export const env: {
     DB?: D1Database;
+    DATASETS?: R2Bucket;
     GOOGLE_OIDC_CLIENT_ID?: string;
     GOOGLE_OIDC_CLIENT_SECRET?: string;
     RISKSHIELD_ACCESS_CODE?: string;

@@ -18,7 +18,8 @@ import {
   RISK_SKILL_SCHEMA_VERSION,
   analyzeText,
   parseSeverityRules,
-  validateSkill,
+  validateManagedSkill,
+  starterSkills,
   type ReviewStatus,
   type RiskSkill,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
@@ -42,6 +43,7 @@ import {
   type DatasetRegistrationAcknowledgement,
   type DatasetRegistrationInput,
   type DatasetRepository,
+  type DatasetVersionRecord,
   type GeneratedCandidateRecordInput,
   type PrincipalRecord,
   type PrincipalRepository,
@@ -107,6 +109,63 @@ function storageUnavailable<T>(): RepositoryResult<T> {
   return unavailable("d1_read_failed", "저장소를 읽을 수 없습니다.");
 }
 
+type AuditWrite = {
+  occurredAt: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  result: "succeeded" | "denied" | "failed";
+  beforeJson?: string | null;
+  afterJson?: string | null;
+  reason?: string | null;
+};
+
+async function chainedAuditStatements(db: D1Database, input: AuditWrite) {
+  const previous = await db.prepare(
+    "SELECT entry_hash FROM riskshield_audit_chain ORDER BY sequence DESC LIMIT 1",
+  ).first<{ entry_hash: string }>();
+  const previousHash = previous?.entry_hash ?? "GENESIS";
+  const auditId = crypto.randomUUID();
+  const canonical = JSON.stringify([
+    previousHash,
+    auditId,
+    input.occurredAt,
+    input.actorId,
+    input.action,
+    input.resourceType,
+    input.resourceId,
+    input.result,
+    input.beforeJson ?? null,
+    input.afterJson ?? null,
+    input.reason ?? null,
+  ]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  const entryHash = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+  return [
+    db.prepare(`
+      INSERT INTO riskshield_audit_logs
+        (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      auditId,
+      input.occurredAt,
+      input.actorId,
+      input.action,
+      input.resourceType,
+      input.resourceId,
+      input.result,
+      input.beforeJson ?? null,
+      input.afterJson ?? null,
+      input.reason ?? null,
+    ),
+    db.prepare(`
+      INSERT INTO riskshield_audit_chain (audit_id, previous_hash, entry_hash, created_at)
+      VALUES (?, ?, ?, ?)
+    `).bind(auditId, previousHash, entryHash, input.occurredAt),
+  ];
+}
+
 function reviewStatus(value: string): ReviewStatus | "invalid" {
   return value === "draft" || value === "reviewed" || value === "rejected" ? value : "invalid";
 }
@@ -114,7 +173,8 @@ function reviewStatus(value: string): ReviewStatus | "invalid" {
 function parseSkill(value: string) {
   try {
     const parsed = JSON.parse(value) as RiskSkill;
-    const validationIssues = validateSkill(parsed);
+    const compatibilityId = starterSkills.some((skill) => skill.id === parsed.id);
+    const validationIssues = compatibilityId ? [] : validateManagedSkill(parsed);
     return {
       skill: validationIssues.length === 0 ? parsed : null,
       validationIssues,
@@ -252,19 +312,35 @@ export class D1SkillRepository implements SkillRepository {
           persisted: false,
         }, "d1");
       }
+      const proposedPayload = input.proposedPayload as unknown as RiskSkill;
+      const proposedIssues = validateManagedSkill(proposedPayload);
+      if (proposedIssues.length > 0 || proposedPayload.id !== input.skillId || proposedPayload.revision !== input.baseRevision + 1) {
+        return ready<SkillRevisionAcknowledgement>({
+          revisionId: `revision_invalid_${input.skillId}`,
+          proposedRevision: input.baseRevision + 1,
+          message: `revision payload 검증 실패: ${proposedIssues[0] ?? "ID 또는 revision 불일치"}`,
+          persisted: false,
+        }, "d1");
+      }
       const now = new Date().toISOString();
       const revisionId = crypto.randomUUID();
+      const audit = await chainedAuditStatements(this.db, {
+        occurredAt: now,
+        actorId: input.actorId,
+        action: "skill.revision.proposed",
+        resourceType: "skill_revision",
+        resourceId: revisionId,
+        result: "succeeded",
+        afterJson: JSON.stringify({ skillId: input.skillId, proposedRevision: input.baseRevision + 1 }),
+        reason: input.rationale,
+      });
       await this.db.batch([
         this.db.prepare(`
           INSERT INTO riskshield_skill_revisions
             (id, skill_id, base_revision, proposed_revision, summary, rationale, payload, actor_id, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(revisionId, input.skillId, input.baseRevision, input.baseRevision + 1, input.summary, input.rationale, JSON.stringify(input.proposedPayload), input.actorId, now),
-        this.db.prepare(`
-          INSERT INTO riskshield_audit_logs
-            (id, occurred_at, actor_id, action, resource_type, resource_id, result, after_json, reason)
-          VALUES (?, ?, ?, 'skill.revision.proposed', 'skill_revision', ?, 'succeeded', ?, ?)
-        `).bind(crypto.randomUUID(), now, input.actorId, revisionId, JSON.stringify({ skillId: input.skillId, proposedRevision: input.baseRevision + 1 }), input.rationale),
+        ...audit,
       ]);
       return ready<SkillRevisionAcknowledgement>({
         revisionId,
@@ -322,6 +398,22 @@ type DatasetRow = {
   version_count: number;
   latest_sha256: string | null;
   latest_keyword_column: string | null;
+  latest_object_key: string | null;
+};
+
+type DatasetVersionRow = {
+  id: string;
+  dataset_id: string;
+  version_number: number;
+  sha256: string;
+  byte_size: number;
+  row_count: number;
+  encoding: string;
+  delimiter: string;
+  headers_json: string;
+  keyword_column: string;
+  object_key: string | null;
+  created_at: string;
 };
 
 type TrainingRunRow = {
@@ -361,8 +453,12 @@ function candidateStatus(decision: CandidateDecisionInput["decision"]): Candidat
   return "approved";
 }
 
-function generatedSkill(candidate: CandidateRecord, now: string): RiskSkill | null {
-  if (!candidate.draft) return null;
+function generatedSkill(
+  candidate: CandidateRecord,
+  now: string,
+  draft: NonNullable<CandidateRecord["draft"]> | null = candidate.draft ?? null,
+): RiskSkill | null {
+  if (!draft) return null;
   const source = candidate.sources?.[0];
   const sourceId = candidate.lineage?.datasetVersionId ?? candidate.id;
   const skill: RiskSkill = {
@@ -370,25 +466,25 @@ function generatedSkill(candidate: CandidateRecord, now: string): RiskSkill | nu
     revision: 1,
     id: candidate.id.startsWith("risk_") ? candidate.id : `risk_generated_${candidate.id.replace(/[^a-zA-Z0-9_-]+/gu, "_")}`,
     category: candidate.riskDomain || "미분류 광고 위험",
-    subcategory: candidate.draft.title,
+    subcategory: draft.title,
     patternType: "generated_candidate_review",
-    triggerPatterns: [...new Set(candidate.draft.triggerPatterns.map((value) => value.trim()).filter(Boolean))],
-    contextPatterns: [...new Set(candidate.draft.contextPatterns.map((value) => value.trim()).filter(Boolean))],
+    triggerPatterns: [...new Set(draft.triggerPatterns.map((value) => value.trim()).filter(Boolean))],
+    contextPatterns: [...new Set(draft.contextPatterns.map((value) => value.trim()).filter(Boolean))],
     anyOfPatterns: [],
     exclusionPatterns: [],
     conditionScope: "sentence",
     maxDistance: 96,
     surfaceMeaning: candidate.expression,
-    riskSummary: candidate.draft.riskSummary,
+    riskSummary: draft.riskSummary,
     socialContext: candidate.contextSummary ?? "등록된 데이터셋에서 발견된 표현군을 사람이 검토했습니다.",
-    legalOrEthicIssue: candidate.draft.riskSummary,
-    riskReason: candidate.draft.riskSummary,
+    legalOrEthicIssue: draft.riskSummary,
+    riskReason: draft.riskSummary,
     severityFloor: 60,
     dominantRisk: false,
     confidence: candidate.confidence ?? 0.6,
     riskDomain: candidate.riskDomain || "미분류 광고 위험",
     recentContextTags: ["dataset", "candidate_approved"],
-    safeRewrite: [...new Set(candidate.draft.safeRewrite.map((value) => value.trim()).filter(Boolean))],
+    safeRewrite: [...new Set(draft.safeRewrite.map((value) => value.trim()).filter(Boolean))],
     falsePositiveNote: "인용·비판·교육·금지 문맥과 근거가 있는 사실 설명은 별도로 검토합니다.",
     notes: `후보 ${candidate.id}에서 사람의 명시적 승인으로 생성했습니다.`,
     source: {
@@ -402,7 +498,23 @@ function generatedSkill(candidate: CandidateRecord, now: string): RiskSkill | nu
     updatedAt: now,
     reviewStatus: "draft",
   };
-  return validateSkill(skill).length === 0 ? skill : null;
+  return validateManagedSkill(skill).length === 0 ? skill : null;
+}
+
+function mergedSkillProposal(target: RiskSkill, generated: RiskSkill, now: string): RiskSkill | null {
+  const merged: RiskSkill = {
+    ...target,
+    revision: target.revision + 1,
+    triggerPatterns: [...new Set([...target.triggerPatterns, ...generated.triggerPatterns])],
+    contextPatterns: [...new Set([...target.contextPatterns, ...generated.contextPatterns])],
+    anyOfPatterns: [...new Set([...target.anyOfPatterns, ...generated.anyOfPatterns])],
+    exclusionPatterns: [...new Set([...(target.exclusionPatterns ?? []), ...(generated.exclusionPatterns ?? [])])],
+    safeRewrite: [...new Set([...target.safeRewrite, ...generated.safeRewrite])],
+    updatedAt: now,
+    reviewStatus: "draft",
+    notes: [target.notes, `후보 ${generated.id} 병합 제안`].filter(Boolean).join(" · "),
+  };
+  return validateManagedSkill(merged).length === 0 ? merged : null;
 }
 
 export class D1CandidateRepository implements CandidateRepository {
@@ -496,8 +608,10 @@ export class D1CandidateRepository implements CandidateRepository {
       const status = candidateStatus(input.decision);
       const now = new Date().toISOString();
       const decisionId = crypto.randomUUID();
-      const skill = input.decision === "approve" ? generatedSkill(candidate, now) : null;
-      if (input.decision === "approve" && !skill) {
+      const skill = input.decision === "approve" || input.decision === "approve_with_edits" || input.decision === "merge"
+        ? generatedSkill(candidate, now, input.decision === "approve_with_edits" ? input.editedDraft ?? null : candidate.draft ?? null)
+        : null;
+      if (["approve", "approve_with_edits", "merge"].includes(input.decision) && !skill) {
         return ready<CandidateDecisionAcknowledgement>({
           decisionId,
           candidateStatus: candidate.status,
@@ -505,39 +619,60 @@ export class D1CandidateRepository implements CandidateRepository {
           persisted: false,
         }, "d1");
       }
-      const claimed = await this.db.prepare(
-        "UPDATE riskshield_candidates SET status = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'held')",
-      ).bind(status, now, input.candidateId).run();
-      if (Number(claimed.meta.changes ?? 0) !== 1) {
-        return ready<CandidateDecisionAcknowledgement>({
-          decisionId: `concurrent_${input.candidateId}`,
-          candidateStatus: candidate.status,
-          message: "다른 검토자가 먼저 후보 상태를 변경했습니다. 새로고침 후 다시 확인해 주세요.",
-          persisted: false,
-        }, "d1");
+      let mergeTarget: SkillAdminRecord | null = null;
+      let mergePayload: RiskSkill | null = null;
+      if (input.decision === "merge") {
+        if (!input.mergeSkillId || !skill) {
+          return ready<CandidateDecisionAcknowledgement>({
+            decisionId,
+            candidateStatus: candidate.status,
+            message: "병합할 기존 스킬과 유효한 후보 초안이 필요합니다.",
+            persisted: false,
+          }, "d1");
+        }
+        const target = await new D1SkillRepository(this.db).getById(input.mergeSkillId);
+        if (target.status !== "ready" || !target.data?.skill) {
+          return ready<CandidateDecisionAcknowledgement>({
+            decisionId,
+            candidateStatus: candidate.status,
+            message: "병합 대상 스킬을 찾지 못했거나 payload가 유효하지 않습니다.",
+            persisted: false,
+          }, "d1");
+        }
+        mergeTarget = target.data;
+        mergePayload = mergedSkillProposal(target.data.skill, skill, now);
+        if (!mergePayload) {
+          return ready<CandidateDecisionAcknowledgement>({
+            decisionId,
+            candidateStatus: candidate.status,
+            message: "병합 결과가 스킬 검증을 통과하지 못했습니다.",
+            persisted: false,
+          }, "d1");
+        }
       }
+      const audit = await chainedAuditStatements(this.db, {
+        occurredAt: now,
+        actorId: input.actorId,
+        action: `candidate.${input.decision}`,
+        resourceType: "candidate",
+        resourceId: input.candidateId,
+        result: "succeeded",
+        beforeJson: JSON.stringify({ status: candidate.status }),
+        afterJson: JSON.stringify({ status }),
+        reason: input.note,
+      });
       const statements = [
         this.db.prepare(`
           INSERT INTO riskshield_candidate_decisions
             (id, candidate_id, decision, note, merge_skill_id, actor_id, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).bind(decisionId, input.candidateId, input.decision, input.note, input.mergeSkillId, input.actorId, now),
-        this.db.prepare(`
-          INSERT INTO riskshield_audit_logs
-            (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
-          VALUES (?, ?, ?, ?, 'candidate', ?, 'succeeded', ?, ?, ?)
-        `).bind(
-          crypto.randomUUID(),
-          now,
-          input.actorId,
-          `candidate.${input.decision}`,
-          input.candidateId,
-          JSON.stringify({ status: candidate.status }),
-          JSON.stringify({ status }),
-          input.note,
-        ),
+        this.db.prepare(
+          "UPDATE riskshield_candidates SET status = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'held')",
+        ).bind(status, now, input.candidateId),
+        ...audit,
       ];
-      if (skill) {
+      if (skill && input.decision !== "merge") {
         statements.push(this.db.prepare(`
           INSERT INTO risk_skills
             (id, category, review_status, severity_floor, dominant_risk, payload, created_at, updated_at)
@@ -559,13 +694,32 @@ export class D1CandidateRepository implements CandidateRepository {
           now,
         ));
       }
+      if (mergeTarget && mergePayload) {
+        statements.push(this.db.prepare(`
+          INSERT INTO riskshield_skill_revisions
+            (id, skill_id, base_revision, proposed_revision, summary, rationale, payload, actor_id, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          crypto.randomUUID(),
+          mergeTarget.id,
+          mergeTarget.revision,
+          mergePayload.revision,
+          `후보 ${candidate.id} 병합`,
+          input.note,
+          JSON.stringify(mergePayload),
+          input.actorId,
+          now,
+        ));
+      }
       await this.db.batch(statements);
       return ready<CandidateDecisionAcknowledgement>({
         decisionId,
         candidateStatus: status,
         message: status === "approved"
           ? "후보 결정을 기록하고 비활성 draft 스킬을 D1에 저장했습니다. 별도 검증·릴리스 전에는 분석에 사용되지 않습니다."
-          : "후보 결정과 감사 이력을 D1에 저장했습니다.",
+          : status === "merged"
+            ? "기존 스킬을 직접 변경하지 않고 검토 가능한 병합 revision을 저장했습니다."
+            : "후보 결정과 감사 이력을 D1에 저장했습니다.",
         persisted: true,
       }, "d1");
     } catch {
@@ -584,6 +738,7 @@ function datasetRecord(row: DatasetRow): DatasetRecord {
     versionCount: row.version_count,
     latestSha256: row.latest_sha256,
     latestKeywordColumn: row.latest_keyword_column,
+    latestObjectKey: row.latest_object_key,
     updatedAt: row.updated_at,
     owner: row.owner,
     license: row.license,
@@ -600,6 +755,8 @@ const DATASET_SELECT = `
       WHERE latest.dataset_id = d.id ORDER BY latest.version_number DESC LIMIT 1) AS latest_sha256,
     (SELECT latest.keyword_column FROM riskshield_dataset_versions latest
       WHERE latest.dataset_id = d.id ORDER BY latest.version_number DESC LIMIT 1) AS latest_keyword_column
+    ,(SELECT latest.object_key FROM riskshield_dataset_versions latest
+      WHERE latest.dataset_id = d.id ORDER BY latest.version_number DESC LIMIT 1) AS latest_object_key
   FROM riskshield_datasets d
   LEFT JOIN riskshield_dataset_versions v ON v.dataset_id = d.id
 `;
@@ -635,6 +792,38 @@ export class D1DatasetRepository implements DatasetRepository {
     }
   }
 
+  async getVersion(id: string) {
+    if (!this.db) return storageRequired<DatasetVersionRecord | null>();
+    try {
+      const row = await this.db.prepare(`
+        SELECT id, dataset_id, version_number, sha256, byte_size, row_count, encoding,
+          delimiter, headers_json, keyword_column, object_key, created_at
+        FROM riskshield_dataset_versions WHERE id = ? LIMIT 1
+      `).bind(id).first<DatasetVersionRow>();
+      if (!row || !row.object_key || row.encoding !== "utf-8") return ready(null, "d1");
+      const headers = JSON.parse(row.headers_json) as unknown;
+      if (!Array.isArray(headers) || !headers.every((value) => typeof value === "string")) {
+        return unavailable<DatasetVersionRecord | null>("dataset_version_invalid", "데이터셋 버전 metadata가 올바르지 않습니다.");
+      }
+      return ready<DatasetVersionRecord | null>({
+        id: row.id,
+        datasetId: row.dataset_id,
+        versionNumber: row.version_number,
+        sha256: row.sha256,
+        byteSize: row.byte_size,
+        rowCount: row.row_count,
+        encoding: "utf-8",
+        delimiter: row.delimiter,
+        headers,
+        keywordColumn: row.keyword_column,
+        objectKey: row.object_key,
+        createdAt: row.created_at,
+      }, "d1");
+    } catch {
+      return storageUnavailable<DatasetVersionRecord | null>();
+    }
+  }
+
   async register(input: DatasetRegistrationInput) {
     if (!this.db) return storageRequired<DatasetRegistrationAcknowledgement>();
     const datasetKey = new TextEncoder().encode(
@@ -646,6 +835,7 @@ export class D1DatasetRepository implements DatasetRepository {
       (value) => value.toString(16).padStart(2, "0"),
     ).join("").slice(0, 16)}`;
     const now = new Date().toISOString();
+    const objectKey = input.objectKey ?? `datasets/sha256/${input.sha256.slice(0, 2)}/${input.sha256}.csv`;
     try {
       const existing = await this.db.prepare(
         "SELECT id, version_number FROM riskshield_dataset_versions WHERE dataset_id = ? AND sha256 = ? LIMIT 1",
@@ -659,11 +849,17 @@ export class D1DatasetRepository implements DatasetRepository {
           persisted: true,
         }, "d1");
       }
-      const count = await this.db.prepare(
-        "SELECT COUNT(*) AS count FROM riskshield_dataset_versions WHERE dataset_id = ?",
-      ).bind(datasetId).first<{ count: number }>();
-      const version = Number(count?.count ?? 0) + 1;
-      const versionId = `${datasetId}_v${version}`;
+      const versionId = `dataset_version_${crypto.randomUUID()}`;
+      const audit = await chainedAuditStatements(this.db, {
+        occurredAt: now,
+        actorId: input.actorId,
+        action: "dataset.register",
+        resourceType: "dataset_version",
+        resourceId: versionId,
+        result: "succeeded",
+        afterJson: JSON.stringify({ sha256: input.sha256, rowCount: input.rowCount, objectKey }),
+        reason: input.allowedPurpose,
+      });
       await this.db.batch([
         this.db.prepare(`
           INSERT INTO riskshield_datasets
@@ -676,20 +872,17 @@ export class D1DatasetRepository implements DatasetRepository {
         `).bind(datasetId, input.name, input.owner, input.license, input.allowedPurpose, input.retention, now, now),
         this.db.prepare(`
           INSERT INTO riskshield_dataset_versions
-            (id, dataset_id, version_number, sha256, byte_size, row_count, encoding, delimiter, headers_json, keyword_column, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(versionId, datasetId, version, input.sha256, input.byteSize, input.rowCount, input.encoding, input.delimiter, JSON.stringify(input.headers), input.keywordColumn, now),
-        this.db.prepare(`
-          INSERT INTO riskshield_audit_logs
-            (id, occurred_at, actor_id, action, resource_type, resource_id, result, after_json, reason)
-          VALUES (?, ?, ?, 'dataset.register', 'dataset_version', ?, 'succeeded', ?, ?)
-        `).bind(crypto.randomUUID(), now, input.actorId, versionId, JSON.stringify({ sha256: input.sha256, rowCount: input.rowCount }), input.allowedPurpose),
+            (id, dataset_id, version_number, sha256, byte_size, row_count, encoding, delimiter, headers_json, keyword_column, object_key, created_at)
+          SELECT ?, ?, COALESCE(MAX(version_number), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          FROM riskshield_dataset_versions WHERE dataset_id = ?
+        `).bind(versionId, datasetId, input.sha256, input.byteSize, input.rowCount, input.encoding, input.delimiter, JSON.stringify(input.headers), input.keywordColumn, objectKey, now, datasetId),
+        ...audit,
       ]);
       return ready<DatasetRegistrationAcknowledgement>({
         datasetId,
         versionId,
         status: "staging",
-        message: "검증 결과와 provenance를 D1 staging 버전으로 등록했습니다.",
+        message: "서버가 검증한 원본을 불변 object key로 저장하고 D1 staging 버전에 연결했습니다.",
         persisted: true,
       }, "d1");
     } catch {
@@ -757,6 +950,15 @@ export class D1TrainingRepository implements TrainingRepository {
     if (!this.db) return storageRequired<{ persisted: boolean }>();
     const now = new Date().toISOString();
     try {
+      const audit = await chainedAuditStatements(this.db, {
+        occurredAt: now,
+        actorId,
+        action: "training.run.saved",
+        resourceType: "training_run",
+        resourceId: record.id,
+        result: "succeeded",
+        afterJson: JSON.stringify({ status: record.status, itemCount: record.itemCount }),
+      });
       await this.db.batch([
         this.db.prepare(`
           INSERT INTO riskshield_training_runs
@@ -767,11 +969,7 @@ export class D1TrainingRepository implements TrainingRepository {
             estimated_cost = excluded.estimated_cost, latency_ms = excluded.latency_ms,
             payload = excluded.payload, updated_at = excluded.updated_at
         `).bind(record.id, record.datasetVersionId, record.status, record.currentStage, record.itemCount, record.warningCount, record.estimatedCost, record.latencyMs, JSON.stringify(record), now, now),
-        this.db.prepare(`
-          INSERT INTO riskshield_audit_logs
-            (id, occurred_at, actor_id, action, resource_type, resource_id, result, after_json)
-          VALUES (?, ?, ?, 'training.run.saved', 'training_run', ?, 'succeeded', ?)
-        `).bind(crypto.randomUUID(), now, actorId, record.id, JSON.stringify({ status: record.status, itemCount: record.itemCount })),
+        ...audit,
       ]);
       return ready<{ persisted: boolean }>({ persisted: true }, "d1");
     } catch {

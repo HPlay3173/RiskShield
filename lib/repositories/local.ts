@@ -19,7 +19,7 @@ import {
   DEFAULT_SEVERITY_RULES,
   analyzeText,
   starterSkills,
-  validateSkill,
+  validateManagedSkill,
   type RiskSkill,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../riskshield.ts";
@@ -40,6 +40,7 @@ import {
   type DatasetRegistrationAcknowledgement,
   type DatasetRegistrationInput,
   type DatasetRepository,
+  type DatasetVersionRecord,
   type EvaluationRepository,
   type EvaluationRunRecord,
   type ModelRecord,
@@ -65,6 +66,7 @@ import {
 const fixtureOptions = { fixture: true, label: DEVELOPMENT_PRINCIPAL_LABEL } as const;
 const localRevisionProposals = new Map<string, SkillRevisionInput>();
 const localDatasets = new Map<string, DatasetRecord>();
+const localDatasetVersions = new Map<string, DatasetVersionRecord>();
 const localCandidateStatuses = new Map<string, CandidateRecord["status"]>();
 const localGeneratedCandidates = new Map<string, CandidateRecord>();
 const localCandidateDecisions = new Map<
@@ -80,7 +82,7 @@ function page<T>(items: readonly T[]): RepositoryPage<T> {
 }
 
 function adminRecord(skill: RiskSkill): SkillAdminRecord {
-  const validationIssues = validateSkill(skill);
+  const validationIssues = validateManagedSkill(skill);
   return {
     id: skill.id,
     category: skill.category,
@@ -106,7 +108,7 @@ export class LocalSkillRepository implements SkillRepository {
 
   async listReviewed() {
     return ready(
-      this.skills.filter((skill) => skill.reviewStatus === "reviewed" && validateSkill(skill).length === 0),
+      this.skills.filter((skill) => skill.reviewStatus === "reviewed" && validateManagedSkill(skill).length === 0),
       "local_fixture",
       fixtureOptions,
     );
@@ -282,8 +284,13 @@ export class LocalDatasetRepository implements DatasetRepository {
     return ready(localDatasets.get(id) ?? null, "local_fixture", fixtureOptions);
   }
 
+  async getVersion(id: string) {
+    return ready(localDatasetVersions.get(id) ?? null, "local_fixture", fixtureOptions);
+  }
+
   async register(input: DatasetRegistrationInput) {
     const datasetId = `local_dataset_${input.sha256.slice(0, 12)}`;
+    const objectKey = input.objectKey ?? `datasets/sha256/${input.sha256.slice(0, 2)}/${input.sha256}.csv`;
     const current = localDatasets.get(datasetId);
     const record: DatasetRecord = {
       id: datasetId,
@@ -293,6 +300,7 @@ export class LocalDatasetRepository implements DatasetRepository {
       versionCount: current ? (current.versionCount ?? 0) + 1 : 1,
       latestSha256: input.sha256,
       latestKeywordColumn: input.keywordColumn,
+      latestObjectKey: objectKey,
       updatedAt: new Date().toISOString(),
       owner: input.owner,
       license: input.license,
@@ -300,9 +308,24 @@ export class LocalDatasetRepository implements DatasetRepository {
       retention: input.retention,
     };
     localDatasets.set(datasetId, record);
+    const versionId = `${datasetId}_v${record.versionCount}`;
+    localDatasetVersions.set(versionId, {
+      id: versionId,
+      datasetId,
+      versionNumber: record.versionCount ?? 1,
+      sha256: input.sha256,
+      byteSize: input.byteSize,
+      rowCount: input.rowCount,
+      encoding: input.encoding,
+      delimiter: input.delimiter,
+      headers: [...input.headers],
+      keywordColumn: input.keywordColumn,
+      objectKey,
+      createdAt: new Date().toISOString(),
+    });
     return ready<DatasetRegistrationAcknowledgement>({
       datasetId,
-      versionId: `${datasetId}_v${record.versionCount}`,
+      versionId,
       status: "staging",
       message: "개발 fixture에 metadata와 검증 결과만 등록했습니다. 원본 파일은 저장하거나 변경하지 않았습니다.",
       persisted: true,

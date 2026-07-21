@@ -132,6 +132,7 @@ export type CandidateDecisionInput = {
   decision: "approve" | "approve_with_edits" | "merge" | "hold" | "reject";
   note: string | null;
   mergeSkillId: string | null;
+  editedDraft?: CandidateRecord["draft"];
   actorId: string;
 };
 
@@ -173,11 +174,27 @@ export type DatasetRecord = {
   versionCount: number | null;
   latestSha256: string | null;
   latestKeywordColumn: string | null;
+  latestObjectKey: string | null;
   updatedAt: string | null;
   owner?: string | null;
   license?: string | null;
   allowedPurpose?: string | null;
   retention?: string | null;
+};
+
+export type DatasetVersionRecord = {
+  id: string;
+  datasetId: string;
+  versionNumber: number;
+  sha256: string;
+  byteSize: number;
+  rowCount: number;
+  encoding: "utf-8";
+  delimiter: string;
+  headers: readonly string[];
+  keywordColumn: string;
+  objectKey: string;
+  createdAt: string;
 };
 
 export type DatasetRegistrationInput = {
@@ -189,6 +206,7 @@ export type DatasetRegistrationInput = {
   delimiter: string;
   headers: readonly string[];
   keywordColumn: string;
+  objectKey?: string;
   owner: string;
   license: string;
   allowedPurpose: string;
@@ -316,6 +334,7 @@ export interface CandidateRepository {
 export interface DatasetRepository {
   list(): Promise<RepositoryResult<RepositoryPage<DatasetRecord>>>;
   getById(id: string): Promise<RepositoryResult<DatasetRecord | null>>;
+  getVersion(id: string): Promise<RepositoryResult<DatasetVersionRecord | null>>;
   register(input: DatasetRegistrationInput): Promise<RepositoryResult<DatasetRegistrationAcknowledgement>>;
 }
 

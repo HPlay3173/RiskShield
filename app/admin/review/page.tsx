@@ -50,6 +50,13 @@ function candidateView(record: CandidateRecord): ReviewCandidate {
       summary: record.policyChange === null || record.policyChange === undefined ? "정책 변경 여부가 평가되지 않았습니다." : record.policyChange ? "정책 변경 검토가 필요합니다." : "정책 변경이 필요하지 않은 것으로 표시되었습니다.",
     },
     autoInclusionBlockedReason: record.autoInclusionBlockedReason ?? "사람의 명시적 결정 전에는 active skill로 편입하지 않습니다.",
+    draft: record.draft ? {
+      title: record.draft.title,
+      riskSummary: record.draft.riskSummary,
+      triggerPatterns: [...record.draft.triggerPatterns],
+      contextPatterns: [...record.draft.contextPatterns],
+      safeRewrite: [...record.draft.safeRewrite],
+    } : null,
   };
 }
 

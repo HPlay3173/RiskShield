@@ -105,6 +105,7 @@ export const riskshieldDatasetVersions = sqliteTable(
     delimiter: text("delimiter").notNull(),
     headersJson: text("headers_json").notNull(),
     keywordColumn: text("keyword_column").notNull(),
+    objectKey: text("object_key"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -128,19 +129,23 @@ export const riskshieldCandidates = sqliteTable(
   ],
 );
 
-export const riskshieldCandidateDecisions = sqliteTable("riskshield_candidate_decisions", {
-  id: text("id").primaryKey(),
-  candidateId: text("candidate_id").notNull().references(() => riskshieldCandidates.id),
-  decision: text("decision").notNull(),
-  note: text("note"),
-  mergeSkillId: text("merge_skill_id"),
-  actorId: text("actor_id").notNull(),
-  createdAt: text("created_at").notNull(),
-});
+export const riskshieldCandidateDecisions = sqliteTable(
+  "riskshield_candidate_decisions",
+  {
+    id: text("id").primaryKey(),
+    candidateId: text("candidate_id").notNull().references(() => riskshieldCandidates.id),
+    decision: text("decision").notNull(),
+    note: text("note"),
+    mergeSkillId: text("merge_skill_id").references(() => riskSkills.id),
+    actorId: text("actor_id").notNull().references(() => riskshieldUsers.id),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [check("riskshield_candidate_decisions_decision_check", sql`${table.decision} IN ('approve','approve_with_edits','merge','hold','reject')`)],
+);
 
 export const riskshieldTrainingRuns = sqliteTable("riskshield_training_runs", {
   id: text("id").primaryKey(),
-  datasetVersionId: text("dataset_version_id"),
+  datasetVersionId: text("dataset_version_id").references(() => riskshieldDatasetVersions.id),
   status: text("status").notNull(),
   currentStage: text("current_stage"),
   itemCount: integer("item_count"),
@@ -154,13 +159,13 @@ export const riskshieldTrainingRuns = sqliteTable("riskshield_training_runs", {
 
 export const riskshieldSkillRevisions = sqliteTable("riskshield_skill_revisions", {
   id: text("id").primaryKey(),
-  skillId: text("skill_id").notNull(),
+  skillId: text("skill_id").notNull().references(() => riskSkills.id),
   baseRevision: integer("base_revision").notNull(),
   proposedRevision: integer("proposed_revision").notNull(),
   summary: text("summary").notNull(),
   rationale: text("rationale").notNull(),
   payload: text("payload").notNull(),
-  actorId: text("actor_id").notNull(),
+  actorId: text("actor_id").notNull().references(() => riskshieldUsers.id),
   createdAt: text("created_at").notNull(),
 });
 
@@ -182,4 +187,34 @@ export const riskshieldAuditLogs = sqliteTable(
     index("riskshield_audit_occurred_idx").on(table.occurredAt),
     check("riskshield_audit_result_check", sql`${table.result} IN ('succeeded', 'denied', 'failed')`),
   ],
+);
+
+export const riskshieldPublicLimits = sqliteTable(
+  "riskshield_public_limits",
+  {
+    bucketKey: text("bucket_key").primaryKey(),
+    day: text("day").notNull(),
+    dayCount: integer("day_count").notNull().default(0),
+    windowStartedAt: integer("window_started_at").notNull(),
+    windowCount: integer("window_count").notNull().default(0),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("riskshield_public_limits_updated_idx").on(table.updatedAt)],
+);
+
+export const riskshieldProviderBudgets = sqliteTable("riskshield_provider_budgets", {
+  day: text("day").primaryKey(),
+  callCount: integer("call_count").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const riskshieldAuditChain = sqliteTable(
+  "riskshield_audit_chain",
+  {
+    sequence: integer("sequence").primaryKey({ autoIncrement: true }),
+    auditId: text("audit_id").notNull().unique().references(() => riskshieldAuditLogs.id),
+    previousHash: text("previous_hash").notNull().unique(),
+    entryHash: text("entry_hash").notNull().unique(),
+    createdAt: text("created_at").notNull(),
+  },
 );

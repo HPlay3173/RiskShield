@@ -91,6 +91,13 @@ export type ReviewCandidate = {
     summary: string;
   };
   autoInclusionBlockedReason: string;
+  draft: {
+    title: string;
+    riskSummary: string;
+    triggerPatterns: string[];
+    contextPatterns: string[];
+    safeRewrite: string[];
+  } | null;
 };
 
 export type ReviewInboxProps = {
@@ -132,7 +139,7 @@ const decisionLabels: Record<ReviewDecision, string> = {
   reject: "반려",
 };
 
-const supportedDecisions: ReviewDecision[] = ["approve", "hold", "reject"];
+const supportedDecisions: ReviewDecision[] = ["approve", "approve_with_edits", "merge", "hold", "reject"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -348,9 +355,15 @@ export function ReviewInbox({
   const [status, setStatus] = useState<"all" | ReviewCandidateStatus>("pending");
   const [riskDomain, setRiskDomain] = useState("all");
   const [candidateType, setCandidateType] = useState("all");
-  const [selectedId, setSelectedId] = useState(initialCandidateId ?? candidates[0]?.id ?? "");
+  const initialCandidate = candidates.find((candidate) => candidate.id === initialCandidateId) ?? candidates[0] ?? null;
+  const [selectedId, setSelectedId] = useState(initialCandidate?.id ?? "");
   const [decisionNote, setDecisionNote] = useState("");
   const [mergeSkillId, setMergeSkillId] = useState("");
+  const [draftTitle, setDraftTitle] = useState(initialCandidate?.draft?.title ?? "");
+  const [draftSummary, setDraftSummary] = useState(initialCandidate?.draft?.riskSummary ?? "");
+  const [draftTriggers, setDraftTriggers] = useState(initialCandidate?.draft?.triggerPatterns.join("\n") ?? "");
+  const [draftContexts, setDraftContexts] = useState(initialCandidate?.draft?.contextPatterns.join("\n") ?? "");
+  const [draftRewrites, setDraftRewrites] = useState(initialCandidate?.draft?.safeRewrite.join("\n") ?? "");
   const [decisionState, setDecisionState] = useState<DecisionState>({ state: "idle" });
 
   const domains = useMemo(
@@ -383,6 +396,14 @@ export function ReviewInbox({
     ?? null;
   const submitting = decisionState.state === "submitting";
 
+  function loadDraft(candidate: ReviewCandidate) {
+    setDraftTitle(candidate.draft?.title ?? "");
+    setDraftSummary(candidate.draft?.riskSummary ?? "");
+    setDraftTriggers(candidate.draft?.triggerPatterns.join("\n") ?? "");
+    setDraftContexts(candidate.draft?.contextPatterns.join("\n") ?? "");
+    setDraftRewrites(candidate.draft?.safeRewrite.join("\n") ?? "");
+  }
+
   useEffect(() => {
     const media = window.matchMedia("(max-width: 48rem)");
     const update = () => setMobileView(media.matches);
@@ -402,6 +423,20 @@ export function ReviewInbox({
       setDecisionState({ state: "error", candidateId: selectedCandidate.id, message: "병합할 기존 스킬 ID를 입력해 주세요." });
       return;
     }
+    const editedDraft = {
+      title: draftTitle.trim(),
+      riskSummary: draftSummary.trim(),
+      triggerPatterns: draftTriggers.split("\n").map((value) => value.trim()).filter(Boolean),
+      contextPatterns: draftContexts.split("\n").map((value) => value.trim()).filter(Boolean),
+      safeRewrite: draftRewrites.split("\n").map((value) => value.trim()).filter(Boolean),
+    };
+    if (
+      decision === "approve_with_edits"
+      && (!editedDraft.title || !editedDraft.riskSummary || !editedDraft.triggerPatterns.length || !editedDraft.contextPatterns.length || !editedDraft.safeRewrite.length)
+    ) {
+      setDecisionState({ state: "error", candidateId: selectedCandidate.id, message: "수정 후 승인에는 제목·요약·trigger·context·대체 문구가 모두 필요합니다." });
+      return;
+    }
 
     setDecisionState({ state: "submitting", candidateId: selectedCandidate.id, decision });
     try {
@@ -418,6 +453,7 @@ export function ReviewInbox({
           decision,
           note: note || null,
           mergeSkillId: decision === "merge" ? mergeSkillId.trim() : null,
+          editedDraft: decision === "approve_with_edits" ? editedDraft : null,
         }),
       });
       const payload: unknown = await response.json().catch(() => null);
@@ -523,6 +559,7 @@ export function ReviewInbox({
                         setDecisionState({ state: "idle" });
                         setDecisionNote("");
                         setMergeSkillId("");
+                        loadDraft(candidate);
                       }}
                     >
                       <span className="reviewCandidateListTopline">
@@ -575,6 +612,14 @@ export function ReviewInbox({
                 placeholder="병합 결정에만 필요"
               />
             </label>
+            <fieldset className="candidateDraftEditor" disabled={submitting || !selectedCandidate.draft}>
+              <legend>수정 후 승인 초안</legend>
+              <label><span>제목</span><input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} /></label>
+              <label><span>위험 요약</span><textarea rows={3} value={draftSummary} onChange={(event) => setDraftSummary(event.target.value)} /></label>
+              <label><span>Trigger 패턴 · 한 줄에 하나</span><textarea rows={4} value={draftTriggers} onChange={(event) => setDraftTriggers(event.target.value)} /></label>
+              <label><span>Context 패턴 · 한 줄에 하나</span><textarea rows={4} value={draftContexts} onChange={(event) => setDraftContexts(event.target.value)} /></label>
+              <label><span>대체 문구 · 한 줄에 하나</span><textarea rows={3} value={draftRewrites} onChange={(event) => setDraftRewrites(event.target.value)} /></label>
+            </fieldset>
             <div className="candidateDecisionActions" aria-label="후보 결정">
               {supportedDecisions.map((decision) => (
                 <Pressable

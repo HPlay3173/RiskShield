@@ -1,7 +1,7 @@
 import type { AnalysisResult } from "../riskshield.ts";
 import type { InterpreterPayload, RiskFamily } from "../v0-4/interpreter.ts";
 
-export const SCORING_POLICY_VERSION = "2.1.0" as const;
+export const SCORING_POLICY_VERSION = "3.0.0" as const;
 
 export const SCORING_AXES = [
   "relevance",
@@ -47,14 +47,11 @@ export interface DeterministicScoreResult {
   primaryCategory: CategoryFormulaScore | null;
   confidence: number | null;
   highRequiresReview: boolean;
+  conflict: boolean;
+  decisionReasons: readonly string[];
   formula: string;
   experimental: true;
 }
-
-export type ScoringDecisionContext = {
-  forceReview?: boolean;
-  suppressContext?: boolean;
-};
 
 type WeightSet = Record<ScoringAxis, number>;
 
@@ -112,17 +109,36 @@ function contextMultiplier(payload: InterpreterPayload | null) {
   return 1;
 }
 
-function scoreAssessment(assessment: CategoryAssessment, multiplier: number) {
-  const weights = normalizedWeights(WEIGHTS[assessment.risk_family]);
-  const weighted = SCORING_AXES.reduce(
-    (sum, axis) => sum + (assessment[axis] / 4) * weights[axis],
-    0,
-  );
-  return clamp(Math.round(weighted * 100 * multiplier));
+function serverEvidenceStrength(payload: InterpreterPayload, hasSameFamilyRule: boolean): AxisLevel {
+  const distinctQuotes = new Set(payload.evidence_spans.map((span) => span.text.trim()).filter(Boolean));
+  if (hasSameFamilyRule && distinctQuotes.size > 1) return 4;
+  if (hasSameFamilyRule || distinctQuotes.size > 1) return 3;
+  return distinctQuotes.size === 1 ? 2 : 0;
 }
 
-function familyForRuleCategory(category: string): ScorableRiskFamily {
-  const value = category.toLocaleLowerCase("ko-KR");
+function confidenceCap(confidence: number) {
+  if (confidence >= 0.9) return 89;
+  if (confidence >= 0.8) return 79;
+  if (confidence >= 0.65) return 69;
+  return 0;
+}
+
+function scoreAssessment(
+  assessment: CategoryAssessment,
+  multiplier: number,
+  evidenceStrength: AxisLevel,
+  confidence: number,
+) {
+  const weights = normalizedWeights(WEIGHTS[assessment.risk_family]);
+  const weighted = SCORING_AXES.reduce(
+    (sum, axis) => sum + ((axis === "evidence_strength" ? evidenceStrength : assessment[axis]) / 4) * weights[axis],
+    0,
+  );
+  return Math.min(confidenceCap(confidence), clamp(Math.round(weighted * 100 * multiplier)));
+}
+
+function familyForRule(category: string, riskDomain: string): ScorableRiskFamily {
+  const value = `${riskDomain} ${category}`.toLocaleLowerCase("ko-KR");
   if (/(건강|의료|치료|완치|효능|감량|health|medical)/u.test(value)) return "health_claim";
   if (/(금융|투자|원금|수익|finance|investment)/u.test(value)) return "financial_guarantee";
   if (/(소득|부업|급여|income|earnings)/u.test(value)) return "income_claim";
@@ -157,7 +173,12 @@ function assessmentsFrom(payload: InterpreterPayload | null) {
   const assessments = payload.category_assessments?.length
     ? payload.category_assessments
     : fallbackAssessment(payload);
-  return assessments.filter((assessment) => assessment.relevance > 0 && assessment.evidence_strength > 0);
+  return assessments.filter((assessment) =>
+    assessment.relevance > 0
+    && payload.evidence_spans.length > 0
+    && payload.risk_family !== "none"
+    && assessment.risk_family === payload.risk_family
+  );
 }
 
 function statusFor(score: number, hasEvidence: boolean, highRequiresReview: boolean): DeterministicScoreResult["status"] {
@@ -170,27 +191,36 @@ function statusFor(score: number, hasEvidence: boolean, highRequiresReview: bool
 export function calculateDeterministicScore(
   rules: AnalysisResult,
   payload: InterpreterPayload | null,
-  decision: ScoringDecisionContext = {},
 ): DeterministicScoreResult {
   const multiplier = contextMultiplier(payload);
   const byFamily = new Map<ScorableRiskFamily, { ruleScore: number; assessment: CategoryAssessment | null }>();
 
   for (const category of rules.categoryScores) {
-    const family = familyForRuleCategory(category.category);
+    const supportingMatch = rules.matches.find((match) => match.skill.category === category.category);
+    const family = familyForRule(category.category, supportingMatch?.skill.riskDomain ?? "");
     const current = byFamily.get(family) ?? { ruleScore: 0, assessment: null };
     current.ruleScore = Math.max(current.ruleScore, category.score);
     byFamily.set(family, current);
   }
   for (const assessment of assessmentsFrom(payload)) {
     const current = byFamily.get(assessment.risk_family) ?? { ruleScore: 0, assessment: null };
-    if (!current.assessment || scoreAssessment(assessment, multiplier) > scoreAssessment(current.assessment, multiplier)) {
+    const evidenceStrength = payload ? serverEvidenceStrength(payload, current.ruleScore > 0) : 0;
+    const confidence = payload?.confidence ?? 0;
+    if (
+      !current.assessment
+      || scoreAssessment(assessment, multiplier, evidenceStrength, confidence)
+        > scoreAssessment(current.assessment, multiplier, evidenceStrength, confidence)
+    ) {
       current.assessment = assessment;
     }
     byFamily.set(assessment.risk_family, current);
   }
 
   const categoryScores = [...byFamily.entries()].map(([id, entry]): CategoryFormulaScore => {
-    const aiScore = entry.assessment ? scoreAssessment(entry.assessment, multiplier) : 0;
+    const evidenceStrength = payload ? serverEvidenceStrength(payload, entry.ruleScore > 0) : 0;
+    const aiScore = entry.assessment && payload
+      ? scoreAssessment(entry.assessment, multiplier, evidenceStrength, payload.confidence)
+      : 0;
     const score = Math.max(entry.ruleScore, aiScore);
     return {
       id,
@@ -200,13 +230,28 @@ export function calculateDeterministicScore(
       aiScore,
       source: entry.ruleScore > 0 && aiScore > 0 ? "hybrid" : entry.ruleScore > 0 ? "rule" : "ai",
       contextMultiplier: multiplier,
-      axes: entry.assessment ? Object.fromEntries(SCORING_AXES.map((axis) => [axis, entry.assessment![axis]])) as Record<ScoringAxis, AxisLevel> : null,
+      axes: entry.assessment
+        ? Object.fromEntries(SCORING_AXES.map((axis) => [
+            axis,
+            axis === "evidence_strength" ? evidenceStrength : entry.assessment![axis],
+          ])) as Record<ScoringAxis, AxisLevel>
+        : null,
     };
   }).filter((category) => category.score > 0)
     .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
 
-  const top = categoryScores[0] ?? null;
-  const suppressed = decision.suppressContext === true;
+  const ruleFamilies = new Set(categoryScores.filter((category) => category.ruleScore > 0).map((category) => category.id));
+  const aiFamily = payload?.risk_family && payload.risk_family !== "none" ? payload.risk_family : null;
+  const contextualOnly = Boolean(
+    payload
+    && payload.risk_intent === "contextual_only"
+    && payload.policy_relevance === "none",
+  );
+  const contextConflict = contextualOnly && ruleFamilies.size > 0;
+  const familyConflict = Boolean(aiFamily && ruleFamilies.size > 0 && !ruleFamilies.has(aiFamily));
+  const conflict = contextConflict || familyConflict;
+  const suppressed = contextualOnly && ruleFamilies.size === 0;
+  const top = suppressed ? null : categoryScores[0] ?? null;
   const finalScore = suppressed ? 0 : top?.score ?? 0;
   const hasRuleEvidence = !suppressed && rules.matches.length > 0;
   const hasAiEvidence = !suppressed && Boolean(payload?.evidence_spans.length && categoryScores.some((category) => category.aiScore > 0));
@@ -214,9 +259,16 @@ export function calculateDeterministicScore(
   const highRequiresReview = finalScore >= 80 && hasAiEvidence && !primaryHasSameFamilyRule;
   const status = suppressed
     ? "no_match" as const
-    : decision.forceReview && (hasRuleEvidence || hasAiEvidence)
+    : conflict && (hasRuleEvidence || hasAiEvidence)
       ? "review" as const
       : statusFor(finalScore, hasRuleEvidence || hasAiEvidence, highRequiresReview);
+
+  const decisionReasons = [
+    ...(contextConflict ? ["context_policy_conflict"] : []),
+    ...(familyConflict ? ["risk_family_conflict"] : []),
+    ...(highRequiresReview ? ["ai_only_high_requires_review"] : []),
+    ...(suppressed ? ["contextual_only_suppressed"] : []),
+  ];
 
   return {
     policyVersion: SCORING_POLICY_VERSION,
@@ -226,7 +278,27 @@ export function calculateDeterministicScore(
     primaryCategory: suppressed ? null : top,
     confidence: payload?.confidence ?? null,
     highRequiresReview,
-    formula: "max(category_scores); no cross-category bonus without independent claim evidence",
+    conflict,
+    decisionReasons,
+    formula: "max(rule_floor, confidence-capped AI assessment); server-computed evidence strength; one primary claim family; no cross-category bonus",
     experimental: true,
   };
+}
+
+export function decisionReasonForScore(result: DeterministicScoreResult) {
+  if (result.status === "no_match") {
+    return "직접 위험 주장으로 연결되는 검토 규칙 또는 문맥 근거를 확인하지 못했습니다.";
+  }
+  if (result.decisionReasons.includes("context_policy_conflict")) {
+    return "규칙 근거와 AI 문맥 해석이 충돌해 자동 결론 대신 담당자 검토로 전환했습니다.";
+  }
+  if (result.decisionReasons.includes("risk_family_conflict")) {
+    return "규칙과 AI가 서로 다른 위험 분야를 가리켜 담당자 검토가 필요합니다.";
+  }
+  if (result.highRequiresReview) {
+    return "AI가 높은 위험 신호를 찾았지만 같은 주장·분야의 검토 규칙이 없어 담당자 확인이 필요합니다.";
+  }
+  if (result.status === "high") return "같은 위험 분야의 검토 규칙과 문맥 근거가 높은 위험을 가리킵니다.";
+  if (result.status === "attention") return "직접 위험 근거가 확인되어 주의가 필요합니다.";
+  return "위험 관련 근거가 있으나 자동 결론보다 담당자 검토가 적절합니다.";
 }
