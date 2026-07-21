@@ -5,6 +5,7 @@ export const GOOGLE_GENAI_ENDPOINT = "https://generativelanguage.googleapis.com/
 const FUNCTION_NAME = "submit_riskshield_interpretation";
 const INPUT_START_MARKER = "\n입력 시작\n";
 const INPUT_END_MARKER = "\n입력 끝";
+let preferOpenApiParameters = false;
 
 interface ProviderEnvironment {
   RISKSHIELD_INTERPRETER_API_KEY?: string;
@@ -68,6 +69,28 @@ function asFunctionParametersJsonSchema(schema: Record<string, unknown>): Record
   return convert(schema) as Record<string, unknown>;
 }
 
+function asOpenApiParameters(schema: Record<string, unknown>): Record<string, unknown> {
+  function convert(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(convert);
+    if (!value || typeof value !== "object") return value;
+    const source = value as Record<string, unknown>;
+    const target: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(source)) {
+      if (key === "additionalProperties" || key === "minLength") continue;
+      if (key === "const") {
+        target.enum = [child];
+        if (typeof child === "string") target.type = "STRING";
+      } else if (key === "type" && typeof child === "string") {
+        target.type = child.toUpperCase();
+      } else {
+        target[key] = convert(child);
+      }
+    }
+    return target;
+  }
+  return convert(schema) as Record<string, unknown>;
+}
+
 function gemmaFunctionInstruction(userPrompt: string) {
   const start = userPrompt.indexOf(INPUT_START_MARKER);
   const end = userPrompt.lastIndexOf(INPUT_END_MARKER);
@@ -121,20 +144,16 @@ export class GoogleGenAiProvider implements LiveProvider {
 
   async complete(request: Parameters<LiveProvider["complete"]>[0]): Promise<LiveProviderResult> {
     const endpoint = `${GOOGLE_GENAI_ENDPOINT}/models/${this.model}:generateContent`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": this.apiKey,
-      },
-      body: JSON.stringify({
+    const requestBody = (openApiParameters: boolean) => ({
         contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
         systemInstruction: { parts: [{ text: `${request.systemPrompt}\n${gemmaFunctionInstruction(request.userPrompt)}` }] },
         tools: [{
           functionDeclarations: [{
             name: FUNCTION_NAME,
-            description: "입력 문구의 광고 문맥 분석 결과를 RiskShield Interpreter 형식으로 제출한다.",
-            parametersJsonSchema: asFunctionParametersJsonSchema(request.schema),
+            description: "입력 텍스트의 위험 문맥 분석 결과를 RiskShield Interpreter 형식으로 제출한다.",
+            ...(openApiParameters
+              ? { parameters: asOpenApiParameters(request.schema) }
+              : { parametersJsonSchema: asFunctionParametersJsonSchema(request.schema) }),
           }],
         }],
         toolConfig: {
@@ -148,9 +167,18 @@ export class GoogleGenAiProvider implements LiveProvider {
           thinkingConfig: { thinkingLevel: "minimal" },
         },
         store: false,
-      }),
+      });
+    const send = (openApiParameters: boolean) => fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
+      body: JSON.stringify(requestBody(openApiParameters)),
       signal: request.signal,
     });
+    let response = await send(preferOpenApiParameters);
+    if (response.status === 400 && !preferOpenApiParameters) {
+      preferOpenApiParameters = true;
+      response = await send(true);
+    }
 
     if (!response.ok) {
       throw new GoogleGenAiHttpError(
