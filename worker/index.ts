@@ -9,6 +9,7 @@ interface Env {
   DB: D1Database;
   RISKSHIELD_X_BEARER_TOKEN?: string;
   RISKSHIELD_THREADS_ACCESS_TOKEN?: string;
+  RISKSHIELD_INTERPRETER_API_KEY?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

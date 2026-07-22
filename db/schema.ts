@@ -229,7 +229,7 @@ export const riskshieldAuditChain = sqliteTable(
 );
 
 export const riskshieldCollectorSources = sqliteTable(
-  "riskshield_collector_sources",
+  "riskshield_collector_sources_v2",
   {
     id: text("id").primaryKey(),
     provider: text("provider").notNull(),
@@ -246,14 +246,14 @@ export const riskshieldCollectorSources = sqliteTable(
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
-    index("riskshield_collector_sources_due_idx").on(table.enabled, table.lastRunAt),
-    check("riskshield_collector_sources_provider_check", sql`${table.provider} IN ('x', 'threads', 'dcinside')`),
-    check("riskshield_collector_sources_interval_check", sql`${table.intervalMinutes} BETWEEN 15 AND 10080`),
+    index("riskshield_collector_sources_v2_due_idx").on(table.enabled, table.lastRunAt),
+    check("riskshield_collector_sources_v2_provider_check", sql`${table.provider} IN ('bluesky', 'mastodon', 'x', 'threads', 'dcinside')`),
+    check("riskshield_collector_sources_v2_interval_check", sql`${table.intervalMinutes} BETWEEN 15 AND 10080`),
   ],
 );
 
 export const riskshieldCollectedPosts = sqliteTable(
-  "riskshield_collected_posts",
+  "riskshield_collected_posts_v2",
   {
     id: text("id").primaryKey(),
     sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
@@ -266,13 +266,13 @@ export const riskshieldCollectedPosts = sqliteTable(
     candidateId: text("candidate_id"),
   },
   (table) => [
-    uniqueIndex("riskshield_collected_posts_source_external_idx").on(table.sourceId, table.externalId),
-    index("riskshield_collected_posts_collected_idx").on(table.collectedAt),
+    uniqueIndex("riskshield_collected_posts_v2_source_external_idx").on(table.sourceId, table.externalId),
+    index("riskshield_collected_posts_v2_collected_idx").on(table.collectedAt),
   ],
 );
 
 export const riskshieldCollectorRuns = sqliteTable(
-  "riskshield_collector_runs",
+  "riskshield_collector_runs_v2",
   {
     id: text("id").primaryKey(),
     sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
@@ -284,7 +284,7 @@ export const riskshieldCollectorRuns = sqliteTable(
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at").notNull(),
   },
-  (table) => [index("riskshield_collector_runs_source_idx").on(table.sourceId, table.startedAt)],
+  (table) => [index("riskshield_collector_runs_v2_source_idx").on(table.sourceId, table.startedAt)],
 );
 
 export const riskshieldEvaluationCases = sqliteTable(

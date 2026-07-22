@@ -14,11 +14,11 @@ function toBase64(buffer: ArrayBuffer) {
 export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
   const [sources, setSources] = useState<Array<Record<string, unknown>>>([]);
   const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]);
-  const [provider, setProvider] = useState<"x" | "threads" | "dcinside">("x");
+  const [provider, setProvider] = useState<"bluesky" | "mastodon" | "x" | "threads" | "dcinside">("bluesky");
   const [collectorLabel, setCollectorLabel] = useState("새 위험 표현 모니터");
   const [query, setQuery] = useState("혐오 OR 비하 OR 은어");
   const [endpoint, setEndpoint] = useState("");
-  const [intervalMinutes, setIntervalMinutes] = useState(60);
+  const [intervalMinutes, setIntervalMinutes] = useState(360);
   const [collectorState, setCollectorState] = useState<"idle" | "loading" | "failed">("idle");
   const [collectorMessage, setCollectorMessage] = useState("");
   const [sourceName, setSourceName] = useState("community-snapshot");
@@ -89,23 +89,24 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
   return (
     <>
     <form className="communityCollector managementCard" onSubmit={saveCollector}>
-      <div className="collectorIntro"><div><span className="manageHeroEyebrow">SCHEDULED CONNECTORS</span><h2>자동 커뮤니티 수집</h2></div><span className="statusPill" data-tone="success">15분마다 확인</span></div>
-      <p>X와 Threads는 공식 검색 API 자격 증명을 사용합니다. 디시인사이드는 팀이 확인한 공개 피드·검색 주소만 낮은 빈도로 읽으며, 실패를 성공처럼 기록하지 않습니다.</p>
+      <div className="collectorIntro"><div><span className="manageHeroEyebrow">SCHEDULED CONNECTORS</span><h2>자동 커뮤니티 수집</h2></div><span className="statusPill" data-tone="success">15분마다 예약 확인</span></div>
+      <p>Bluesky와 공개 Mastodon은 별도 유료 키 없이 정기 수집할 수 있습니다. 원문 전체를 후보로 만들지 않고 반복·변형 표현을 최대 12개 표현군으로 압축하며, 개인정보를 가린 짧은 문맥만 30일 보존합니다.</p>
       <div className="collectorFields">
-        <label className="formField">수집처<select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)}><option value="x">X 최근 검색 API</option><option value="threads">Threads 키워드 검색 API</option><option value="dcinside">디시인사이드 공개 주소</option></select></label>
+        <label className="formField">수집처<select value={provider} onChange={(event) => { const next = event.target.value as typeof provider; setProvider(next); setEndpoint(next === "mastodon" ? "https://mastodon.social" : ""); setQuery(next === "mastodon" ? "혐오표현" : "혐오 OR 비하 OR 은어"); }}><option value="bluesky">Bluesky 공개 검색 · 무료</option><option value="mastodon">Mastodon 공개 해시태그 · 무료</option><option value="threads">Threads 공식 API · 토큰 필요</option><option value="x">X 공식 API · 토큰/비용 필요</option><option value="dcinside">디시인사이드 공개 주소 · 실험</option></select></label>
         <label className="formField">수집 이름<input value={collectorLabel} onChange={(event) => setCollectorLabel(event.target.value)} maxLength={80} required /></label>
         <label className="formField">검색어<input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={240} required /></label>
         <label className="formField">확인 간격<select value={intervalMinutes} onChange={(event) => setIntervalMinutes(Number(event.target.value))}><option value={15}>15분</option><option value={60}>1시간</option><option value={360}>6시간</option><option value={1440}>하루</option></select></label>
       </div>
+      {provider === "mastodon" ? <label className="formField">공개 Mastodon 인스턴스<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://mastodon.social" required /><small>검색어에는 #을 제외한 해시태그 하나만 입력하세요.</small></label> : null}
       {provider === "dcinside" ? <label className="formField">공개 피드·검색 주소<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://...dcinside.com/.../{query}" required /></label> : null}
       <div className="trainingRunActions"><button className="pressable" type="submit" disabled={collectorState === "loading"}>{collectorState === "loading" ? "처리 중…" : "예약 수집 켜기"}</button></div>
       {collectorMessage ? <p className={collectorState === "failed" ? "configurationNote" : "collectorSuccess"} role={collectorState === "failed" ? "alert" : "status"}>{collectorMessage}</p> : null}
-      <div className="collectorSourceList">{sources.length ? sources.map((source) => <article key={String(source.id)}><div><strong>{String(source.label)}</strong><span>{String(source.provider).toUpperCase()} · {String(source.query)}</span></div><div><span className="statusPill" data-tone={source.last_status === "failed" ? "critical" : source.last_status === "succeeded" ? "success" : "info"}>{source.last_status ? String(source.last_status) : "대기"}</span><button className="pressable secondaryButton" type="button" onClick={() => runCollector(String(source.id))} disabled={collectorState === "loading"}>지금 수집</button></div><small>{source.last_message ? String(source.last_message) : "아직 실행 기록이 없습니다."}</small></article>) : <p className="analysisMethodNote">등록된 자동 수집처가 없습니다. API 자격 증명이 없으면 실행 시 설정 필요 사유가 그대로 표시됩니다.</p>}</div>
+      <div className="collectorSourceList">{sources.length ? sources.map((source) => <article key={String(source.id)}><div><strong>{String(source.label)}</strong><span>{String(source.provider).toUpperCase()} · {String(source.query)}</span></div><div><span className="statusPill" data-tone={source.last_status === "failed" ? "critical" : source.last_status === "succeeded" ? "success" : "info"}>{source.last_status ? String(source.last_status) : "대기"}</span><button className="pressable secondaryButton" type="button" onClick={() => runCollector(String(source.id))} disabled={collectorState === "loading"}>지금 수집</button></div><small>{source.last_message ? String(source.last_message) : "아직 실행 기록이 없습니다."}</small></article>) : <p className="analysisMethodNote">등록된 자동 수집처가 없습니다. 무료 공개 API부터 연결하면 토큰 없이 시작할 수 있습니다.</p>}</div>
       {runs.length ? <p className="analysisMethodNote">최근 실행 {runs.length}건 · 마지막 실행 {String(runs[0]?.finished_at ?? "없음")}</p> : null}
     </form>
     <form className="communityCollector managementCard" onSubmit={submit}>
       <div className="collectorIntro"><div><span className="manageHeroEyebrow">SOURCE CONNECTOR MVP</span><h2>공개 글 묶음 등록</h2></div><span className="statusPill" data-tone="info">사람 검토 필수</span></div>
-      <p>X·디시·Threads 등에서 이용 규칙을 지켜 확보한 공개 글을 한 줄에 하나씩 넣으세요. 사용자명과 링크의 개인정보는 넣지 말고, 원문은 바로 활성 규칙이 아닌 후보 생성용 데이터로만 저장됩니다.</p>
+      <p>X·디시·Threads·Bluesky·Mastodon 등에서 이용 규칙을 지켜 확보한 공개 글을 한 줄에 하나씩 넣으세요. 사용자명과 링크의 개인정보는 넣지 말고, 원문은 바로 활성 규칙이 아닌 후보 생성용 데이터로만 저장됩니다.</p>
       <div className="collectorFields">
         <label className="formField">자료 이름<input value={sourceName} onChange={(event) => setSourceName(event.target.value)} maxLength={80} required /></label>
         <label className="formField">출처 주소 <small>선택</small><input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://..." /></label>
