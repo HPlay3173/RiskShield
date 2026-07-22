@@ -11,6 +11,18 @@ export type ObservationContextLabel =
 
 export type QualificationDisposition = "reject" | "monitor" | "review";
 
+export type ExpressionSemanticRole =
+  | "harmful_expression"
+  | "coded_expression"
+  | "target_entity"
+  | "proper_noun"
+  | "common_word"
+  | "quantity_or_date"
+  | "reaction"
+  | "unknown";
+
+export type SearchVerificationDecision = "reject" | "monitor" | "send_to_review";
+
 export type QualificationGateInput = {
   observationCount: number;
   distinctAuthorCount: number;
@@ -22,6 +34,7 @@ export type QualificationGateInput = {
 };
 
 const REACTION_ONLY = /^(?:(?:[\u110f\u1112\u116e\u1172\u314b\u314e\u315c\u3160]){2,}|(?:ha?){2,})$/iu;
+const QUANTITY_OR_DATE = /^\d+(?:[.,]\d+)?(?:건|개|명|회|일|주|개월|월|년|만|천|억|원|%|퍼센트)$/u;
 const COMMON_TERMS = new Set([
   "\ud544\uc694\ud558\ub2e4", "\uac8c\uc784", "\uc601\uc0c1", "\uc5c5\ub370\uc774\ud2b8", "\uc628\ub77c\uc778", "\uc0ac\ud68c", "\ucd5c\uadfc",
   "\uaddc\uc81c", "\uc5f0\uad6c", "\ubd84\uc11d", "\ud45c\ud604", "\ud610\uc624", "\ube44\ud558", "\uc740\uc5b4", "\uc0ac\uc6a9", "\uc0ac\ub78c",
@@ -36,8 +49,24 @@ export function isHardRejectedExpression(value: string) {
   const normalized = normalizeCollectedExpression(value);
   if (!normalized || normalized.length < 2 || normalized.length > 24) return true;
   if (REACTION_ONLY.test(normalized) || COMMON_TERMS.has(normalized)) return true;
-  if (/^\d+$/u.test(normalized)) return true;
+  if (/^\d+$/u.test(normalized) || QUANTITY_OR_DATE.test(normalized)) return true;
   return false;
+}
+
+export function roleCanBecomeCandidate(role: ExpressionSemanticRole) {
+  return role === "harmful_expression" || role === "coded_expression";
+}
+
+export function searchVerificationGate(input: {
+  decision: SearchVerificationDecision;
+  role: ExpressionSemanticRole;
+  confidence: number;
+  directUseSupported: boolean;
+  groundedSourceCount: number;
+  strongLocalEvidence: boolean;
+}) {
+  if (input.decision !== "send_to_review" || !roleCanBecomeCandidate(input.role) || input.confidence < 0.8) return false;
+  return (input.directUseSupported && input.groundedSourceCount >= 1) || input.strongLocalEvidence;
 }
 
 export function qualificationGate(input: QualificationGateInput) {

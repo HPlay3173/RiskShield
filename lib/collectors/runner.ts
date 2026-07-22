@@ -2,7 +2,8 @@ import { prepareInterpreterInput } from "../v0-4/interpreter";
 import { GoogleTrainingDraftProvider } from "../training/google-draft-provider";
 import type { TrainingDraft } from "../training/mvp";
 import { GoogleCollectorQualificationProvider, type QualificationAssessment } from "./google-qualification-provider";
-import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, type ObservationContextLabel } from "./quality";
+import { GoogleCollectorSearchVerificationProvider, type SearchVerification } from "./google-search-verification-provider";
+import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, roleCanBecomeCandidate, searchVerificationGate, type ObservationContextLabel } from "./quality";
 import { parseYouTubeVideoInput } from "./youtube";
 
 export type CollectorProvider = "youtube" | "bluesky" | "mastodon" | "x" | "threads" | "dcinside";
@@ -55,6 +56,7 @@ export type ExpressionGroup = {
 
 const MAX_POSTS_PER_RUN = 100;
 const MAX_CANDIDATES_PER_RUN = 12;
+const MAX_SEARCH_VERIFICATIONS_PER_RUN = 6;
 const MAX_STORED_EXCERPT_CHARS = 420;
 const COMMON_TOKENS = new Set([
   "그리고", "그러나", "하지만", "그래서", "또한", "대한", "있는", "없는", "있다", "없다", "합니다", "입니다",
@@ -394,6 +396,40 @@ function passesQualification(group: ExpressionGroup, assessment: QualificationAs
   return qualificationGate({ observationCount: group.postIds.size, distinctAuthorCount: group.authorHashes.size, distinctSourceCount: group.sourceIds.size, directEvidenceCount: direct, contextualEvidenceCount: contextual, confidence: assessment.confidence, disposition: assessment.disposition });
 }
 
+async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }>, env: CollectorEnvironment) {
+  const provider = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
+  const verifications = new Map<string, SearchVerification>();
+  if (!provider.configured || !groups.length) return { verifications, state: "not_configured" as const };
+  let state = "ready";
+  for (const { group, assessment } of groups.slice(0, MAX_SEARCH_VERIFICATIONS_PER_RUN)) {
+    if (assessment.role !== "unknown" && !roleCanBecomeCandidate(assessment.role)) continue;
+    try {
+      const verification = await provider.verify({
+        expression: group.expression,
+        normalized: group.normalized,
+        evidence: group.evidence.map(({ id, excerpt }) => ({ id, excerpt })),
+      }, AbortSignal.timeout(20_000));
+      verifications.set(group.normalized, verification);
+    } catch (error) {
+      state = error && typeof error === "object" && "code" in error ? String(error.code) : "search_verification_unavailable";
+    }
+  }
+  return { verifications, state };
+}
+
+function passesSearchVerification(group: ExpressionGroup, verification: SearchVerification) {
+  const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
+  const strongLocalEvidence = direct >= 3 && group.authorHashes.size >= 3 && group.sourceIds.size >= 2;
+  return searchVerificationGate({
+    decision: verification.decision,
+    role: verification.role,
+    confidence: verification.confidence,
+    directUseSupported: verification.directUseSupported,
+    groundedSourceCount: verification.sources.length,
+    strongLocalEvidence,
+  });
+}
+
 async function draftExpressionGroups(groups: ExpressionGroup[], source: CollectorSource, env: CollectorEnvironment, runId: string) {
   const provider = new GoogleTrainingDraftProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const drafts = new Map<string, TrainingDraft>();
@@ -421,7 +457,7 @@ async function draftExpressionGroups(groups: ExpressionGroup[], source: Collecto
   }
 }
 
-async function saveCandidate(group: ExpressionGroup, source: CollectorSource, env: CollectorEnvironment, now: string, draft: TrainingDraft | null, assessment: QualificationAssessment) {
+async function saveCandidate(group: ExpressionGroup, source: CollectorSource, env: CollectorEnvironment, now: string, draft: TrainingDraft | null, assessment: QualificationAssessment, verification: SearchVerification) {
   const candidateId = await candidateIdForExpression(group.normalized);
   const existing = await env.DB.prepare("SELECT payload FROM riskshield_candidates WHERE id = ? LIMIT 1").bind(candidateId).first<Record<string, unknown>>();
   let previous: Record<string, unknown> = {};
@@ -439,8 +475,8 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     ...previous,
     id: candidateId,
     expression: group.expression,
-    riskFamily: assessment.riskFamily,
-    riskDomain: previous.riskDomain ?? "자동 수집 · AI 적격성 통과",
+    riskFamily: verification.riskFamily,
+    riskDomain: "자동 수집 · 의미·검색 검증 통과",
     reportType: "collector_discovery",
     status: "pending",
     noveltyScore: null,
@@ -449,7 +485,7 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     createdAt: previous.createdAt ?? now,
     updatedAt: now,
     expressionGroup: [...new Set([...(Array.isArray(previous.expressionGroup) ? previous.expressionGroup.filter((value): value is string => typeof value === "string") : []), group.expression])].slice(0, 20),
-    contextSummary: `최근 14일 공개 관찰 ${group.postIds.size}건·독립 작성자 ${group.authorHashes.size}명·수집처 ${group.sourceIds.size}곳을 합산했습니다. AI 적격성 심사에서 review 판정을 받았으며 사람 검토로 최종 확정해야 합니다.`,
+    contextSummary: `최근 14일 공개 관찰 ${group.postIds.size}건·독립 작성자 ${group.authorHashes.size}명·수집처 ${group.sourceIds.size}곳을 합산했습니다. AI 의미 심사와 검색 검증을 통과했으며 사람 검토로 최종 확정해야 합니다.`,
     evidence,
     positiveTests: group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).map((item) => item.excerpt).slice(0, 5),
     negativeTests: [...group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).map((item) => item.excerpt), `“${group.expression}”이라는 표현은 사용하지 마세요.`].slice(0, 5),
@@ -457,7 +493,9 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     modelConflict: null,
     policyChange: null,
     draft: draft ?? previous.draft ?? null,
-    qualification: { disposition: assessment.disposition, reason: assessment.reason, confidence: assessment.confidence, distinctAuthors: group.authorHashes.size, distinctSources: group.sourceIds.size, observationCount: group.postIds.size },
+    qualification: { disposition: assessment.disposition, role: assessment.role, reason: assessment.reason, confidence: assessment.confidence, distinctAuthors: group.authorHashes.size, distinctSources: group.sourceIds.size, observationCount: group.postIds.size },
+    searchVerification: { decision: verification.decision, role: verification.role, riskFamily: verification.riskFamily, meaning: verification.meaning, reason: verification.reason, confidence: verification.confidence, directUseSupported: verification.directUseSupported, queries: verification.queries, sources: verification.sources },
+    qualityGateVersion: "collector-semantic-search-v1",
     lineage: { collectorSourceId: source.id, provider: source.provider, lastCollectedAt: now, observationWindowDays: 14 },
     sources,
     retentionDeadline: new Date(Date.parse(now) + 30 * 24 * 60 * 60 * 1_000).toISOString(),
@@ -516,19 +554,25 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
     observationCount = await saveObservations(storedPosts, source, excluded, env, startedAt);
     const groups = await recentExpressionGroups(env);
     const qualified = await qualifyExpressionGroups(groups, env);
-    const reviewGroups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }> = [];
+    const qualifiedGroups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }> = [];
     for (const group of groups) {
       const assessment = qualified.assessments.get(group.normalized) ?? null;
       await persistAssessment(group, assessment, env, startedAt);
       if (!assessment || assessment.disposition === "monitor") { monitoredCount += 1; continue; }
       if (assessment.disposition === "reject") { rejectedCount += 1; continue; }
-      if (passesQualification(group, assessment)) reviewGroups.push({ group, assessment });
+      if (passesQualification(group, assessment)) qualifiedGroups.push({ group, assessment });
       else monitoredCount += 1;
     }
+    const searched = await verifyQualifiedGroups(qualifiedGroups, env);
+    const reviewGroups = qualifiedGroups.flatMap(({ group, assessment }) => {
+      const verification = searched.verifications.get(group.normalized);
+      return verification && passesSearchVerification(group, verification) ? [{ group, assessment, verification }] : [];
+    });
+    monitoredCount += qualifiedGroups.length - reviewGroups.length;
     const drafted = await draftExpressionGroups(reviewGroups.map((item) => item.group), source, env, runId);
-    for (const { group, assessment } of reviewGroups) {
+    for (const { group, assessment, verification } of reviewGroups) {
       const candidateId = await candidateIdForExpression(group.normalized);
-      await saveCandidate(group, source, env, startedAt, drafted.drafts.get(candidateId) ?? null, assessment);
+      await saveCandidate(group, source, env, startedAt, drafted.drafts.get(candidateId) ?? null, assessment, verification);
       candidateCount += 1;
       const postIds = [...group.postIds];
       if (postIds.length) await env.DB.prepare(`UPDATE riskshield_collected_posts_v3 SET candidate_id = ? WHERE id IN (${postIds.map(() => "?").join(",")})`).bind(candidateId, ...postIds).run();
@@ -540,7 +584,8 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
       env.DB.prepare("DELETE FROM riskshield_expression_observations WHERE datetime(created_at) < datetime('now', '-30 days')"),
     ]);
     const finishedAt = new Date().toISOString();
-    const aiLabel = qualified.state === "ready" ? "AI 적격성 심사 완료" : qualified.state === "not_configured" ? "AI 미설정으로 후보 승격 없음" : `AI 심사 보류(${qualified.state})`;
+    const aiLabel = qualified.state !== "ready" ? (qualified.state === "not_configured" ? "AI 미설정으로 후보 승격 없음" : `AI 심사 보류(${qualified.state})`)
+      : searched.state === "ready" ? "AI 의미·검색 검증 완료" : searched.state === "not_configured" ? "검색 검증 미설정으로 후보 승격 없음" : `검색 검증 보류(${searched.state})`;
     const message = `${fetchedCount}개 확인 · ${newCount}개 신규 · ${observationCount}개 관찰 · ${monitoredCount}개 모니터 · ${rejectedCount}개 기각 · ${candidateCount}개 검토 후보 · ${aiLabel}`;
     await env.DB.batch([
       env.DB.prepare("INSERT INTO riskshield_collector_runs_v3 (id, source_id, status, fetched_count, new_count, observation_count, monitored_count, rejected_count, candidate_count, message, started_at, finished_at) VALUES (?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
