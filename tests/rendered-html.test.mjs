@@ -138,3 +138,18 @@ test("responsive interaction and accessibility contracts remain present", async 
   assert.match(modalSheet, /returnFocusRef/);
   assert.match(modalSheet, /closeWithMotion/);
 });
+
+test("file pickers expose one control instead of a native and custom duplicate", async () => {
+  const [datasetConsole, trainingConsole] = await Promise.all([
+    readFile(new URL("../components/developer/DatasetConsole.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/developer/TrainingConsole.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(datasetConsole, /id="dataset-csv-file"[\s\S]*?className="srOnly"[\s\S]*?type="file"/);
+  assert.match(datasetConsole, /<label[^>]*htmlFor="dataset-csv-file"/);
+  assert.doesNotMatch(datasetConsole, /inputRef\.current\?\.click\(\)/);
+
+  assert.match(trainingConsole, /id="training-csv-file"[\s\S]*?className="srOnly"[\s\S]*?type="file"/);
+  assert.match(trainingConsole, /<label[\s\S]*?htmlFor="training-csv-file"/);
+  assert.doesNotMatch(trainingConsole, /fileInputRef\.current\?\.click\(\)/);
+});

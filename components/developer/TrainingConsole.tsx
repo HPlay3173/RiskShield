@@ -463,23 +463,28 @@ export function TrainingConsole({
         {!datasetVersions.length ? <div className="trainingEmptyAction"><p>먼저 표현 자료를 등록해 주세요.</p><a className="pressable primaryButton" href="/manage/datasets">CSV 데이터 등록</a></div> : null}
         {selectedDatasetVersion && !developmentFixture ? <div className="trainingSelectedDataset"><span aria-hidden="true">✓</span><div><strong>{selectedDatasetVersion.name}</strong><small>등록된 원본을 서버에서 안전하게 불러옵니다. 파일을 다시 선택할 필요가 없습니다.</small></div></div> : null}
         {developmentFixture ? <>
-          <label htmlFor="training-csv-file">개발 실행용 원본 CSV</label>
+          <strong className="trainingFileTitle">개발 실행용 원본 CSV</strong>
           <input
             ref={fileInputRef}
             id="training-csv-file"
-            className="trainingNativeFileInput"
+            className="srOnly"
             type="file"
             accept=".csv,text/csv,text/plain"
+            aria-describedby="training-file-help"
             disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable}
             onChange={(event) => {
               void prepareFile(event.currentTarget.files?.[0]);
               event.currentTarget.value = "";
             }}
           />
-          <Pressable disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable} onClick={() => fileInputRef.current?.click()}>
+          <label
+            className="pressable secondaryButton trainingFilePicker"
+            data-disabled={requestActive || datasetLoading || !selectedDatasetVersion || !runnerAvailable ? "true" : "false"}
+            htmlFor="training-csv-file"
+          >
             등록 당시 CSV 선택
-          </Pressable>
-          <p className="configurationNote">개발 환경에는 원본 저장소가 없어 등록 당시 CSV를 한 번 더 확인합니다. 실서비스에서는 이 단계가 없습니다.</p>
+          </label>
+          <p id="training-file-help" className="configurationNote">개발 환경에는 원본 저장소가 없어 등록 당시 CSV를 한 번 더 확인합니다. 실서비스에서는 이 단계가 없습니다.</p>
         </> : null}
         {datasetLoading ? <StatePanel state="loading" title="전체 CSV를 검증하고 있습니다." description="최대 10,000행을 읽고 SHA와 mapping을 확인합니다." compact /> : null}
         {datasetError ? <StatePanel state="error" title="Dataset Version 준비 실패" description={datasetError} compact /> : null}

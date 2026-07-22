@@ -387,25 +387,26 @@ export function DatasetConsole({
             acceptFile(event.dataTransfer.files[0]);
           }}
         >
-          <label htmlFor="dataset-csv-file">검사할 로컬 CSV</label>
+          <strong className="datasetDropTitle">검사할 CSV를 끌어다 놓으세요</strong>
           <input
             ref={inputRef}
             id="dataset-csv-file"
-            className="datasetNativeFileInput"
+            className="srOnly"
             type="file"
             accept=".csv,text/csv,text/plain"
+            aria-describedby="dataset-file-help dataset-file-status"
             onChange={(event) => {
               acceptFile(event.currentTarget.files?.[0]);
               event.currentTarget.value = "";
             }}
           />
-          <p>CSV 파일을 이 영역에 놓거나 키보드로 파일 선택 버튼을 사용하세요.</p>
-          <Pressable onClick={() => inputRef.current?.click()}>CSV 파일 선택</Pressable>
-          {selectedFile ? (
-            <p className="datasetSelectedFile">
-              <strong>{selectedFile.name}</strong> · {formatBytes(selectedFile.size)}
-            </p>
-          ) : null}
+          <p id="dataset-file-help">또는 아래 버튼으로 컴퓨터에 있는 파일을 선택하세요.</p>
+          <label className="pressable secondaryButton datasetFilePicker" htmlFor="dataset-csv-file">
+            {selectedFile ? "다른 CSV 선택" : "CSV 파일 선택"}
+          </label>
+          <p id="dataset-file-status" className="datasetSelectedFile" role="status">
+            {selectedFile ? <><strong>{selectedFile.name}</strong> · {formatBytes(selectedFile.size)}</> : "선택된 파일 없음"}
+          </p>
         </div>
       </section>
 
