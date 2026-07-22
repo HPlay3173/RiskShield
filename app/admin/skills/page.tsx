@@ -32,7 +32,7 @@ export async function renderAdminSkillsPage(returnTo = "/admin/skills") {
   const result = await repositories.skills.listAdmin({ limit: 100 });
   if (result.status !== "ready") {
     return (
-      <AdminShell currentHref="/admin/skills" principal={presentation} title="스킬 라이브러리" description="관리자에게만 전체 payload와 revision 흐름을 제공합니다.">
+      <AdminShell currentHref="/admin/skills" principal={presentation} title="위험 표현 DB" description="분석기가 사용하는 탐지 규칙과 상태를 확인합니다.">
         <StatePanel state={result.status === "configuration_required" ? "configuration-required" : "unavailable"} title="실제 스킬 저장소를 읽을 수 없습니다." description={result.message} />
       </AdminShell>
     );
@@ -40,7 +40,7 @@ export async function renderAdminSkillsPage(returnTo = "/admin/skills") {
   const skills = result.data.items.map(skillView).filter((item): item is SkillLibraryItem => item !== null);
   const invalidCount = result.data.items.length - skills.length;
   return (
-    <AdminShell currentHref="/admin/skills" principal={presentation} title="스킬 라이브러리" description="실제 risk_skills read adapter로 검색·상세·payload를 확인하고 기존 값을 덮어쓰지 않는 revision을 제안합니다.">
+    <AdminShell currentHref="/admin/skills" principal={presentation} title="위험 표현 DB" description="활성 규칙과 초안을 확인하고, 테스트를 통과한 초안만 공개 분석기에 반영합니다.">
       <SkillLibrary
         skills={skills}
         revisionEndpoint="/api/manage/skills/revisions"

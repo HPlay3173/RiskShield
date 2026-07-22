@@ -3,6 +3,7 @@ import { GoogleTrainingDraftProvider } from "../training/google-draft-provider";
 import type { TrainingDraft } from "../training/mvp";
 import { GoogleCollectorQualificationProvider, type QualificationAssessment } from "./google-qualification-provider";
 import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, type ObservationContextLabel } from "./quality";
+import { parseYouTubeVideoInput } from "./youtube";
 
 export type CollectorProvider = "youtube" | "bluesky" | "mastodon" | "x" | "threads" | "dcinside";
 
@@ -241,7 +242,7 @@ async function dcPosts(source: CollectorSource): Promise<{ posts: CollectedPost[
 async function youtubePosts(source: CollectorSource, env: CollectorEnvironment): Promise<{ posts: CollectedPost[]; cursor: string | null }> {
   const apiKey = env.RISKSHIELD_YOUTUBE_API_KEY || env.RISKSHIELD_INTERPRETER_API_KEY;
   if (!apiKey) throw new Error("YouTube Data API key가 설정되지 않았습니다.");
-  const videoIds = [...new Set(source.query.split(/[\s,]+/u).map((value) => value.trim()).filter((value) => /^[A-Za-z0-9_-]{11}$/u.test(value)))].slice(0, 5);
+  const videoIds = parseYouTubeVideoInput(source.query).ids;
   if (!videoIds.length) throw new Error("YouTube 수집에는 공개 동영상 ID가 하나 이상 필요합니다.");
   const posts: CollectedPost[] = [];
   for (const videoId of videoIds) {

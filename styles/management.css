@@ -46,7 +46,7 @@
 .managementNavCopy strong { font-size: 0.9rem; }
 .managementNavCopy small { color: var(--ink-600); font-size: 0.76rem; }
 .managementNavigationFooter { margin-top: 1rem; padding: 0.7rem; color: var(--ink-600); font-size: 0.82rem; }
-.managementMain { min-width: 0; padding: clamp(1.25rem, 4vw, 3rem); }
+.managementMain { min-width: 0; max-width: 112rem; width: auto; padding: clamp(1.25rem, 4vw, 3rem); }
 .managementPageHeader { display: block; margin-bottom: 1.5rem; }
 .managementPageHeader > * { min-width: 0; }
 .managementPageEyebrow { margin-bottom: 0.2rem; color: var(--blue-700); font-size: 0.8rem; font-weight: 780; letter-spacing: 0.09em; }
@@ -88,9 +88,26 @@
 .roadmapCard li { padding: 0.45rem 0.7rem; color: var(--ink-600); background: #eceff4; border-radius: 99rem; font-size: 0.8rem; }
 .collectorIntro { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .collectorIntro h2 { margin: 0.25rem 0 0; }
-.collectorFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-block: 1rem; }
-.communityCollector > .formField { display: grid; gap: 0.35rem; }
+.collectorFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 1rem; margin-block: 1rem; }
+.collectorFields .formField, .communityCollector > .formField, .evaluationCaseForm > .formField, .evaluationFieldGrid .formField { display: grid; min-width: 0; gap: 0.4rem; color: var(--ink-700); font-size: 0.84rem; font-weight: 680; }
+.collectorFields .formField > input, .collectorFields .formField > select, .collectorFields .formField > textarea, .evaluationCaseForm .formField > input, .evaluationCaseForm .formField > select, .evaluationCaseForm .formField > textarea { width: 100%; font-weight: 450; }
+.collectorFields .formField small, .evaluationCaseForm .formField small { color: var(--ink-600); font-weight: 450; line-height: 1.45; }
+.collectorQueryField { grid-column: 1 / -1; }
 .communityCollector textarea { width: 100%; resize: vertical; }
+.fieldValidation { color: var(--green-700); font-size: 0.8rem; font-weight: 700; }
+.fieldValidationError { color: var(--red-800); }
+.secondaryWorkflow { padding: 0; overflow: hidden; }
+.secondaryWorkflow > summary, .technicalDetails > summary, .reviewEvidenceDetails > summary, .candidateDraftDetails > summary { display: flex; min-height: 4.25rem; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.9rem 1rem; cursor: pointer; list-style: none; }
+.secondaryWorkflow > summary::-webkit-details-marker, .technicalDetails > summary::-webkit-details-marker, .reviewEvidenceDetails > summary::-webkit-details-marker, .candidateDraftDetails > summary::-webkit-details-marker { display: none; }
+.secondaryWorkflow > summary span, .technicalDetails > summary span, .reviewEvidenceDetails > summary span, .candidateDraftDetails > summary span { display: grid; gap: 0.15rem; }
+.secondaryWorkflow > summary small, .technicalDetails > summary small, .reviewEvidenceDetails > summary small, .candidateDraftDetails > summary small { color: var(--ink-600); font-weight: 450; }
+.secondaryWorkflow > summary b, .technicalDetails > summary b, .reviewEvidenceDetails > summary b, .candidateDraftDetails > summary b { color: var(--blue-700); font-size: 0.82rem; }
+.secondaryWorkflow[open] > summary, .technicalDetails[open] > summary, .reviewEvidenceDetails[open] > summary, .candidateDraftDetails[open] > summary { border-bottom: 1px solid var(--line); }
+.secondaryWorkflow[open] > summary b, .technicalDetails[open] > summary b, .reviewEvidenceDetails[open] > summary b, .candidateDraftDetails[open] > summary b { font-size: 0; }
+.secondaryWorkflow[open] > summary b::after, .technicalDetails[open] > summary b::after, .reviewEvidenceDetails[open] > summary b::after, .candidateDraftDetails[open] > summary b::after { content: "닫기"; font-size: 0.82rem; }
+.secondaryWorkflow > .communityCollector { padding: 1rem; }
+.technicalDetailsBody { padding: 1rem; }
+.initialCsvValidation.technicalDetails { padding: 0; }
 .collectorSummary { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.65rem 0 1rem; }
 .collectorSummary span { padding: 0.3rem 0.55rem; color: var(--ink-600); background: var(--surface-soft); border-radius: 99rem; font-size: 0.8rem; }
 .collectorSuccess { padding: 0.9rem 1rem; color: var(--green-700); background: var(--green-100); border-radius: var(--radius-sm); }
@@ -108,7 +125,13 @@
 .evaluationMetricGrid article { display: grid; gap: 0.2rem; padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
 .evaluationMetricGrid span { color: var(--ink-600); font-size: 0.8rem; }
 .evaluationMetricGrid strong { font-size: 1.45rem; }
-.evaluationLayout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr); gap: 1rem; }
+.evaluationLayout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr); align-items: stretch; gap: 1rem; }
+.evaluationCaseForm { display: grid; align-content: start; gap: 0.85rem; }
+.evaluationCaseForm h2, .evaluationCaseForm p { margin: 0; }
+.evaluationCaseForm > p { color: var(--ink-600); }
+.evaluationFieldGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.evaluationFieldGrid .formField:last-child { grid-column: 1 / -1; }
+.evaluationCaseForm > .primaryButton { justify-self: start; }
 .evaluationCaseList article { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0.55rem 0.75rem; padding: 0.75rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
 .evaluationCaseList p { margin: 0; }
 .evaluationCaseList small { grid-column: 2; color: var(--ink-600); }
@@ -177,6 +200,7 @@
 .statusPill[data-tone="success"] { color: var(--green-700); background: var(--green-100); }
 .statusPill[data-tone="warning"] { color: var(--amber-800); background: var(--amber-100); }
 .statusPill[data-tone="danger"] { color: var(--red-800); background: var(--red-100); }
+.statusPill[data-tone="critical"] { color: var(--red-800); background: var(--red-100); }
 .statusPill[data-tone="info"] { color: var(--blue-700); background: var(--blue-100); }
 .splitPane { display: grid; grid-template-columns: minmax(0, var(--split-primary, 42%)) 2.75rem minmax(0, 1fr); min-height: 35rem; }
 .splitPane[data-orientation="horizontal"] { grid-template-columns: 1fr; grid-template-rows: minmax(0, var(--split-primary, 42%)) 2.75rem minmax(0, 1fr); }
@@ -240,10 +264,14 @@
 .candidateStatus-rejected, .skillStatus-rejected { color: var(--red-800); background: var(--red-100); }
 .candidateStatus-held, .candidateStatus-merged { color: var(--amber-800); background: var(--amber-100); }
 .reviewDetailSection, .skillPayloadPanel, .skillRegressionPanel, .skillRevisionForm { padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.reviewEvidenceDetails, .candidateDraftDetails, .technicalDetails { margin-top: 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.reviewEvidenceDetails > .reviewDetailSection, .candidateDraftDetails > .candidateDraftEditor, .technicalDetails > section { margin-inline: 1rem; }
+.candidateDraftDetails > .candidateDraftEditor { margin-block: 1rem; }
 .reviewDetailSection h3, .skillPayloadPanel h3, .skillRegressionPanel h3, .skillRevisionForm h3 { margin-bottom: 0.65rem; }
 .expressionGroupList, .candidateSourceList, .candidateEvidenceList, .redTeamList { display: grid; gap: 0.5rem; padding-left: 1.25rem; }
 .candidateSourceList li, .candidateEvidenceList li, .redTeamList li { padding: 0.65rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
 .candidateDecisionPanel { padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.candidateDecisionPanel > header p { margin-bottom: 0; color: var(--ink-600); }
 .candidateDecisionPanel label { display: grid; gap: 0.3rem; margin-top: 0.7rem; color: var(--ink-600); font-size: 0.82rem; }
 .candidateDecisionPanel input, .candidateDecisionPanel textarea { width: 100%; min-height: 2.75rem; padding: 0.55rem 0.7rem; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); }
 .candidateDecisionActions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.8rem; }
@@ -253,6 +281,7 @@
 .candidateDecisionStatus, .skillRevisionStatus, .datasetSubmissionStatus { min-height: 1.6rem; margin-top: 0.65rem; }
 .serverAcknowledgement { margin: 0; padding: 0.7rem; color: var(--green-700); background: var(--green-100); border-radius: var(--radius-sm); }
 .skillPayloadPanel pre { max-height: 24rem; overflow: auto; padding: 0.9rem; color: #e6edf7; background: #182131; border-radius: var(--radius-sm); font-size: 0.8rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.reviewInboxSplitPane, .skillLibrarySplitPane { height: min(72vh, 52rem); min-height: 38rem; }
 .skillRevisionForm { display: grid; gap: 0.7rem; }
 .skillRevisionPayloadEditor { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.82rem; }
 .skillRevisionSubmit { justify-self: start; padding: 0.7rem 1rem; color: #fff; background: var(--ink-950); }
@@ -369,12 +398,15 @@
   .pipelineStage > .statusPill { grid-column: 2; justify-self: start; }
   .reviewInboxFilters, .skillLibraryFilters, .datasetColumnMappingGrid, .datasetProvenanceGrid, .trainingConfigurationGrid { grid-template-columns: 1fr; }
   .collectorFields { grid-template-columns: 1fr; }
+  .collectorQueryField, .evaluationFieldGrid .formField:last-child { grid-column: auto; }
+  .evaluationFieldGrid { grid-template-columns: 1fr; }
   .evaluationHero { align-items: flex-start; flex-direction: column; }
   .evaluationMetricGrid { grid-template-columns: 1fr; }
   .collectorSourceList article, .calibrationPolicyList article { grid-template-columns: 1fr; }
   .collectorSourceList article > div:nth-child(2) { justify-content: flex-start; }
   .reviewInboxHeading, .skillLibraryHeading, .datasetConsoleHeader, .trainingConsoleHeader { flex-direction: column; }
   .reviewInboxSplitPane .splitPaneSecondary { display: none; }
+  .reviewInboxSplitPane, .skillLibrarySplitPane { height: auto; min-height: 0; }
 }
 
 @media (max-width: 30rem) {

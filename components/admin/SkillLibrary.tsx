@@ -282,10 +282,10 @@ export function SkillLibrary({
   }
 
   return (
-    <section className="skillLibrary" aria-label="관리자 스킬 라이브러리">
+    <section className="skillLibrary" aria-label="위험 표현 데이터베이스">
       <div className="skillLibraryHeading">
         <ProductMetricGrid
-          label="스킬 라이브러리 요약"
+          label="위험 표현 규칙 요약"
           metrics={[
             { key: "total", label: "전체", value: skills.length, numeric: true },
             { key: "reviewed", label: "검토 완료", value: skills.filter((skill) => skill.reviewStatus === "reviewed").length, numeric: true },
@@ -302,8 +302,8 @@ export function SkillLibrary({
 
       <form className="skillLibraryFilters" role="search" onSubmit={(event) => event.preventDefault()}>
         <label>
-          <span>스킬 검색</span>
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름, ID, category" />
+          <span>규칙 검색</span>
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름, ID, 위험 분야" />
         </label>
         <label>
           <span>검토 상태</span>
@@ -313,9 +313,9 @@ export function SkillLibrary({
           </select>
         </label>
         <label>
-          <span>Category</span>
+          <span>위험 분야</span>
           <select value={category} onChange={(event) => setCategory(event.target.value)}>
-            <option value="all">전체 category</option>
+            <option value="all">전체 분야</option>
             {categories.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
         </label>
@@ -342,7 +342,7 @@ export function SkillLibrary({
       {skills.length === 0 ? (
         <StatePanel state="empty" title="등록된 스킬이 없습니다." description="SkillRepository가 반환한 스킬이 없습니다." />
       ) : filteredSkills.length === 0 ? (
-        <StatePanel state="filter-empty" title="조건에 맞는 스킬이 없습니다." description="검색어나 filter를 조정해 주세요." />
+        <StatePanel state="filter-empty" title="조건에 맞는 규칙이 없습니다." description="검색어나 필터를 조정해 주세요." />
       ) : selectedSkill && selectedDraft ? (
         <SplitPane
           className="skillLibrarySplitPane"
@@ -397,6 +397,8 @@ export function SkillLibrary({
                 ]}
               />
 
+              <details className="technicalDetails">
+                <summary><span><strong>기술 payload</strong><small>규칙 원본 JSON을 확인합니다.</small></span><b>열기</b></summary>
               <section className="skillPayloadPanel" aria-labelledby="skill-payload-title">
                 <h3 id="skill-payload-title">기존 payload</h3>
                 <p>이 payload는 권한을 확인한 관리자 화면에서만 표시합니다.</p>
@@ -404,11 +406,14 @@ export function SkillLibrary({
                   <code>{JSON.stringify(selectedSkill.payload, null, 2)}</code>
                 </pre>
               </section>
+              </details>
 
               <RegressionPanel tests={selectedSkill.regressionTests} />
 
               {selectedSkill.reviewStatus === "draft" ? <section className="skillRevisionForm" aria-labelledby="skill-activation-title"><h3 id="skill-activation-title">분석 규칙으로 활성화</h3><p>후보에 연결된 모든 양성·음성 사례와 기본 경고 문맥을 서버에서 검사한 뒤, 전부 통과한 스킬만 Analyzer에 반영합니다.</p><Pressable className="skillRevisionSubmit" disabled={activationState.state === "submitting"} onClick={() => void activateSkill()}>{activationState.state === "submitting" ? "검증 중…" : "전체 테스트 후 활성화"}</Pressable>{activationState.skillId === selectedSkill.id && activationState.message ? <p className="serverAcknowledgement" data-status={activationState.state === "error" ? "error" : "success"}>{activationState.message}{activationState.state === "success" ? " · 이제 공개 분석기에서 같은 표현을 다시 확인할 수 있습니다." : ""}</p> : null}</section> : null}
 
+              <details className="technicalDetails">
+                <summary><span><strong>새 revision 제안</strong><small>고급 사용자용 규칙 수정 도구입니다.</small></span><b>열기</b></summary>
               <section className="skillRevisionForm" aria-labelledby="skill-revision-title">
                 <h3 id="skill-revision-title">새 revision 제안</h3>
                 <p>현재 revision을 직접 덮어쓰지 않고 검토 가능한 제안을 생성합니다.</p>
@@ -456,6 +461,7 @@ export function SkillLibrary({
                   ) : null}
                 </div>
               </section>
+              </details>
             </article>
           }
         />

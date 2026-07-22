@@ -47,7 +47,7 @@ export async function renderDatasetsPage(returnTo = "/dev/datasets") {
       ? datasets.message
       : null;
   return (
-    <DeveloperShell currentHref="/dev/datasets" principal={presentation} title="데이터셋" description="원본 CSV를 byte-exact로 검사하고 provenance와 column mapping을 확인한 뒤 staging Dataset Version으로만 등록합니다.">
+    <DeveloperShell currentHref="/dev/datasets" principal={presentation} title="CSV 데이터 등록" description="표현 자료 CSV를 선택하면 형식·중복·개인정보 가능성을 먼저 검사한 뒤 후보 생성용 데이터로 등록합니다.">
       <DatasetConsole
         initialCsvMetadata={INITIAL_CSV_METADATA}
         stagingEndpoint="/api/manage/datasets/register"

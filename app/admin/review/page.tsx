@@ -70,7 +70,7 @@ export async function renderAdminReviewPage(returnTo = "/admin/review") {
   const result = await repositories.candidates.list();
   if (result.status !== "ready") {
     return (
-      <AdminShell currentHref="/admin/review" principal={presentation} title="AI 후보 검토" description="자동 편입을 차단한 후보를 근거와 함께 검토합니다.">
+      <AdminShell currentHref="/admin/review" principal={presentation} title="후보 검토" description="자동 수집과 사용자 제보로 발견한 표현을 사람이 확인합니다.">
         <StatePanel state={result.status === "configuration_required" ? "configuration-required" : "unavailable"} title="후보 backend가 준비되지 않았습니다." description={result.message}>
           <p>제품 UI와 CandidateRepository 경계는 준비되어 있으며 production schema와 pipeline 저장 단계가 연결되면 실제 후보가 나타납니다.</p>
         </StatePanel>
@@ -81,7 +81,7 @@ export async function renderAdminReviewPage(returnTo = "/admin/review") {
   const scoredNovelty = candidates.filter((candidate) => candidate.noveltyPercent !== null);
   const knownConflict = result.data.items.filter((candidate) => candidate.modelConflict !== null && candidate.modelConflict !== undefined);
   return (
-    <AdminShell currentHref="/admin/review" principal={presentation} title="AI 후보 검토" description="표현군, evidence, 회귀 테스트와 자동 편입 차단 이유를 확인한 뒤 명시적 버튼으로 결정합니다.">
+    <AdminShell currentHref="/admin/review" principal={presentation} title="후보 검토" description="대표 표현과 사용 문맥을 먼저 보고, 필요한 경우 근거와 테스트를 펼쳐 승인·보류·반려합니다.">
       <ReviewInbox
         summary={{
           total: candidates.length,

@@ -40,10 +40,10 @@
 }
 .publicAnalyzerHeader > p { margin: 0; color: var(--ink-600); font-size: 0.9rem; }
 
-.publicAnalyzerMain { width: min(100% - 2rem, 68rem); margin-inline: auto; padding: clamp(3rem, 8vw, 7rem) 0 5rem; }
+.publicAnalyzerMain { width: min(100% - 2rem, 68rem); margin-inline: auto; padding: clamp(2.75rem, 6vw, 5.25rem) 0 5rem; }
 .publicAnalyzerIntro { max-width: 49rem; margin-bottom: 2.25rem; }
 .publicAnalyzerEyebrow { color: var(--blue-700); font-size: 0.8rem; font-weight: 780; letter-spacing: 0.11em; }
-.publicAnalyzerIntro h1 { margin: 0.65rem 0 1.1rem; font-size: clamp(2.65rem, 7vw, 5.6rem); font-weight: 790; letter-spacing: -0.045em; }
+.publicAnalyzerIntro h1 { margin: 0.65rem 0 1.1rem; font-size: clamp(2.65rem, 6vw, 4.85rem); font-weight: 790; letter-spacing: -0.045em; }
 .publicAnalyzerIntro p { max-width: 46rem; margin-bottom: 0; color: var(--ink-700); font-size: clamp(1.05rem, 2vw, 1.2rem); }
 
 .publicAnalyzerForm {
@@ -93,8 +93,16 @@
 .profilePicker label strong { font-size: 0.96rem; }
 .profilePicker label small { color: var(--ink-600); font-size: 0.82rem; line-height: 1.45; }
 .profilePicker > p { margin: 0.55rem 0 0; color: var(--ink-600); font-size: 0.85rem; }
+.profilePickerDetails { margin-top: 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.profilePickerDetails > summary { display: flex; min-height: 2.9rem; align-items: center; justify-content: space-between; padding: 0.55rem 0.75rem; cursor: pointer; list-style: none; font-weight: 720; }
+.profilePickerDetails > summary::-webkit-details-marker { display: none; }
+.profilePickerDetails > summary small { color: var(--ink-600); font-weight: 500; }
+.profilePickerDetails[open] > summary { border-bottom: 1px solid var(--line); }
+.profilePickerDetails .profilePicker { margin: 0; padding: 0.75rem; }
 
-.publicAnalyzerExamples { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.3rem; }
+.publicAnalyzerExampleGroup { margin-top: 1.15rem; }
+.publicAnalyzerExampleGroup > span { color: var(--ink-600); font-size: 0.82rem; font-weight: 680; }
+.publicAnalyzerExamples { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
 .publicAnalyzerExamples button { min-height: 2.75rem; max-width: 100%; padding: 0.55rem 0.75rem; text-align: left; font-size: 0.85rem; }
 .publicAnalyzerActions { display: flex; gap: 0.65rem; margin-top: 1.25rem; }
 .publicAnalyzerActions .primaryButton { min-width: 10rem; }

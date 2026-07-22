@@ -44,15 +44,15 @@ export default async function ManagePage() {
       <section className="managementTaskGrid" aria-label="빠른 작업">
         <Link className="managementTaskCard" href="/manage/review"><span>01 · 검토</span><strong>새 표현 판단하기</strong><p>위험 범주와 문맥을 확인하고 규칙 초안을 만듭니다.</p><b>{pending ?? "—"}건 대기 →</b></Link>
         <Link className="managementTaskCard" href="/manage/skills"><span>02 · 지식</span><strong>활성 규칙 살펴보기</strong><p>분석기가 지금 사용하는 표현과 반례를 확인합니다.</p><b>{active ?? "—"}개 활성 →</b></Link>
-        <Link className="managementTaskCard" href="/manage/collect"><span>03 · 발견</span><strong>자동 수집 모니터링</strong><p>X·Threads·디시 공개 자료에서 새 표현 후보를 주기적으로 수집합니다.</p><b>수집처 관리 →</b></Link>
+        <Link className="managementTaskCard" href="/manage/collect"><span>03 · 발견</span><strong>새 표현 자동 관찰</strong><p>YouTube 공개 댓글을 주요 표본으로 관찰하고, 통과한 표현만 검토함으로 보냅니다.</p><b>수집처 관리 →</b></Link>
       </section>
       <section className="managementGrid">
         <article className="managementCard"><span className="manageHeroEyebrow">분석 지식</span><h2>무엇을 탐지하나요?</h2><div className="knowledgeChips"><span>과장·기만</span><span>혐오·차별</span><span>욕설·공격</span><span>숨은 은어</span><span>폭력·위협</span><span>개인정보 침해</span></div></article>
         <article className="managementCard"><span className="manageHeroEyebrow">사람 중심 검토</span><h2>AI가 바로 규칙을 바꾸지 않습니다</h2><p>사용자 제보와 외부 자료는 후보함으로 들어옵니다. 사람이 의미와 반례를 확인하고 회귀 검증을 통과한 지식만 분석기에 반영됩니다.</p><Link className="reviewInboxLink" href="/manage/review">검토함 열기 →</Link></article>
       </section>
       <section className="managementCard roadmapCard" aria-labelledby="roadmap-title">
-        <div><span className="manageHeroEyebrow">지속 강화 2.0</span><h2 id="roadmap-title">세 가지 확장 기능이 실제 흐름에 연결됐습니다</h2><p>예약 커뮤니티 수집은 검토함으로, 독립 주장 분석은 공개 결과로, 라벨 평가는 보정 점수로 연결됩니다. 자격 증명이나 표본이 부족하면 그 상태를 그대로 표시합니다.</p></div>
-        <ul><li>예약 자동 수집</li><li>다중 claim 종합 점수</li><li>라벨 기반 정확도·보정</li></ul>
+        <div><span className="manageHeroEyebrow">현재 실험 기능</span><h2 id="roadmap-title">자동 수집과 점수 보정은 사람이 확인합니다</h2><p>자동 수집 결과는 곧바로 규칙이 되지 않으며, 점수 보정도 충분한 라벨 사례가 있을 때만 사용할 수 있습니다. 각 화면에서 필요한 조건을 확인할 수 있습니다.</p></div>
+        <ul><li>검토 전 자동 반영 없음</li><li>출처별 품질 관찰</li><li>라벨 데이터 필요</li></ul>
       </section>
     </AdminShell>
   );

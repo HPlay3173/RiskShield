@@ -28,8 +28,8 @@ export default async function ManageTrainingPage() {
     <DeveloperShell
       currentHref="/manage/training"
       principal={presentation}
-      title="학습 파이프라인"
-      description="검증된 CSV를 정제·중복 제거·표현군 생성한 뒤 Gemma draft를 사람의 검토함에 저장합니다."
+      title="후보 생성"
+      description="등록한 자료에서 겹치는 표현을 정리하고, 새 위험 표현 후보만 사람의 검토함으로 보냅니다."
     >
       <TrainingConsole
         endpoint="/api/manage/training/run"

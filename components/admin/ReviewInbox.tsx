@@ -214,6 +214,8 @@ function CandidateDetail({ candidate, instance = "desktop" }: { candidate: Revie
         ]}
       />
 
+      <details className="reviewEvidenceDetails">
+        <summary><span><strong>근거·문맥·회귀 테스트</strong><small>결정 전에 필요한 상세 자료를 펼쳐 봅니다.</small></span><b>열기</b></summary>
       <section className="reviewDetailSection" aria-labelledby={`${domId}-group`}>
         <h3 id={`${domId}-group`}>표현군</h3>
         {candidate.expressionGroup.length ? (
@@ -258,7 +260,7 @@ function CandidateDetail({ candidate, instance = "desktop" }: { candidate: Revie
       </section>
 
       <section className="reviewDetailSection" aria-labelledby={`${domId}-sources`}>
-        <h3 id={`${domId}-sources`}>출처와 evidence</h3>
+        <h3 id={`${domId}-sources`}>출처와 판단 근거</h3>
         {candidate.sources.length ? (
           <ul className="candidateSourceList">
             {candidate.sources.map((source) => (
@@ -280,7 +282,7 @@ function CandidateDetail({ candidate, instance = "desktop" }: { candidate: Revie
               </li>
             ))}
           </ol>
-        ) : <p>등록된 evidence가 없습니다.</p>}
+        ) : <p>등록된 판단 근거가 없습니다.</p>}
       </section>
 
       <section className="reviewDetailSection" aria-labelledby={`${domId}-positive`}>
@@ -341,6 +343,7 @@ function CandidateDetail({ candidate, instance = "desktop" }: { candidate: Revie
           ]}
         />
       </section>
+      </details>
     </article>
   );
 }
@@ -558,7 +561,7 @@ export function ReviewInbox({
       {candidates.length === 0 ? (
         <StatePanel state="empty" title="검토할 후보가 없습니다." description="새 후보가 생성되면 이 검토함에 표시됩니다." />
       ) : filteredCandidates.length === 0 ? (
-        <StatePanel state="filter-empty" title="조건에 맞는 후보가 없습니다." description="검색어나 filter를 조정해 주세요." />
+        <StatePanel state="filter-empty" title="조건에 맞는 후보가 없습니다." description="검색어나 필터를 조정해 주세요." />
       ) : selectedCandidate ? (
         <>
           <SplitPane
@@ -611,7 +614,7 @@ export function ReviewInbox({
           <section className="candidateDecisionPanel" aria-labelledby="candidate-decision-title">
             <header>
               <h2 id="candidate-decision-title">검토 결정</h2>
-              <p>결정은 명시적 버튼을 누르고 서버 acknowledgement가 도착한 뒤에만 완료됩니다.</p>
+              <p>결정 버튼을 누른 뒤 저장 완료 안내가 나타나야 처리된 것입니다.</p>
             </header>
             <label>
               <span>결정 근거</span>
@@ -632,6 +635,8 @@ export function ReviewInbox({
                 placeholder="병합 결정에만 필요"
               />
             </label>
+            <details className="candidateDraftDetails">
+              <summary><span><strong>규칙 초안 직접 수정</strong><small>‘수정 후 승인’을 선택할 때만 확인하세요.</small></span><b>열기</b></summary>
             <fieldset className="candidateDraftEditor" disabled={submitting || !selectedCandidate.draft}>
               <legend>수정 후 승인 초안</legend>
               <label><span>제목</span><input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} /></label>
@@ -645,6 +650,7 @@ export function ReviewInbox({
               <label><span>기본 위험도</span><input type="number" min={1} max={100} value={draftSeverity} onChange={(event) => setDraftSeverity(Number(event.target.value))} /></label>
               <label><span>대체 문구 · 한 줄에 하나</span><textarea rows={3} value={draftRewrites} onChange={(event) => setDraftRewrites(event.target.value)} /></label>
             </fieldset>
+            </details>
             <div className="candidateDecisionActions" aria-label="후보 결정">
               {supportedDecisions.map((decision) => (
                 <Pressable

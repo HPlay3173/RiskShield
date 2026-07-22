@@ -2,6 +2,7 @@ import { requireApiCapability } from "../auth/authorize";
 import { requireMutationIntegrity } from "../auth/request-integrity";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject } from "../http/control-response";
 import type { CollectorProvider } from "./runner";
+import { parseYouTubeVideoInput } from "./youtube";
 
 const PROVIDERS = new Set<CollectorProvider>(["youtube", "bluesky", "mastodon", "x", "threads", "dcinside"]);
 
@@ -14,7 +15,7 @@ export async function handleCollectorMutation(request: Request) {
   if (body === JSON_BODY_TOO_LARGE) return controlJson({ error: "request_payload_too_large" }, 413);
   const provider = typeof body?.provider === "string" ? body.provider as CollectorProvider : "";
   const label = typeof body?.label === "string" ? body.label.trim().slice(0, 80) : "";
-  const query = typeof body?.query === "string" ? body.query.trim().slice(0, 240) : "";
+  let query = typeof body?.query === "string" ? body.query.trim().slice(0, 1_000) : "";
   const endpoint = typeof body?.endpoint === "string" ? body.endpoint.trim().slice(0, 500) : null;
   const intervalMinutes = Math.max(15, Math.min(10_080, Math.floor(Number(body?.intervalMinutes ?? 60))));
   const enabled = body?.enabled === true;
@@ -32,10 +33,11 @@ export async function handleCollectorMutation(request: Request) {
     } catch { return controlJson({ error: "invalid_mastodon_endpoint", message: "공개 HTTPS Mastodon 인스턴스 주소와 해시태그 하나가 필요합니다." }, 400); }
   }
   if (provider === "youtube") {
-    const ids = query.split(/[\s,]+/u).filter(Boolean);
-    if (!ids.length || ids.length > 5 || ids.some((value) => !/^[A-Za-z0-9_-]{11}$/u.test(value))) {
-      return controlJson({ error: "invalid_youtube_video_ids", message: "YouTube 공개 동영상 ID를 쉼표로 최대 5개 입력해 주세요." }, 400);
+    const parsed = parseYouTubeVideoInput(query);
+    if (!parsed.ids.length || parsed.invalid.length) {
+      return controlJson({ error: "invalid_youtube_video_ids", message: "YouTube 영상 주소 또는 11자리 ID를 최대 5개 입력해 주세요." }, 400);
     }
+    query = parsed.ids.join(",");
   }
   const { env } = await import("cloudflare:workers");
   const db = env.DB;

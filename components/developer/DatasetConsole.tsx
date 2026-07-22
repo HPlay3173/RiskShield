@@ -331,18 +331,19 @@ export function DatasetConsole({
   }
 
   return (
-    <section className="datasetConsole" aria-label="Dataset Console">
+    <section className="datasetConsole" aria-label="CSV 데이터 등록">
       <header className="datasetConsoleHeader">
         <div>
-          <p>CSV → Dataset Version → 정제 → 군집 → 후보 생성 → 검토</p>
-          <h2>Dataset Console</h2>
-          <p>선택한 원본은 변경하거나 이동하지 않습니다. 등록 전 byte-exact 검사 결과를 확인하세요.</p>
+          <p>1단계 · 자료 등록</p>
+          <h2>새 표현 자료 추가</h2>
+          <p>CSV를 선택하면 형식과 개인정보 가능성을 먼저 검사합니다. 등록해도 분석 규칙으로 바로 반영되지는 않습니다.</p>
         </div>
         {developmentFixture ? <strong className="developmentDataBadge">개발 데이터</strong> : null}
       </header>
 
-      <section className="initialCsvValidation" aria-labelledby="initial-csv-title">
-        <h3 id="initial-csv-title">초기 CSV 검증 상태</h3>
+      <details className="initialCsvValidation technicalDetails">
+        <summary><span><strong>기본 제공 자료 3개</strong><small>개발 확인용 파일과 해시 정보</small></span><b>열기</b></summary>
+        <div className="technicalDetailsBody">
         {!initialMetadataReady ? (
           <StatePanel state="configuration-required" title="초기 CSV metadata 3건이 필요합니다." />
         ) : (
@@ -353,7 +354,8 @@ export function DatasetConsole({
             getRowKey={(item) => item.id}
           />
         )}
-      </section>
+        </div>
+      </details>
 
       {!configured ? (
         <StatePanel
@@ -408,7 +410,7 @@ export function DatasetConsole({
       </section>
 
       {inspecting ? (
-        <StatePanel state="loading" title="CSV를 byte-exact 검사하고 있습니다." description="SHA-256과 구조 검사를 완료할 때까지 기다려 주세요." />
+        <StatePanel state="loading" title="CSV 파일을 검사하고 있습니다." description="파일 내용과 구조가 그대로인지 확인할 때까지 기다려 주세요." />
       ) : null}
       {inspectionError ? <StatePanel state="error" title="CSV 검사 실패" description={inspectionError} /> : null}
 
@@ -498,7 +500,7 @@ export function DatasetConsole({
           </section>
 
           <section className="datasetPreviewSection" aria-labelledby="dataset-preview-title">
-            <h3 id="dataset-preview-title">Sanitized preview</h3>
+            <h3 id="dataset-preview-title">개인정보를 가린 미리보기</h3>
             <p>
               개인정보 후보는 마스킹하고 formula 후보는 문자열로 표시합니다. 최대 {inspection.previewLimit}행만 표시합니다.
               {inspection.previewTruncated ? " 전체 데이터는 preview에 포함되지 않습니다." : ""}
@@ -514,14 +516,14 @@ export function DatasetConsole({
           </section>
 
           <section className="datasetProvenanceSection" aria-labelledby="dataset-provenance-title">
-            <h3 id="dataset-provenance-title">Provenance와 이용 조건</h3>
+            <h3 id="dataset-provenance-title">자료 출처와 이용 조건</h3>
             <div className="datasetProvenanceGrid">
               <label>
-                <span>Owner</span>
+                <span>자료 책임자</span>
                 <input value={provenance.owner} onChange={(event) => setProvenance((current) => ({ ...current, owner: event.target.value }))} />
               </label>
               <label>
-                <span>License</span>
+                <span>이용 조건·라이선스</span>
                 <input value={provenance.license} onChange={(event) => setProvenance((current) => ({ ...current, license: event.target.value }))} />
               </label>
               <label>
@@ -529,7 +531,7 @@ export function DatasetConsole({
                 <textarea rows={3} value={provenance.purpose} onChange={(event) => setProvenance((current) => ({ ...current, purpose: event.target.value }))} />
               </label>
               <label>
-                <span>Retention</span>
+                <span>보관 기간</span>
                 <input value={provenance.retention} onChange={(event) => setProvenance((current) => ({ ...current, retention: event.target.value }))} placeholder="예: 검토 종료 후 30일" />
               </label>
             </div>
@@ -538,19 +540,19 @@ export function DatasetConsole({
           {hasWarnings ? (
             <label className="datasetWarningAcknowledgement">
               <input type="checkbox" checked={warningsAcknowledged} onChange={(event) => setWarningsAcknowledged(event.target.checked)} />
-              <span>중복·개인정보·formula 등 경고를 확인했으며 staging 이후에도 자동 active skill이 되지 않음을 이해했습니다.</span>
+              <span>중복·개인정보·수식 가능성 경고를 확인했으며, 등록 후에도 자동으로 분석 규칙이 되지 않음을 이해했습니다.</span>
             </label>
           ) : null}
 
           {!inspection.canStage ? (
-            <StatePanel state="error" title="현재 CSV는 staging에 등록할 수 없습니다." description="오류 issue와 필수 keyword mapping을 먼저 해결해 주세요." />
+            <StatePanel state="error" title="현재 CSV는 등록할 수 없습니다." description="오류 항목과 필수 표현 열 연결을 먼저 해결해 주세요." />
           ) : !provenanceComplete ? (
-            <StatePanel state="configuration-required" title="Provenance 입력이 필요합니다." description="Owner, license, 이용 목적, retention을 모두 확인해 주세요." />
+            <StatePanel state="configuration-required" title="자료 출처 정보가 필요합니다." description="책임자, 이용 조건, 사용 목적, 보관 기간을 모두 확인해 주세요." />
           ) : null}
 
           <div className="datasetStagingActions">
             <Pressable disabled={!readyToStage} onClick={() => void stageDataset()}>
-              {submission.state === "staging" ? "Staging 등록 중…" : "Dataset Version을 staging에 등록"}
+              {submission.state === "staging" ? "등록 중…" : "후보 생성용 데이터로 등록"}
             </Pressable>
             <p>등록은 candidate 생성 흐름의 시작일 뿐이며 CSV 행을 active skill로 만들지 않습니다.</p>
           </div>
