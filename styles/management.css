@@ -95,6 +95,24 @@
 .collectorSummary span { padding: 0.3rem 0.55rem; color: var(--ink-600); background: var(--surface-soft); border-radius: 99rem; font-size: 0.8rem; }
 .collectorSuccess { padding: 0.9rem 1rem; color: var(--green-700); background: var(--green-100); border-radius: var(--radius-sm); }
 .collectorGuide ol { display: grid; gap: 0.35rem; margin-bottom: 0; padding-left: 1.25rem; color: var(--ink-700); }
+.collectorSourceList, .calibrationPolicyList, .evaluationCaseList { display: grid; gap: 0.65rem; margin-top: 1rem; }
+.collectorSourceList article, .calibrationPolicyList article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.5rem 1rem; padding: 0.85rem; background: var(--surface-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.collectorSourceList article > div, .calibrationPolicyList article > div { display: grid; gap: 0.12rem; }
+.collectorSourceList article > div:nth-child(2) { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.collectorSourceList small { grid-column: 1 / -1; color: var(--ink-600); }
+.evaluationWorkbench { display: grid; gap: 1rem; }
+.evaluationHero { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; padding: 1.35rem; background: linear-gradient(135deg, #fff 0%, #f1f6ff 100%); }
+.evaluationHero h2 { margin: 0.25rem 0 0.35rem; }
+.evaluationHero p { max-width: 45rem; margin: 0; color: var(--ink-600); }
+.evaluationMetricGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.7rem; }
+.evaluationMetricGrid article { display: grid; gap: 0.2rem; padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.evaluationMetricGrid span { color: var(--ink-600); font-size: 0.8rem; }
+.evaluationMetricGrid strong { font-size: 1.45rem; }
+.evaluationLayout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr); gap: 1rem; }
+.evaluationCaseList article { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 0.55rem 0.75rem; padding: 0.75rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
+.evaluationCaseList p { margin: 0; }
+.evaluationCaseList small { grid-column: 2; color: var(--ink-600); }
+.analysisMethodNote { color: var(--ink-600); font-size: 0.82rem; }
 .managementPageBody > *, .reviewInbox, .skillLibrary, .datasetConsole, .trainingConsole { min-width: 0; }
 .routeHeader { display: flex; align-items: end; justify-content: space-between; gap: 1.5rem; margin-bottom: 1.5rem; }
 .routeEyebrow { color: var(--blue-700); font-size: 0.8rem; font-weight: 780; letter-spacing: 0.09em; }
@@ -320,9 +338,18 @@
   .roadmapCard { align-items: flex-start; flex-direction: column; }
   .roadmapCard ul { justify-content: flex-start; }
   .reviewInboxFilters, .skillLibraryFilters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluationMetricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evaluationLayout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 48rem) {
+  .managementSidebar { overflow-x: visible; padding: 0.65rem; }
+  .managementNavigation ul { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; }
+  .managementNavItem { min-width: 0; min-height: 2.65rem; justify-content: center; padding: 0.45rem 0.3rem; text-align: center; white-space: normal; }
+  .managementNavCopy { min-width: 0; }
+  .managementNavCopy strong { font-size: 0.78rem; line-height: 1.25; }
+  .managementNavCopy small { display: none; }
+  .managementNavigationFooter { margin-top: 0.5rem; padding: 0.4rem 0.3rem; text-align: center; }
   .managementTopbar, .managementTopBar { position: relative; align-items: flex-start; flex-wrap: wrap; }
   .managementTopBarActions { flex: 1 1 14rem; justify-content: flex-end; }
   .managementIdentity { justify-content: flex-end; overflow-wrap: anywhere; }
@@ -342,6 +369,10 @@
   .pipelineStage > .statusPill { grid-column: 2; justify-self: start; }
   .reviewInboxFilters, .skillLibraryFilters, .datasetColumnMappingGrid, .datasetProvenanceGrid, .trainingConfigurationGrid { grid-template-columns: 1fr; }
   .collectorFields { grid-template-columns: 1fr; }
+  .evaluationHero { align-items: flex-start; flex-direction: column; }
+  .evaluationMetricGrid { grid-template-columns: 1fr; }
+  .collectorSourceList article, .calibrationPolicyList article { grid-template-columns: 1fr; }
+  .collectorSourceList article > div:nth-child(2) { justify-content: flex-start; }
   .reviewInboxHeading, .skillLibraryHeading, .datasetConsoleHeader, .trainingConsoleHeader { flex-direction: column; }
   .reviewInboxSplitPane .splitPaneSecondary { display: none; }
 }

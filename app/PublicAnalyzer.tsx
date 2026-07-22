@@ -41,13 +41,31 @@ type PublicAnalysis = {
   scoring: {
     policyVersion: string;
     finalScore: number;
+    rawScore: number;
+    calibratedScore: number | null;
+    calibration: { id: string; sampleCount: number; affectsDecision: false } | null;
     status: Status;
     confidence: number | null;
     highRequiresReview: boolean;
     experimental: boolean;
+    claimCount: number;
+    riskyClaimCount: number;
+    aggregateBonus: number;
     primaryCategory: { id: string; label: string; score: number; ruleScore: number; aiScore: number; source: "rule" | "ai" | "hybrid" } | null;
     categoryScores: Array<{ id: string; label: string; score: number; ruleScore: number; aiScore: number; source: "rule" | "ai" | "hybrid" }>;
   };
+  claims: Array<{
+    id: string;
+    index: number;
+    text: string;
+    start: number;
+    end: number;
+    score: number;
+    status: Status;
+    primaryCategory: { id: string; label: string; score: number } | null;
+    evidence: Array<{ start: number; end: number; text: string; source: "rule" | "ai" }>;
+    aiState: "ready" | "fallback";
+  }>;
   ai: {
     state: "ready" | "fallback";
     reasonCode: string | null;
@@ -181,7 +199,7 @@ export function PublicAnalyzer() {
             <p className="analysisProfileFocus"><strong>결과 보기:</strong> {result.profile.focus}</p>
             {result.ai.state === "fallback" ? <div className="analysisBanner" role="status"><strong>규칙 중심 안전 모드</strong><span>{result.ai.reasonLabel ?? "AI 문맥 해석 없이 검토된 위험 규칙만 사용했습니다."}</span></div> : <div className="analysisBanner isReady" role="status"><strong>AI 문맥 분석 사용됨</strong><span>검토된 규칙과 AI 문맥 해석을 함께 반영했습니다.</span></div>}
             <div className={`publicAnalyzerVerdict status-${result.hybrid.status}`}>
-              <div><span>현재 발견된 최고 위험도 · 실험 점수</span><strong>{result.scoring.finalScore}<small>/100</small></strong></div>
+              <div><span>{result.scoring.calibratedScore !== null ? "평가 데이터 보정 점수" : "글 전체 위험도 · 다중 주장 실험 점수"}</span><strong>{result.scoring.calibratedScore ?? result.scoring.finalScore}<small>/100</small></strong>{result.scoring.calibration ? <small>원 점수 {result.scoring.rawScore} · 라벨 {result.scoring.calibration.sampleCount}건 기준 · 판정 기준은 변경하지 않음</small> : null}</div>
               <div><span>현재 판정</span><h2 id="result-title" ref={resultHeadingRef} tabIndex={-1}>{statusLabels[result.hybrid.status]}</h2><p>{result.hybrid.reason}</p></div>
             </div>
 
@@ -192,6 +210,8 @@ export function PublicAnalyzer() {
             </div>
 
             {result.scoring.categoryScores.length ? <article className="analysisCard"><span className="analysisCardEyebrow">발견된 위험 범주</span><div className="categoryScoreList">{result.scoring.categoryScores.map((item) => <div key={item.id}><span>{item.label}</span><strong>{item.score}</strong><small>{item.source === "hybrid" ? "규칙 + AI" : item.source === "rule" ? "검토된 규칙" : "AI 문맥"}</small></div>)}</div></article> : null}
+
+            {result.claims.length > 1 ? <article className="analysisCard claimBreakdownCard"><span className="analysisCardEyebrow">독립 주장별 분석</span><div className="claimBreakdownSummary"><strong>{result.scoring.riskyClaimCount}개 위험 주장</strong><span>최고 주장에 독립 근거 가산 +{result.scoring.aggregateBonus}점</span></div><ol className="claimBreakdownList">{result.claims.map((claim) => <li key={claim.id} data-status={claim.status}><div><span>주장 {claim.index}</span><strong>{claim.score}점 · {statusLabels[claim.status]}</strong></div><p>{claim.text}</p><small>{claim.primaryCategory?.label ?? "직접 위험 근거 없음"} · AI {claim.aiState === "ready" ? "사용" : "미사용"}</small></li>)}</ol><p className="analysisMethodNote">같은 표현의 중복 매치는 가산하지 않고, 서로 분리된 주장에 직접 위험 근거가 있을 때만 제한적으로 합산합니다.</p></article> : null}
 
             <article className="analysisCard"><span className="analysisCardEyebrow">판단 근거</span><h3>문제가 될 수 있는 정확한 구간</h3>{evidence.length ? <ul className="evidenceList">{evidence.map((item) => <li key={`${item.start}-${item.end}-${item.text}`}><mark>{item.text}</mark><span>{item.sources.join(" + ")} 근거</span></li>)}</ul> : <p>직접 연결되는 근거 구간이 없습니다. 결과를 안전 판정으로 사용하지 마세요.</p>}</article>
 

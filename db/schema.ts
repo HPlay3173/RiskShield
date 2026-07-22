@@ -227,3 +227,107 @@ export const riskshieldAuditChain = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
 );
+
+export const riskshieldCollectorSources = sqliteTable(
+  "riskshield_collector_sources",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    label: text("label").notNull(),
+    query: text("query").notNull(),
+    endpoint: text("endpoint"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+    intervalMinutes: integer("interval_minutes").notNull().default(60),
+    cursor: text("cursor"),
+    lastRunAt: text("last_run_at"),
+    lastStatus: text("last_status"),
+    lastMessage: text("last_message"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("riskshield_collector_sources_due_idx").on(table.enabled, table.lastRunAt),
+    check("riskshield_collector_sources_provider_check", sql`${table.provider} IN ('x', 'threads', 'dcinside')`),
+    check("riskshield_collector_sources_interval_check", sql`${table.intervalMinutes} BETWEEN 15 AND 10080`),
+  ],
+);
+
+export const riskshieldCollectedPosts = sqliteTable(
+  "riskshield_collected_posts",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
+    provider: text("provider").notNull(),
+    externalId: text("external_id").notNull(),
+    text: text("text").notNull(),
+    sourceUrl: text("source_url"),
+    publishedAt: text("published_at"),
+    collectedAt: text("collected_at").notNull(),
+    candidateId: text("candidate_id"),
+  },
+  (table) => [
+    uniqueIndex("riskshield_collected_posts_source_external_idx").on(table.sourceId, table.externalId),
+    index("riskshield_collected_posts_collected_idx").on(table.collectedAt),
+  ],
+);
+
+export const riskshieldCollectorRuns = sqliteTable(
+  "riskshield_collector_runs",
+  {
+    id: text("id").primaryKey(),
+    sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
+    status: text("status").notNull(),
+    fetchedCount: integer("fetched_count").notNull().default(0),
+    newCount: integer("new_count").notNull().default(0),
+    candidateCount: integer("candidate_count").notNull().default(0),
+    message: text("message"),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at").notNull(),
+  },
+  (table) => [index("riskshield_collector_runs_source_idx").on(table.sourceId, table.startedAt)],
+);
+
+export const riskshieldEvaluationCases = sqliteTable(
+  "riskshield_evaluation_cases",
+  {
+    id: text("id").primaryKey(),
+    text: text("text").notNull(),
+    expectedRisk: integer("expected_risk", { mode: "boolean" }).notNull(),
+    expectedFamily: text("expected_family"),
+    context: text("context").notNull().default("general"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [index("riskshield_evaluation_cases_enabled_idx").on(table.enabled, table.context)],
+);
+
+export const riskshieldEvaluationRuns = sqliteTable(
+  "riskshield_evaluation_runs",
+  {
+    id: text("id").primaryKey(),
+    status: text("status").notNull(),
+    caseCount: integer("case_count").notNull(),
+    metricsJson: text("metrics_json").notNull(),
+    resultsJson: text("results_json").notNull(),
+    calibrationJson: text("calibration_json"),
+    sourceCommit: text("source_commit").notNull(),
+    scoringPolicy: text("scoring_policy").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("riskshield_evaluation_runs_created_idx").on(table.createdAt)],
+);
+
+export const riskshieldCalibrationPolicies = sqliteTable(
+  "riskshield_calibration_policies",
+  {
+    id: text("id").primaryKey(),
+    evaluationRunId: text("evaluation_run_id").notNull().references(() => riskshieldEvaluationRuns.id),
+    mappingJson: text("mapping_json").notNull(),
+    sampleCount: integer("sample_count").notNull(),
+    active: integer("active", { mode: "boolean" }).notNull().default(false),
+    activatedAt: text("activated_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("riskshield_calibration_policies_active_idx").on(table.active, table.createdAt)],
+);

@@ -18,10 +18,10 @@ const managementNavigation = [
   { href: "/manage", label: "관리 홈", description: "현재 상태와 다음 작업", group: "시작" },
   { href: "/manage/review", label: "후보 검토", description: "새 표현을 사람이 판단", group: "핵심 작업" },
   { href: "/manage/skills", label: "위험 표현 DB", description: "활성 규칙과 수정 이력", group: "핵심 작업" },
-  { href: "/manage/collect", label: "커뮤니티 자료", description: "공개 글 묶음 직접 추가", group: "데이터 추가" },
+  { href: "/manage/collect", label: "커뮤니티 수집", description: "자동 수집과 공개 글 등록", group: "데이터 추가" },
   { href: "/manage/datasets", label: "CSV 등록", description: "정리된 표현 자료 추가", group: "데이터 추가" },
   { href: "/manage/training", label: "후보 생성", description: "등록 데이터에서 후보 찾기", group: "데이터 추가" },
-  { href: "/manage/evaluation", label: "품질 기록", description: "저장된 검증 결과 확인", group: "확인" },
+  { href: "/manage/evaluation", label: "품질 평가", description: "정확도 측정과 점수 보정", group: "확인" },
   { href: "/manage/audit", label: "변경 기록", description: "결정과 변경 이력", group: "운영" },
   { href: "/manage/access", label: "팀원·권한", description: "관리 사용자 설정", group: "운영" },
 ] as const;

@@ -24,7 +24,14 @@ import {
   JSON_BODY_TOO_LARGE,
   readJsonValue,
 } from "../../../lib/http/control-response";
-import { calculateDeterministicScore, decisionReasonForScore } from "../../../lib/v0-5/scoring";
+import {
+  aggregateDocumentScore,
+  documentDecisionReason,
+  scoreClaim,
+  segmentClaims,
+  type ClaimScore,
+} from "../../../lib/v0-5/document-scoring";
+import { applyCalibration, type CalibrationPoint } from "../../../lib/evaluation/calibration";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -164,6 +171,19 @@ async function readSeverityRules(runtime: RuntimeEnvironment): Promise<SeverityR
   }
 }
 
+async function readActiveCalibration(runtime: RuntimeEnvironment) {
+  if (!runtime.DB) return null;
+  try {
+    const row = await runtime.DB.prepare(`SELECT id, mapping_json, sample_count FROM riskshield_calibration_policies WHERE active = 1 ORDER BY activated_at DESC LIMIT 1`)
+      .first<{ id: string; mapping_json: string; sample_count: number }>();
+    if (!row) return null;
+    const mapping = JSON.parse(row.mapping_json) as CalibrationPoint[];
+    return Array.isArray(mapping) ? { id: row.id, sampleCount: row.sample_count, mapping } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function reserveProviderCall(runtime: RuntimeEnvironment) {
   if (!runtime.DB) return developmentRuleFallback(runtime);
   const day = utcDay();
@@ -287,8 +307,10 @@ async function enforceRateLimit(request: Request, runtime: RuntimeEnvironment) {
       ? null
       : json({ error: "rate_limit_storage_unavailable", message: "요청 제한 저장소를 사용할 수 없습니다." }, 503);
   }
-  const bucket = await runtime.DB.prepare(`
-    INSERT INTO riskshield_public_limits
+  let bucket: { day_count: number; window_started_at: number; window_count: number } | null;
+  try {
+    bucket = await runtime.DB.prepare(`
+      INSERT INTO riskshield_public_limits
       (bucket_key, day, day_count, window_started_at, window_count, updated_at)
     VALUES (?, ?, 1, ?, 1, ?)
     ON CONFLICT(bucket_key) DO UPDATE SET
@@ -311,8 +333,12 @@ async function enforceRateLimit(request: Request, runtime: RuntimeEnvironment) {
       END,
       updated_at = excluded.updated_at
     RETURNING day_count, window_started_at, window_count
-  `).bind(key, day, now, new Date(now).toISOString(), BURST_WINDOW_MS, BURST_WINDOW_MS)
-    .first<{ day_count: number; window_started_at: number; window_count: number }>();
+    `).bind(key, day, now, new Date(now).toISOString(), BURST_WINDOW_MS, BURST_WINDOW_MS)
+      .first<{ day_count: number; window_started_at: number; window_count: number }>();
+  } catch {
+    if (developmentRuleFallback(runtime)) return null;
+    return json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503);
+  }
   if (!bucket) return json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503);
   const burstBlocked = bucket.window_count > BURST_LIMIT;
   const dailyBlocked = bucket.day_count > DAILY_REQUEST_LIMIT;
@@ -412,32 +438,45 @@ export async function POST(request: Request) {
   const profile = analysisProfile(body.profile);
   try {
     const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
-    const [skills, severityRules] = await Promise.all([
+    const [skills, severityRules, calibration] = await Promise.all([
       readReviewedSkills(runtime),
       readSeverityRules(runtime),
+      readActiveCalibration(runtime),
     ]);
     const rules = analyzeText(text, skills, { severityRules });
-    const key = cacheKeyFor(text, skills, severityRules);
-    let run = readCached(key);
-
-    if (!run && apiKey) {
-      run = await runInterpreterOnce(
-        key,
-        text,
-        domainHintFor(rules.primaryMatch ? [rules.primaryMatch.skill] : []),
-        apiKey,
-        runtime,
-      );
-      writeCached(key, run);
+    const segments = segmentClaims(text);
+    const claimScores: ClaimScore[] = [];
+    const claimRuns: InterpreterRun[] = [];
+    for (let offset = 0; offset < segments.length; offset += 3) {
+      const batch = await Promise.all(segments.slice(offset, offset + 3).map(async (segment) => {
+        const claimRules = analyzeText(segment.text, skills, { severityRules });
+        const key = cacheKeyFor(segment.text, skills, severityRules);
+        let claimRun = readCached(key);
+        if (!claimRun && apiKey) {
+          claimRun = await runInterpreterOnce(
+            key,
+            segment.text,
+            domainHintFor(claimRules.primaryMatch ? [claimRules.primaryMatch.skill] : []),
+            apiKey,
+            runtime,
+          );
+          writeCached(key, claimRun);
+        }
+        claimRun ??= unavailableRun(key, segment.text, "server_secret_unavailable");
+        return { score: scoreClaim(segment, claimRules, claimRun.payload), run: claimRun };
+      }));
+      for (const item of batch) {
+        claimScores.push(item.score);
+        claimRuns.push(item.run);
+      }
     }
-    run ??= unavailableRun(
-      key,
-      text,
-      "server_secret_unavailable",
-    );
-
-      const payload = run.payload;
-      const scoring = calculateDeterministicScore(rules, payload);
+    const scoring = aggregateDocumentScore(claimScores);
+    const calibratedScore = calibration ? applyCalibration(scoring.finalScore, calibration.mapping) : null;
+    const primaryIndex = claimScores.reduce((best, claim, index) =>
+      claim.scoring.finalScore > (claimScores[best]?.scoring.finalScore ?? -1) ? index : best, 0);
+    const primaryClaim = claimScores[primaryIndex] ?? null;
+    const run = claimRuns[primaryIndex] ?? unavailableRun(hashInterpreterInput(text), text, "server_secret_unavailable");
+    const payload = run.payload;
       const uncertainty = !run.ok || scoring.conflict || scoring.status === "review"
         ? {
             level: "high" as const,
@@ -497,7 +536,35 @@ export async function POST(request: Request) {
         scoring: {
           ...scoring,
           status: scoring.status,
+          rawScore: scoring.finalScore,
+          calibratedScore,
+          calibration: calibration ? { id: calibration.id, sampleCount: calibration.sampleCount, affectsDecision: false } : null,
         },
+        claims: claimScores.map((claim, index) => ({
+          id: claim.id,
+          index: index + 1,
+          text: claim.text,
+          start: claim.start,
+          end: claim.end,
+          score: claim.scoring.finalScore,
+          status: claim.scoring.status,
+          primaryCategory: claim.scoring.primaryCategory,
+          evidence: [
+            ...(claim.rules.primaryMatch?.hits ?? []).map((hit) => ({
+              start: claim.start + hit.start,
+              end: claim.start + hit.end,
+              text: hit.text,
+              source: "rule" as const,
+            })),
+            ...(claim.payload?.evidence_spans ?? []).map((span) => ({
+              start: claim.start + span.start,
+              end: claim.start + span.end,
+              text: span.text,
+              source: "ai" as const,
+            })),
+          ],
+          aiState: claimRuns[index]?.ok ? "ready" as const : "fallback" as const,
+        })),
         ai: {
           state: run.ok ? "ready" : "fallback",
           ...aiFallback,
@@ -508,7 +575,11 @@ export async function POST(request: Request) {
           claimStrength: payload?.claim_strength ?? null,
           policyRelevance: payload?.policy_relevance ?? null,
           riskFamily: payload?.risk_family ?? null,
-          evidenceSpans: payload?.evidence_spans ?? [],
+          evidenceSpans: (payload?.evidence_spans ?? []).map((span) => ({
+            ...span,
+            start: (primaryClaim?.start ?? 0) + span.start,
+            end: (primaryClaim?.start ?? 0) + span.end,
+          })),
           masked: run.masked,
         },
         feedback: {
@@ -519,7 +590,7 @@ export async function POST(request: Request) {
           status: scoring.status,
           score: scoring.finalScore,
           conflict: scoring.conflict,
-          reason: decisionReasonForScore(scoring),
+          reason: documentDecisionReason(scoring),
         },
         uncertainty,
         novelty,

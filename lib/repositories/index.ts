@@ -18,9 +18,7 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../v0-4/interpreter.ts";
 import {
-  configurationRequired,
   ready,
-  type EvaluationRepository,
   type ModelRecord,
   type ModelRepository,
   type RepositoryServices,
@@ -31,6 +29,7 @@ import {
   D1AuditRepository,
   D1CandidateRepository,
   D1DatasetRepository,
+  D1EvaluationRepository,
   D1PrincipalRepository,
   D1SkillRepository,
   D1TrainingRepository,
@@ -59,21 +58,6 @@ const currentModel: ModelRecord = {
   evaluationStatus: "not_run",
   status: "active",
 };
-
-function configuration<T>(area: string, missing: readonly string[]) {
-  return configurationRequired<T>(
-    `${area}_configuration_required`,
-    `${area} backend가 구성되지 않았습니다.`,
-    missing,
-  );
-}
-
-function unconfiguredEvaluation(): EvaluationRepository {
-  return {
-    listRuns: async () => configuration("evaluation", ["evaluation_runs migration", "evaluation result manifest"]),
-    getRun: async () => configuration("evaluation", ["evaluation_runs migration", "evaluation result manifest"]),
-  };
-}
 
 function codeModels(): ModelRepository {
   return {
@@ -121,7 +105,7 @@ export async function createRepositoryServices(
     candidates: new D1CandidateRepository(runtime.DB),
     datasets: new D1DatasetRepository(runtime.DB),
     training: new D1TrainingRepository(runtime.DB),
-    evaluation: unconfiguredEvaluation(),
+    evaluation: new D1EvaluationRepository(runtime.DB),
     models: codeModels(),
     audit: new D1AuditRepository(runtime.DB),
     principals: new D1PrincipalRepository(runtime.DB),

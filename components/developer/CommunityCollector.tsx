@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { readCsvDataset } from "../../lib/datasets/csv";
 
 function csvCell(value: string) { return `"${value.replaceAll('"', '""')}"`; }
@@ -12,12 +12,53 @@ function toBase64(buffer: ArrayBuffer) {
 }
 
 export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
+  const [sources, setSources] = useState<Array<Record<string, unknown>>>([]);
+  const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]);
+  const [provider, setProvider] = useState<"x" | "threads" | "dcinside">("x");
+  const [collectorLabel, setCollectorLabel] = useState("새 위험 표현 모니터");
+  const [query, setQuery] = useState("혐오 OR 비하 OR 은어");
+  const [endpoint, setEndpoint] = useState("");
+  const [intervalMinutes, setIntervalMinutes] = useState(60);
+  const [collectorState, setCollectorState] = useState<"idle" | "loading" | "failed">("idle");
+  const [collectorMessage, setCollectorMessage] = useState("");
   const [sourceName, setSourceName] = useState("community-snapshot");
   const [sourceUrl, setSourceUrl] = useState("");
   const [text, setText] = useState("");
   const [state, setState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   const [message, setMessage] = useState("");
   const posts = useMemo(() => [...new Set(text.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean))].slice(0, 2_000), [text]);
+
+  async function refreshCollectors() {
+    const response = await fetch("/api/manage/collectors", { credentials: "same-origin", cache: "no-store" });
+    const payload = await response.json() as { sources?: Array<Record<string, unknown>>; runs?: Array<Record<string, unknown>>; message?: string };
+    if (!response.ok) throw new Error(payload.message ?? "자동 수집 상태를 읽지 못했습니다.");
+    setSources(payload.sources ?? []); setRuns(payload.runs ?? []);
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { refreshCollectors().catch(() => undefined); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  async function saveCollector(event: FormEvent) {
+    event.preventDefault(); setCollectorState("loading"); setCollectorMessage("");
+    try {
+      const response = await fetch("/api/manage/collectors", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken }, body: JSON.stringify({ provider, label: collectorLabel, query, endpoint: endpoint || null, intervalMinutes, enabled: true }) });
+      const payload = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(payload.message ?? "수집 설정을 저장하지 못했습니다.");
+      setCollectorMessage(payload.message ?? "예약 수집을 켰습니다."); setCollectorState("idle"); await refreshCollectors();
+    } catch (error) { setCollectorState("failed"); setCollectorMessage(error instanceof Error ? error.message : "수집 설정을 저장하지 못했습니다."); }
+  }
+
+  async function runCollector(sourceId: string) {
+    setCollectorState("loading"); setCollectorMessage("");
+    try {
+      const response = await fetch("/api/manage/collectors/run", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken }, body: JSON.stringify({ sourceId }) });
+      const payload = await response.json() as { message?: string; fetchedCount?: number; candidateCount?: number };
+      if (!response.ok) throw new Error(payload.message ?? "수집을 실행하지 못했습니다.");
+      setCollectorMessage(`${payload.fetchedCount ?? 0}개 확인 · ${payload.candidateCount ?? 0}개 검토 후보 생성`); setCollectorState("idle"); await refreshCollectors();
+    } catch (error) { setCollectorState("failed"); setCollectorMessage(error instanceof Error ? error.message : "수집을 실행하지 못했습니다."); }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -46,6 +87,22 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
   }
 
   return (
+    <>
+    <form className="communityCollector managementCard" onSubmit={saveCollector}>
+      <div className="collectorIntro"><div><span className="manageHeroEyebrow">SCHEDULED CONNECTORS</span><h2>자동 커뮤니티 수집</h2></div><span className="statusPill" data-tone="success">15분마다 확인</span></div>
+      <p>X와 Threads는 공식 검색 API 자격 증명을 사용합니다. 디시인사이드는 팀이 확인한 공개 피드·검색 주소만 낮은 빈도로 읽으며, 실패를 성공처럼 기록하지 않습니다.</p>
+      <div className="collectorFields">
+        <label className="formField">수집처<select value={provider} onChange={(event) => setProvider(event.target.value as typeof provider)}><option value="x">X 최근 검색 API</option><option value="threads">Threads 키워드 검색 API</option><option value="dcinside">디시인사이드 공개 주소</option></select></label>
+        <label className="formField">수집 이름<input value={collectorLabel} onChange={(event) => setCollectorLabel(event.target.value)} maxLength={80} required /></label>
+        <label className="formField">검색어<input value={query} onChange={(event) => setQuery(event.target.value)} maxLength={240} required /></label>
+        <label className="formField">확인 간격<select value={intervalMinutes} onChange={(event) => setIntervalMinutes(Number(event.target.value))}><option value={15}>15분</option><option value={60}>1시간</option><option value={360}>6시간</option><option value={1440}>하루</option></select></label>
+      </div>
+      {provider === "dcinside" ? <label className="formField">공개 피드·검색 주소<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://...dcinside.com/.../{query}" required /></label> : null}
+      <div className="trainingRunActions"><button className="pressable" type="submit" disabled={collectorState === "loading"}>{collectorState === "loading" ? "처리 중…" : "예약 수집 켜기"}</button></div>
+      {collectorMessage ? <p className={collectorState === "failed" ? "configurationNote" : "collectorSuccess"} role={collectorState === "failed" ? "alert" : "status"}>{collectorMessage}</p> : null}
+      <div className="collectorSourceList">{sources.length ? sources.map((source) => <article key={String(source.id)}><div><strong>{String(source.label)}</strong><span>{String(source.provider).toUpperCase()} · {String(source.query)}</span></div><div><span className="statusPill" data-tone={source.last_status === "failed" ? "critical" : source.last_status === "succeeded" ? "success" : "info"}>{source.last_status ? String(source.last_status) : "대기"}</span><button className="pressable secondaryButton" type="button" onClick={() => runCollector(String(source.id))} disabled={collectorState === "loading"}>지금 수집</button></div><small>{source.last_message ? String(source.last_message) : "아직 실행 기록이 없습니다."}</small></article>) : <p className="analysisMethodNote">등록된 자동 수집처가 없습니다. API 자격 증명이 없으면 실행 시 설정 필요 사유가 그대로 표시됩니다.</p>}</div>
+      {runs.length ? <p className="analysisMethodNote">최근 실행 {runs.length}건 · 마지막 실행 {String(runs[0]?.finished_at ?? "없음")}</p> : null}
+    </form>
     <form className="communityCollector managementCard" onSubmit={submit}>
       <div className="collectorIntro"><div><span className="manageHeroEyebrow">SOURCE CONNECTOR MVP</span><h2>공개 글 묶음 등록</h2></div><span className="statusPill" data-tone="info">사람 검토 필수</span></div>
       <p>X·디시·Threads 등에서 이용 규칙을 지켜 확보한 공개 글을 한 줄에 하나씩 넣으세요. 사용자명과 링크의 개인정보는 넣지 말고, 원문은 바로 활성 규칙이 아닌 후보 생성용 데이터로만 저장됩니다.</p>
@@ -58,5 +115,6 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
       <div className="trainingRunActions"><button className="pressable" type="submit" disabled={state === "saving" || posts.length === 0}>{state === "saving" ? "등록 중…" : "후보 생성용 데이터로 등록"}</button>{state === "saved" ? <a className="pressable secondaryButton" href="/manage/training">다음: 후보 생성</a> : null}</div>
       {message ? <p className={state === "failed" ? "configurationNote" : "collectorSuccess"} role={state === "failed" ? "alert" : "status"}>{message}</p> : null}
     </form>
+    </>
   );
 }

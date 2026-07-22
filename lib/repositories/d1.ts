@@ -44,6 +44,8 @@ import {
   type DatasetRegistrationInput,
   type DatasetRepository,
   type DatasetVersionRecord,
+  type EvaluationRepository,
+  type EvaluationRunRecord,
   type GeneratedCandidateRecordInput,
   type PrincipalRecord,
   type PrincipalRepository,
@@ -57,6 +59,57 @@ import {
   type TrainingRunRecord,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "./contracts.ts";
+
+type EvaluationRow = {
+  id: string;
+  status: string;
+  case_count: number;
+  metrics_json: string;
+  results_json: string;
+  source_commit: string;
+  scoring_policy: string;
+  created_at: string;
+};
+
+function parsedEvaluation(row: EvaluationRow): EvaluationRunRecord | null {
+  try {
+    const metrics = JSON.parse(row.metrics_json) as Record<string, number | null>;
+    const results = JSON.parse(row.results_json) as Array<{ riskCorrect?: boolean }>;
+    const passed = results.filter((result) => result.riskCorrect === true).length;
+    return {
+      id: row.id, baselineVersion: null, candidateVersion: row.scoring_policy, codeSha: row.source_commit,
+      modelVersion: "rules-only evaluation", promptVersion: "not-used", schemaVersion: row.scoring_policy,
+      datasetVersion: "labeled-cases", testCount: row.case_count, passed, failed: Math.max(0, row.case_count - passed),
+      status: row.status === "completed" ? "passed" : row.status === "running" ? "running" : "unavailable",
+      measuredAt: row.created_at,
+      metrics: {
+        falseHigh: metrics.falsePositive ?? null, falseNegative: metrics.falseNegative ?? null,
+        unnecessaryReview: null, noMatch: null, jsonSuccessRate: null, providerFallbackRate: null,
+        latencyP50Ms: null, latencyP95Ms: null, estimatedCostUsd: 0,
+      },
+      profileSlices: null, contextSlices: null,
+    };
+  } catch { return null; }
+}
+
+export class D1EvaluationRepository implements EvaluationRepository {
+  private readonly db?: D1Database;
+  constructor(db?: D1Database) { this.db = db; }
+  async listRuns() {
+    if (!this.db) return configurationRequired<RepositoryPage<EvaluationRunRecord>>("evaluation_storage_required", "평가 저장소가 필요합니다.", ["DB"]);
+    try {
+      const rows = await this.db.prepare(`SELECT id, status, case_count, metrics_json, results_json, source_commit, scoring_policy, created_at FROM riskshield_evaluation_runs ORDER BY created_at DESC LIMIT 100`).all<EvaluationRow>();
+      return ready({ items: (rows.results ?? []).flatMap((row) => { const record = parsedEvaluation(row); return record ? [record] : []; }), nextCursor: null }, "d1");
+    } catch { return unavailable<RepositoryPage<EvaluationRunRecord>>("evaluation_read_failed", "평가 실행을 읽지 못했습니다."); }
+  }
+  async getRun(id: string) {
+    if (!this.db) return configurationRequired<EvaluationRunRecord | null>("evaluation_storage_required", "평가 저장소가 필요합니다.", ["DB"]);
+    try {
+      const row = await this.db.prepare(`SELECT id, status, case_count, metrics_json, results_json, source_commit, scoring_policy, created_at FROM riskshield_evaluation_runs WHERE id = ? LIMIT 1`).bind(id).first<EvaluationRow>();
+      return ready(row ? parsedEvaluation(row) : null, "d1");
+    } catch { return unavailable<EvaluationRunRecord | null>("evaluation_read_failed", "평가 실행을 읽지 못했습니다."); }
+  }
+}
 
 type SkillRow = {
   id: string;

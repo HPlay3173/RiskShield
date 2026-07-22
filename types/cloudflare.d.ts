@@ -44,6 +44,12 @@ interface Fetcher {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
+interface ScheduledController {
+  scheduledTime: number;
+  cron: string;
+  noRetry(): void;
+}
+
 declare module "cloudflare:workers" {
   export const env: {
     DB?: D1Database;
@@ -54,6 +60,9 @@ declare module "cloudflare:workers" {
     RISKSHIELD_SESSION_SIGNING_KEY?: string;
     RISKSHIELD_CANONICAL_ORIGIN?: string;
     RISKSHIELD_MANAGER_EMAILS?: string;
+    RISKSHIELD_INTERPRETER_API_KEY?: string;
+    RISKSHIELD_X_BEARER_TOKEN?: string;
+    RISKSHIELD_THREADS_ACCESS_TOKEN?: string;
     [binding: string]: unknown;
   };
 }

@@ -2,10 +2,13 @@
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
 import { RESPONSE_SECURITY_HEADERS } from "../lib/security-headers";
+import { runDueCollectors } from "../lib/collectors/runner";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  RISKSHIELD_X_BEARER_TOKEN?: string;
+  RISKSHIELD_THREADS_ACCESS_TOKEN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -62,6 +65,9 @@ const worker = {
     }
 
     return withSecurityHeaders(await handler.fetch(request, env, ctx));
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runDueCollectors(env));
   },
 };
 
