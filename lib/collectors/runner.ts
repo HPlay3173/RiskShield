@@ -240,8 +240,8 @@ async function dcPosts(source: CollectorSource): Promise<{ posts: CollectedPost[
 }
 
 async function youtubePosts(source: CollectorSource, env: CollectorEnvironment): Promise<{ posts: CollectedPost[]; cursor: string | null }> {
-  const apiKey = env.RISKSHIELD_YOUTUBE_API_KEY || env.RISKSHIELD_INTERPRETER_API_KEY;
-  if (!apiKey) throw new Error("YouTube Data API key가 설정되지 않았습니다.");
+  const apiKey = env.RISKSHIELD_YOUTUBE_API_KEY;
+  if (!apiKey) throw new Error("YouTube Data API 전용 키가 설정되지 않았습니다. Sites에 RISKSHIELD_YOUTUBE_API_KEY를 비밀 값으로 추가해 주세요.");
   const videoIds = parseYouTubeVideoInput(source.query).ids;
   if (!videoIds.length) throw new Error("YouTube 수집에는 공개 동영상 ID가 하나 이상 필요합니다.");
   const posts: CollectedPost[] = [];
@@ -250,7 +250,20 @@ async function youtubePosts(source: CollectorSource, env: CollectorEnvironment):
     url.searchParams.set("part", "snippet"); url.searchParams.set("videoId", videoId); url.searchParams.set("maxResults", "100");
     url.searchParams.set("order", "time"); url.searchParams.set("textFormat", "plainText"); url.searchParams.set("key", apiKey);
     const response = await fetch(url, { headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error(`YouTube commentThreads API ${response.status}`);
+    if (!response.ok) {
+      let reason = "";
+      try {
+        const errorPayload = await response.json() as { error?: { errors?: Array<{ reason?: string }> } };
+        reason = errorPayload.error?.errors?.[0]?.reason ?? "";
+      } catch {
+        // Google may return an empty or non-JSON body. Status-based guidance still applies.
+      }
+      if (response.status === 401) throw new Error("YouTube Data API 키 인증에 실패했습니다. 전용 키가 유효한지 확인해 주세요.");
+      if (response.status === 403 && reason === "commentsDisabled") throw new Error("이 YouTube 영상은 댓글이 비활성화되어 있습니다.");
+      if (response.status === 403 && (reason === "quotaExceeded" || reason === "dailyLimitExceeded")) throw new Error("YouTube Data API의 오늘 할당량을 모두 사용했습니다.");
+      if (response.status === 403 && (reason === "accessNotConfigured" || reason === "forbidden")) throw new Error("해당 Google Cloud 프로젝트에서 YouTube Data API v3가 활성화되어 있는지와 API 제한을 확인해 주세요.");
+      throw new Error(`YouTube 댓글을 가져오지 못했습니다. HTTP ${response.status}`);
+    }
     const payload = await response.json() as { items?: Array<{ id?: string; snippet?: { topLevelComment?: { id?: string; snippet?: { textDisplay?: string; publishedAt?: string; authorChannelId?: { value?: string } } } } }> };
     for (const item of payload.items ?? []) {
       const comment = item.snippet?.topLevelComment;
