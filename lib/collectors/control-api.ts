@@ -3,7 +3,7 @@ import { requireMutationIntegrity } from "../auth/request-integrity";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject } from "../http/control-response";
 import type { CollectorProvider } from "./runner";
 
-const PROVIDERS = new Set<CollectorProvider>(["bluesky", "mastodon", "x", "threads", "dcinside"]);
+const PROVIDERS = new Set<CollectorProvider>(["youtube", "bluesky", "mastodon", "x", "threads", "dcinside"]);
 
 export async function handleCollectorMutation(request: Request) {
   const denied = await requireApiCapability(request, "dataset:manage");
@@ -31,13 +31,19 @@ export async function handleCollectorMutation(request: Request) {
       if (!/^[\p{L}\p{N}_-]{2,80}$/u.test(query.replace(/^#/u, ""))) throw new Error("invalid");
     } catch { return controlJson({ error: "invalid_mastodon_endpoint", message: "공개 HTTPS Mastodon 인스턴스 주소와 해시태그 하나가 필요합니다." }, 400); }
   }
+  if (provider === "youtube") {
+    const ids = query.split(/[\s,]+/u).filter(Boolean);
+    if (!ids.length || ids.length > 5 || ids.some((value) => !/^[A-Za-z0-9_-]{11}$/u.test(value))) {
+      return controlJson({ error: "invalid_youtube_video_ids", message: "YouTube 공개 동영상 ID를 쉼표로 최대 5개 입력해 주세요." }, 400);
+    }
+  }
   const { env } = await import("cloudflare:workers");
   const db = env.DB;
   if (!db) return controlJson({ error: "collector_storage_unavailable" }, 503);
   const id = typeof body?.id === "string" && body.id.trim() ? body.id.trim().slice(0, 160) : `collector_${crypto.randomUUID()}`;
   const now = new Date().toISOString();
   await db.prepare(`
-    INSERT INTO riskshield_collector_sources_v2 (id, provider, label, query, endpoint, enabled, interval_minutes, created_at, updated_at)
+    INSERT INTO riskshield_collector_sources_v3 (id, provider, label, query, endpoint, enabled, interval_minutes, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, label = excluded.label, query = excluded.query,
       endpoint = excluded.endpoint, enabled = excluded.enabled, interval_minutes = excluded.interval_minutes, updated_at = excluded.updated_at

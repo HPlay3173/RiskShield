@@ -1,14 +1,19 @@
 import { prepareInterpreterInput } from "../v0-4/interpreter";
 import { GoogleTrainingDraftProvider } from "../training/google-draft-provider";
 import type { TrainingDraft } from "../training/mvp";
+import { GoogleCollectorQualificationProvider, type QualificationAssessment } from "./google-qualification-provider";
+import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, type ObservationContextLabel } from "./quality";
 
-export type CollectorProvider = "bluesky" | "mastodon" | "x" | "threads" | "dcinside";
+export type CollectorProvider = "youtube" | "bluesky" | "mastodon" | "x" | "threads" | "dcinside";
 
 export type CollectorEnvironment = {
   DB: D1Database;
   RISKSHIELD_X_BEARER_TOKEN?: string;
   RISKSHIELD_THREADS_ACCESS_TOKEN?: string;
   RISKSHIELD_INTERPRETER_API_KEY?: string;
+  RISKSHIELD_YOUTUBE_API_KEY?: string;
+  RISKSHIELD_COLLECTOR_HASH_KEY?: string;
+  RISKSHIELD_SESSION_SIGNING_KEY?: string;
 };
 
 export type CollectorSource = {
@@ -28,18 +33,22 @@ type CollectedPost = {
   text: string;
   url: string | null;
   publishedAt: string | null;
+  authorOpaqueId: string | null;
 };
 
 type StoredPost = CollectedPost & {
   postId: string;
   excerpt: string;
+  authorHash: string | null;
 };
 
-type ExpressionGroup = {
+export type ExpressionGroup = {
   expression: string;
   normalized: string;
   postIds: Set<string>;
-  evidence: Array<{ excerpt: string; url: string | null; publishedAt: string | null }>;
+  authorHashes: Set<string>;
+  sourceIds: Set<string>;
+  evidence: Array<{ id: string; excerpt: string; url: string | null; publishedAt: string | null; label: ObservationContextLabel }>;
   score: number;
 };
 
@@ -68,9 +77,7 @@ function htmlText(value: string) {
     .trim();
 }
 
-function normalizedExpression(value: string) {
-  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}ㄱ-ㅎㅏ-ㅣ]+/gu, "").trim();
-}
+const normalizedExpression = normalizeCollectedExpression;
 
 function queryTerms(query: string) {
   return new Set((query.match(/[\p{L}\p{N}ㄱ-ㅎㅏ-ㅣ]{2,24}/gu) ?? []).map(normalizedExpression));
@@ -110,18 +117,26 @@ async function candidateIdForExpression(expression: string) {
   return `collector_candidate_${candidateHash.slice(0, 32)}`;
 }
 
+async function authorHashFor(post: CollectedPost, source: CollectorSource, env: CollectorEnvironment) {
+  if (!post.authorOpaqueId) return null;
+  const secret = env.RISKSHIELD_COLLECTOR_HASH_KEY?.trim() || env.RISKSHIELD_SESSION_SIGNING_KEY?.trim();
+  if (!secret) return null;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${source.provider}:${post.authorOpaqueId}`));
+  return Array.from(new Uint8Array(signature), (item) => item.toString(16).padStart(2, "0")).join("");
+}
+
 async function blueskyPosts(source: CollectorSource): Promise<{ posts: CollectedPost[]; cursor: string | null }> {
   const url = new URL("https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts");
   url.searchParams.set("q", source.query);
   url.searchParams.set("sort", "latest");
   url.searchParams.set("lang", "ko");
   url.searchParams.set("limit", String(MAX_POSTS_PER_RUN));
-  if (source.cursor) url.searchParams.set("cursor", source.cursor);
   const response = await fetch(url, { headers: { accept: "application/json", "user-agent": "RiskShieldSchoolResearch/0.5" } });
   if (!response.ok) throw new Error(`Bluesky public search ${response.status}`);
   const payload = await response.json() as {
     cursor?: string;
-    posts?: Array<{ uri?: string; author?: { handle?: string }; record?: { text?: string; createdAt?: string } }>;
+    posts?: Array<{ uri?: string; author?: { did?: string; handle?: string }; record?: { text?: string; createdAt?: string } }>;
   };
   const posts = (payload.posts ?? []).flatMap((item) => {
     const text = item.record?.text?.trim();
@@ -129,9 +144,10 @@ async function blueskyPosts(source: CollectorSource): Promise<{ posts: Collected
     if (!text || !uri) return [];
     const rkey = uri.split("/").at(-1) ?? "";
     const profile = item.author?.handle ?? uri.split("/")[2] ?? "";
-    return [{ externalId: uri, text, url: profile && rkey ? `https://bsky.app/profile/${encodeURIComponent(profile)}/post/${encodeURIComponent(rkey)}` : null, publishedAt: item.record?.createdAt ?? null }];
+    if (source.lastRunAt && item.record?.createdAt && Date.parse(item.record.createdAt) <= Date.parse(source.lastRunAt)) return [];
+    return [{ externalId: uri, text, url: profile && rkey ? `https://bsky.app/profile/${encodeURIComponent(profile)}/post/${encodeURIComponent(rkey)}` : null, publishedAt: item.record?.createdAt ?? null, authorOpaqueId: item.author?.did ?? item.author?.handle ?? null }];
   });
-  return { posts, cursor: payload.cursor ?? source.cursor };
+  return { posts, cursor: null };
 }
 
 async function mastodonPosts(source: CollectorSource): Promise<{ posts: CollectedPost[]; cursor: string | null }> {
@@ -145,26 +161,26 @@ async function mastodonPosts(source: CollectorSource): Promise<{ posts: Collecte
   if (source.cursor) url.searchParams.set("since_id", source.cursor);
   const response = await fetch(url, { headers: { accept: "application/json", "user-agent": "RiskShieldSchoolResearch/0.5 (+human-reviewed)" } });
   if (!response.ok) throw new Error(`Mastodon public hashtag timeline ${response.status}`);
-  const payload = await response.json() as Array<{ id?: string; content?: string; url?: string; created_at?: string; visibility?: string }>;
+  const payload = await response.json() as Array<{ id?: string; content?: string; url?: string; created_at?: string; visibility?: string; account?: { id?: string } }>;
   const posts = payload.flatMap((item) => item.id && item.content && item.visibility !== "private" && item.visibility !== "direct"
-    ? [{ externalId: item.id, text: htmlText(item.content), url: item.url ?? null, publishedAt: item.created_at ?? null }]
+    ? [{ externalId: item.id, text: htmlText(item.content), url: item.url ?? null, publishedAt: item.created_at ?? null, authorOpaqueId: item.account?.id ?? null }]
     : []);
-  const cursor = posts.map((post) => post.externalId).sort((left, right) => left.localeCompare(right)).at(-1) ?? source.cursor;
+  const cursor = newestNumericId(posts.map((post) => post.externalId), source.cursor);
   return { posts, cursor };
 }
 
 async function xPosts(source: CollectorSource, env: CollectorEnvironment): Promise<{ posts: CollectedPost[]; cursor: string | null }> {
   if (!env.RISKSHIELD_X_BEARER_TOKEN) throw new Error("X Bearer token이 설정되지 않았습니다.");
   const url = new URL("https://api.x.com/2/tweets/search/recent");
-  url.searchParams.set("query", source.query);
+  url.searchParams.set("query", buildXRecentQuery(source.query));
   url.searchParams.set("max_results", "100");
-  url.searchParams.set("tweet.fields", "created_at,lang");
+  url.searchParams.set("tweet.fields", "created_at,lang,author_id");
   if (source.cursor) url.searchParams.set("since_id", source.cursor);
   const response = await fetch(url, { headers: { authorization: `Bearer ${env.RISKSHIELD_X_BEARER_TOKEN}` } });
   if (!response.ok) throw new Error(`X API ${response.status}`);
-  const payload = await response.json() as { data?: Array<{ id: string; text: string; created_at?: string }>; meta?: { newest_id?: string } };
+  const payload = await response.json() as { data?: Array<{ id: string; text: string; created_at?: string; author_id?: string }>; meta?: { newest_id?: string } };
   return {
-    posts: (payload.data ?? []).map((item) => ({ externalId: item.id, text: item.text, url: `https://x.com/i/web/status/${item.id}`, publishedAt: item.created_at ?? null })),
+    posts: (payload.data ?? []).map((item) => ({ externalId: item.id, text: item.text, url: `https://x.com/i/web/status/${item.id}`, publishedAt: item.created_at ?? null, authorOpaqueId: item.author_id ?? null })),
     cursor: payload.meta?.newest_id ?? source.cursor,
   };
 }
@@ -174,14 +190,14 @@ async function threadsPosts(source: CollectorSource, env: CollectorEnvironment):
   const url = new URL("https://graph.threads.net/keyword_search");
   url.searchParams.set("q", source.query);
   url.searchParams.set("search_type", "RECENT");
-  url.searchParams.set("fields", "id,text,timestamp,permalink");
+  url.searchParams.set("fields", "id,text,timestamp,permalink,username");
   url.searchParams.set("limit", "100");
   url.searchParams.set("access_token", env.RISKSHIELD_THREADS_ACCESS_TOKEN);
   if (source.cursor) url.searchParams.set("since", source.cursor);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Threads API ${response.status}`);
-  const payload = await response.json() as { data?: Array<{ id: string; text?: string; timestamp?: string; permalink?: string }> };
-  const posts = (payload.data ?? []).flatMap((item) => item.text ? [{ externalId: item.id, text: item.text, url: item.permalink ?? null, publishedAt: item.timestamp ?? null }] : []);
+  const payload = await response.json() as { data?: Array<{ id: string; text?: string; timestamp?: string; permalink?: string; username?: string }> };
+  const posts = (payload.data ?? []).flatMap((item) => item.text ? [{ externalId: item.id, text: item.text, url: item.permalink ?? null, publishedAt: item.timestamp ?? null, authorOpaqueId: item.username ?? null }] : []);
   const newest = posts.map((post) => post.publishedAt).filter((value): value is string => Boolean(value)).sort().at(-1) ?? source.cursor;
   return { posts, cursor: newest };
 }
@@ -209,25 +225,45 @@ async function dcPosts(source: CollectorSource): Promise<{ posts: CollectedPost[
       const record = item as Record<string, unknown>;
       const text = typeof record.text === "string" ? record.text : typeof record.title === "string" ? record.title : "";
       if (!text) continue;
-      posts.push({ externalId: String(record.id ?? await digestId(text)), text, url: typeof record.url === "string" ? record.url : null, publishedAt: typeof record.created_at === "string" ? record.created_at : null });
+      posts.push({ externalId: String(record.id ?? await digestId(text)), text, url: typeof record.url === "string" ? record.url : null, publishedAt: typeof record.created_at === "string" ? record.created_at : null, authorOpaqueId: typeof record.author_id === "string" ? record.author_id : null });
     }
   } else {
-    const entryPattern = /<(?:item|article)\b[^>]*>([\s\S]*?)<\/(?:item|article)>/giu;
-    const blocks = [...body.matchAll(entryPattern)].map((match) => match[1]);
-    const candidates = blocks.length ? blocks : [...body.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/giu)].map((match) => `<link>${match[1]}</link><title>${match[2]}</title>`);
-    for (const block of candidates.slice(0, MAX_POSTS_PER_RUN)) {
-      const title = htmlText(block.match(/<title\b[^>]*>([\s\S]*?)<\/title>/iu)?.[1] ?? block);
-      const description = htmlText(block.match(/<description\b[^>]*>([\s\S]*?)<\/description>/iu)?.[1] ?? "");
-      const text = [title, description].filter(Boolean).join(" — ").slice(0, 2_000);
-      if (!text || !text.includes(source.query)) continue;
-      const link = htmlText(block.match(/<link\b[^>]*>([\s\S]*?)<\/link>/iu)?.[1] ?? "") || null;
-      posts.push({ externalId: await digestId(link ?? text), text, url: link, publishedAt: null });
+    const candidates = parseApprovedFeedEntries(body);
+    if (!candidates.length) throw new Error("DCInside 응답이 승인된 JSON·RSS·article 형식이 아닙니다.");
+    for (const candidate of candidates.slice(0, MAX_POSTS_PER_RUN)) {
+      const text = candidate.text.slice(0, 2_000);
+      posts.push({ externalId: await digestId(candidate.link ?? text), text, url: candidate.link, publishedAt: null, authorOpaqueId: null });
     }
   }
   return { posts, cursor: source.cursor };
 }
 
+async function youtubePosts(source: CollectorSource, env: CollectorEnvironment): Promise<{ posts: CollectedPost[]; cursor: string | null }> {
+  const apiKey = env.RISKSHIELD_YOUTUBE_API_KEY || env.RISKSHIELD_INTERPRETER_API_KEY;
+  if (!apiKey) throw new Error("YouTube Data API key가 설정되지 않았습니다.");
+  const videoIds = [...new Set(source.query.split(/[\s,]+/u).map((value) => value.trim()).filter((value) => /^[A-Za-z0-9_-]{11}$/u.test(value)))].slice(0, 5);
+  if (!videoIds.length) throw new Error("YouTube 수집에는 공개 동영상 ID가 하나 이상 필요합니다.");
+  const posts: CollectedPost[] = [];
+  for (const videoId of videoIds) {
+    const url = new URL("https://www.googleapis.com/youtube/v3/commentThreads");
+    url.searchParams.set("part", "snippet"); url.searchParams.set("videoId", videoId); url.searchParams.set("maxResults", "100");
+    url.searchParams.set("order", "time"); url.searchParams.set("textFormat", "plainText"); url.searchParams.set("key", apiKey);
+    const response = await fetch(url, { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error(`YouTube commentThreads API ${response.status}`);
+    const payload = await response.json() as { items?: Array<{ id?: string; snippet?: { topLevelComment?: { id?: string; snippet?: { textDisplay?: string; publishedAt?: string; authorChannelId?: { value?: string } } } } }> };
+    for (const item of payload.items ?? []) {
+      const comment = item.snippet?.topLevelComment;
+      const text = comment?.snippet?.textDisplay?.trim();
+      const id = comment?.id ?? item.id;
+      if (!id || !text) continue;
+      posts.push({ externalId: id, text, url: `https://www.youtube.com/watch?v=${videoId}&lc=${encodeURIComponent(id)}`, publishedAt: comment?.snippet?.publishedAt ?? null, authorOpaqueId: comment?.snippet?.authorChannelId?.value ?? null });
+    }
+  }
+  return { posts: posts.slice(0, MAX_POSTS_PER_RUN), cursor: null };
+}
+
 async function fetchPosts(source: CollectorSource, env: CollectorEnvironment) {
+  if (source.provider === "youtube") return youtubePosts(source, env);
   if (source.provider === "bluesky") return blueskyPosts(source);
   if (source.provider === "mastodon") return mastodonPosts(source);
   if (source.provider === "x") return xPosts(source, env);
@@ -241,7 +277,7 @@ function candidateTokens(text: string, excluded: Set<string>) {
   const values: Array<{ display: string; normalized: string; weirdness: number }> = [];
   for (const token of tokens) {
     const normalized = normalizedExpression(token);
-    if (!normalized || !/[가-힣ㄱ-ㅎㅏ-ㅣ]/u.test(token) || excluded.has(normalized) || COMMON_TOKENS.has(normalized) || /^\d+$/u.test(normalized)) continue;
+    if (!normalized || !/[가-힣ㄱ-ㅎㅏ-ㅣ]/u.test(token) || excluded.has(normalized) || COMMON_TOKENS.has(normalized) || isHardRejectedExpression(normalized)) continue;
     const hasJamo = /[ㄱ-ㅎㅏ-ㅣ]/u.test(token);
     const isMixed = /[가-힣]/u.test(token) && /[A-Za-z0-9]/u.test(token);
     const repeated = /(.)\1{2,}/u.test(token);
@@ -265,24 +301,83 @@ async function knownExpressions(db: D1Database) {
   return known;
 }
 
-function groupExpressions(posts: StoredPost[], excluded: Set<string>) {
-  const groups = new Map<string, ExpressionGroup>();
+async function saveObservations(posts: StoredPost[], source: CollectorSource, excluded: Set<string>, env: CollectorEnvironment, now: string) {
+  let count = 0;
   for (const post of posts) {
     const unique = new Map(candidateTokens(post.excerpt, excluded).map((candidate) => [candidate.normalized, candidate]));
     for (const candidate of unique.values()) {
-      const current = groups.get(candidate.normalized) ?? {
-        expression: candidate.display, normalized: candidate.normalized, postIds: new Set<string>(), evidence: [], score: 0,
-      };
-      current.postIds.add(post.postId);
-      if (current.evidence.length < 3) current.evidence.push({ excerpt: boundedExcerpt(post.excerpt, candidate.display), url: post.url, publishedAt: post.publishedAt });
-      current.score = current.postIds.size * 10 + candidate.weirdness * 4;
-      groups.set(candidate.normalized, current);
+      const observationHash = await digestId(`${post.postId}:${candidate.normalized}`);
+      const inserted = await env.DB.prepare(`
+        INSERT INTO riskshield_expression_observations
+          (id, normalized_expression, display_expression, source_id, provider, post_id, author_hash, redacted_excerpt,
+           source_url, published_at, context_label, classifier_confidence, risk_family, qualification_status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'uncertain', NULL, NULL, 'observed', ?, ?)
+        ON CONFLICT(source_id, post_id, normalized_expression) DO NOTHING
+      `).bind(`observation_${observationHash.slice(0, 32)}`, candidate.normalized, candidate.display, source.id, source.provider,
+        post.postId, post.authorHash, boundedExcerpt(post.excerpt, candidate.display), post.url, post.publishedAt, now, now).run();
+      count += Number(inserted.meta.changes ?? 0);
     }
   }
+  return count;
+}
+
+async function recentExpressionGroups(env: CollectorEnvironment) {
+  const rows = await env.DB.prepare(`
+    SELECT id, normalized_expression, display_expression, source_id, post_id, author_hash, redacted_excerpt, source_url,
+           published_at, context_label
+    FROM riskshield_expression_observations
+    WHERE datetime(created_at) >= datetime('now', '-14 days')
+      AND qualification_status IN ('observed', 'monitor')
+    ORDER BY created_at DESC LIMIT 4000
+  `).all<Record<string, unknown>>();
+  const groups = new Map<string, ExpressionGroup>();
+  for (const row of rows.results ?? []) {
+    const normalized = String(row.normalized_expression);
+    const current = groups.get(normalized) ?? { expression: String(row.display_expression), normalized, postIds: new Set<string>(), authorHashes: new Set<string>(), sourceIds: new Set<string>(), evidence: [], score: 0 };
+    current.postIds.add(String(row.post_id)); current.sourceIds.add(String(row.source_id));
+    if (typeof row.author_hash === "string" && row.author_hash) current.authorHashes.add(row.author_hash);
+    if (current.evidence.length < 6) current.evidence.push({ id: String(row.id), excerpt: String(row.redacted_excerpt), url: typeof row.source_url === "string" ? row.source_url : null, publishedAt: typeof row.published_at === "string" ? row.published_at : null, label: String(row.context_label) as ObservationContextLabel });
+    current.score = current.postIds.size * 10 + current.authorHashes.size * 8 + current.sourceIds.size * 6;
+    groups.set(normalized, current);
+  }
   return [...groups.values()]
-    .filter((group) => group.postIds.size >= 2 || group.score >= 18)
-    .sort((left, right) => right.score - left.score || right.postIds.size - left.postIds.size || left.expression.localeCompare(right.expression, "ko"))
+    .filter((group) => (group.postIds.size >= 3 || group.sourceIds.size >= 2) && group.authorHashes.size >= 2)
+    .sort((left, right) => right.score - left.score || left.expression.localeCompare(right.expression, "ko"))
     .slice(0, MAX_CANDIDATES_PER_RUN);
+}
+
+async function qualifyExpressionGroups(groups: ExpressionGroup[], env: CollectorEnvironment) {
+  const provider = new GoogleCollectorQualificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
+  if (!provider.configured || !groups.length) return { assessments: new Map<string, QualificationAssessment>(), state: "not_configured" as const };
+  try {
+    const results = await provider.qualify(groups.map((group) => ({ expression: group.expression, normalized: group.normalized, evidence: group.evidence.map(({ id, excerpt }) => ({ id, excerpt })) })), AbortSignal.timeout(20_000));
+    return { assessments: new Map(results.map((item) => [item.normalized, item])), state: "ready" as const };
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "qualification_provider_unavailable";
+    return { assessments: new Map<string, QualificationAssessment>(), state: code };
+  }
+}
+
+async function persistAssessment(group: ExpressionGroup, assessment: QualificationAssessment | null, env: CollectorEnvironment, now: string) {
+  const labels = new Map(assessment?.evidenceLabels.map((item) => [item.id, item.label]) ?? []);
+  const status = assessment?.disposition === "reject" ? "rejected" : "monitor";
+  for (const evidence of group.evidence) {
+    const label = labels.get(evidence.id) ?? "uncertain";
+    await env.DB.prepare(`UPDATE riskshield_expression_observations
+      SET context_label = ?, classifier_confidence = ?, risk_family = ?, qualification_status = ?, updated_at = ? WHERE id = ?`)
+      .bind(label, assessment?.confidence ?? null, assessment?.riskFamily ?? null, status, now, evidence.id).run();
+    evidence.label = label;
+  }
+  await env.DB.prepare(`UPDATE riskshield_expression_observations
+    SET qualification_status = ?, classifier_confidence = ?, risk_family = ?, updated_at = ?
+    WHERE normalized_expression = ? AND datetime(created_at) >= datetime('now', '-14 days') AND qualification_status IN ('observed', 'monitor')`)
+    .bind(status, assessment?.confidence ?? null, assessment?.riskFamily ?? null, now, group.normalized).run();
+}
+
+function passesQualification(group: ExpressionGroup, assessment: QualificationAssessment) {
+  const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
+  const contextual = group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).length;
+  return qualificationGate({ observationCount: group.postIds.size, distinctAuthorCount: group.authorHashes.size, distinctSourceCount: group.sourceIds.size, directEvidenceCount: direct, contextualEvidenceCount: contextual, confidence: assessment.confidence, disposition: assessment.disposition });
 }
 
 async function draftExpressionGroups(groups: ExpressionGroup[], source: CollectorSource, env: CollectorEnvironment, runId: string) {
@@ -294,7 +389,7 @@ async function draftExpressionGroups(groups: ExpressionGroup[], source: Collecto
     representativeExpression: group.expression,
     category: "community_expression_unclassified",
     nearestReviewedSkill: null,
-    positiveTest: group.evidence[0]?.excerpt ?? group.expression,
+    positiveTest: group.evidence.find((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label))?.excerpt ?? group.expression,
     negativeTest: `“${group.expression}”이라는 표현은 사용하지 마세요.`,
   })));
   try {
@@ -312,7 +407,7 @@ async function draftExpressionGroups(groups: ExpressionGroup[], source: Collecto
   }
 }
 
-async function saveCandidate(group: ExpressionGroup, source: CollectorSource, env: CollectorEnvironment, now: string, draft: TrainingDraft | null) {
+async function saveCandidate(group: ExpressionGroup, source: CollectorSource, env: CollectorEnvironment, now: string, draft: TrainingDraft | null, assessment: QualificationAssessment) {
   const candidateId = await candidateIdForExpression(group.normalized);
   const existing = await env.DB.prepare("SELECT payload FROM riskshield_candidates WHERE id = ? LIMIT 1").bind(candidateId).first<Record<string, unknown>>();
   let previous: Record<string, unknown> = {};
@@ -330,25 +425,26 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     ...previous,
     id: candidateId,
     expression: group.expression,
-    riskFamily: previous.riskFamily ?? "general_substantiation",
-    riskDomain: previous.riskDomain ?? "자동 발견 · 미분류",
+    riskFamily: assessment.riskFamily,
+    riskDomain: previous.riskDomain ?? "자동 수집 · AI 적격성 통과",
     reportType: "collector_discovery",
     status: "pending",
-    noveltyScore: Math.min(1, Number((0.45 + Math.min(group.postIds.size, 10) * 0.05).toFixed(2))),
-    confidence: previous.confidence ?? null,
+    noveltyScore: null,
+    confidence: assessment.confidence,
     sourceCount,
     createdAt: previous.createdAt ?? now,
     updatedAt: now,
     expressionGroup: [...new Set([...(Array.isArray(previous.expressionGroup) ? previous.expressionGroup.filter((value): value is string => typeof value === "string") : []), group.expression])].slice(0, 20),
-    contextSummary: `${source.label}의 공개 글 ${group.postIds.size}건에서 반복·변형 신호로 자동 발견했습니다. ${draft ? "Gemini가 의미·문맥 초안을 만들었으며" : "AI 초안은 만들지 못했으며"} 사람 검토로 의미와 위험 범주를 확정해야 합니다.`,
+    contextSummary: `최근 14일 공개 관찰 ${group.postIds.size}건·독립 작성자 ${group.authorHashes.size}명·수집처 ${group.sourceIds.size}곳을 합산했습니다. AI 적격성 심사에서 review 판정을 받았으며 사람 검토로 최종 확정해야 합니다.`,
     evidence,
-    positiveTests: evidence.slice(0, 5),
-    negativeTests: [`“${group.expression}”이라는 표현은 사용하지 마세요.`],
+    positiveTests: group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).map((item) => item.excerpt).slice(0, 5),
+    negativeTests: [...group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).map((item) => item.excerpt), `“${group.expression}”이라는 표현은 사용하지 마세요.`].slice(0, 5),
     redTeam: "자동 발견 후보입니다. 인용·비판·동음이의 문맥을 반드시 확인하세요.",
     modelConflict: null,
     policyChange: null,
     draft: draft ?? previous.draft ?? null,
-    lineage: { collectorSourceId: source.id, provider: source.provider, lastCollectedAt: now },
+    qualification: { disposition: assessment.disposition, reason: assessment.reason, confidence: assessment.confidence, distinctAuthors: group.authorHashes.size, distinctSources: group.sourceIds.size, observationCount: group.postIds.size },
+    lineage: { collectorSourceId: source.id, provider: source.provider, lastCollectedAt: now, observationWindowDays: 14 },
     sources,
     retentionDeadline: new Date(Date.parse(now) + 30 * 24 * 60 * 60 * 1_000).toISOString(),
     autoInclusionBlockedReason: "자동 수집 데이터는 사람 검토와 회귀 테스트를 통과하기 전까지 활성 규칙에 반영되지 않습니다.",
@@ -375,25 +471,14 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
   const runId = `collector_run_${crypto.randomUUID()}`;
   let fetchedCount = 0;
   let newCount = 0;
+  let observationCount = 0;
+  let monitoredCount = 0;
+  let rejectedCount = 0;
   let candidateCount = 0;
   try {
     const fetched = await fetchPosts(source, env);
     fetchedCount = fetched.posts.length;
-    const orphaned = await env.DB.prepare(`
-      SELECT id, external_id, text, source_url, published_at
-      FROM riskshield_collected_posts_v2
-      WHERE source_id = ? AND candidate_id IS NULL
-      ORDER BY collected_at DESC LIMIT ?
-    `).bind(source.id, MAX_POSTS_PER_RUN).all<Record<string, unknown>>();
-    const storedPosts: StoredPost[] = (orphaned.results ?? []).map((row) => ({
-      postId: String(row.id),
-      externalId: String(row.external_id),
-      text: String(row.text),
-      excerpt: String(row.text),
-      url: typeof row.source_url === "string" ? row.source_url : null,
-      publishedAt: typeof row.published_at === "string" ? row.published_at : null,
-    }));
-    const queuedPostIds = new Set(storedPosts.map((post) => post.postId));
+    const storedPosts: StoredPost[] = [];
     for (const post of fetched.posts.slice(0, MAX_POSTS_PER_RUN)) {
       if (!hasKoreanContent(post.text)) continue;
       const prepared = prepareInterpreterInput(post.text, 2_000);
@@ -401,70 +486,72 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
       if (!excerpt) continue;
       const postHash = await digestId(`${source.id}:${post.externalId}`);
       const postId = `collected_${postHash.slice(0, 32)}`;
-      if (queuedPostIds.has(postId)) continue;
+      const authorHash = await authorHashFor(post, source, env);
       const inserted = await env.DB.prepare(`
-        INSERT INTO riskshield_collected_posts_v2
-          (id, source_id, provider, external_id, text, source_url, published_at, collected_at, candidate_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        INSERT INTO riskshield_collected_posts_v3
+          (id, source_id, provider, external_id, text, source_url, published_at, collected_at, author_hash, candidate_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
         ON CONFLICT(source_id, external_id) DO NOTHING
-      `).bind(postId, source.id, source.provider, post.externalId, excerpt, post.url, post.publishedAt, startedAt).run();
-      if (!inserted.meta.changes) {
-        const existing = await env.DB.prepare("SELECT candidate_id FROM riskshield_collected_posts_v2 WHERE id = ? LIMIT 1")
-          .bind(postId).first<Record<string, unknown>>();
-        if (typeof existing?.candidate_id === "string" && existing.candidate_id) continue;
-      } else {
-        newCount += 1;
-      }
-      storedPosts.push({ ...post, postId, excerpt });
-      queuedPostIds.add(postId);
+      `).bind(postId, source.id, source.provider, post.externalId, excerpt, post.url, post.publishedAt, startedAt, authorHash).run();
+      if (!inserted.meta.changes) continue;
+      newCount += 1;
+      storedPosts.push({ ...post, postId, excerpt, authorHash });
     }
     const excluded = await knownExpressions(env.DB);
     for (const term of queryTerms(source.query)) excluded.add(term);
-    const groups = groupExpressions(storedPosts, excluded);
-    const drafted = await draftExpressionGroups(groups, source, env, runId);
+    observationCount = await saveObservations(storedPosts, source, excluded, env, startedAt);
+    const groups = await recentExpressionGroups(env);
+    const qualified = await qualifyExpressionGroups(groups, env);
+    const reviewGroups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }> = [];
     for (const group of groups) {
+      const assessment = qualified.assessments.get(group.normalized) ?? null;
+      await persistAssessment(group, assessment, env, startedAt);
+      if (!assessment || assessment.disposition === "monitor") { monitoredCount += 1; continue; }
+      if (assessment.disposition === "reject") { rejectedCount += 1; continue; }
+      if (passesQualification(group, assessment)) reviewGroups.push({ group, assessment });
+      else monitoredCount += 1;
+    }
+    const drafted = await draftExpressionGroups(reviewGroups.map((item) => item.group), source, env, runId);
+    for (const { group, assessment } of reviewGroups) {
       const candidateId = await candidateIdForExpression(group.normalized);
-      await saveCandidate(group, source, env, startedAt, drafted.drafts.get(candidateId) ?? null);
+      await saveCandidate(group, source, env, startedAt, drafted.drafts.get(candidateId) ?? null, assessment);
       candidateCount += 1;
       const postIds = [...group.postIds];
-      if (postIds.length) {
-        await env.DB.prepare(`UPDATE riskshield_collected_posts_v2 SET candidate_id = ? WHERE id IN (${postIds.map(() => "?").join(",")})`)
-          .bind(candidateId, ...postIds).run();
-      }
+      if (postIds.length) await env.DB.prepare(`UPDATE riskshield_collected_posts_v3 SET candidate_id = ? WHERE id IN (${postIds.map(() => "?").join(",")})`).bind(candidateId, ...postIds).run();
+      await env.DB.prepare("UPDATE riskshield_expression_observations SET qualification_status = 'qualified', updated_at = ? WHERE normalized_expression = ? AND datetime(created_at) >= datetime('now', '-14 days')")
+        .bind(startedAt, group.normalized).run();
     }
-    const screenedPostIds = [...new Set(storedPosts.map((post) => post.postId))];
-    if (screenedPostIds.length) {
-      await env.DB.prepare(`UPDATE riskshield_collected_posts_v2 SET candidate_id = 'screened:no_candidate' WHERE candidate_id IS NULL AND id IN (${screenedPostIds.map(() => "?").join(",")})`)
-        .bind(...screenedPostIds).run();
-    }
-    await env.DB.prepare("DELETE FROM riskshield_collected_posts_v2 WHERE datetime(collected_at) < datetime('now', '-30 days')").run();
-    const finishedAt = new Date().toISOString();
-    const aiLabel = drafted.state === "ready" ? ` · AI 초안 ${drafted.drafts.size}개` : drafted.state === "not_configured" ? " · AI 미설정" : ` · AI 보류(${drafted.state})`;
-    const message = `${fetchedCount}개 확인 · ${newCount}개 신규 · ${candidateCount}개 표현군 후보${aiLabel}`;
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO riskshield_collector_runs_v2 (id, source_id, status, fetched_count, new_count, candidate_count, message, started_at, finished_at) VALUES (?, ?, 'succeeded', ?, ?, ?, ?, ?, ?)")
-        .bind(runId, source.id, fetchedCount, newCount, candidateCount, message, startedAt, finishedAt),
-      env.DB.prepare("UPDATE riskshield_collector_sources_v2 SET cursor = ?, last_run_at = ?, last_status = 'succeeded', last_message = ?, updated_at = ? WHERE id = ?")
+      env.DB.prepare("DELETE FROM riskshield_collected_posts_v3 WHERE datetime(collected_at) < datetime('now', '-30 days')"),
+      env.DB.prepare("DELETE FROM riskshield_expression_observations WHERE datetime(created_at) < datetime('now', '-30 days')"),
+    ]);
+    const finishedAt = new Date().toISOString();
+    const aiLabel = qualified.state === "ready" ? "AI 적격성 심사 완료" : qualified.state === "not_configured" ? "AI 미설정으로 후보 승격 없음" : `AI 심사 보류(${qualified.state})`;
+    const message = `${fetchedCount}개 확인 · ${newCount}개 신규 · ${observationCount}개 관찰 · ${monitoredCount}개 모니터 · ${rejectedCount}개 기각 · ${candidateCount}개 검토 후보 · ${aiLabel}`;
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO riskshield_collector_runs_v3 (id, source_id, status, fetched_count, new_count, observation_count, monitored_count, rejected_count, candidate_count, message, started_at, finished_at) VALUES (?, ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(runId, source.id, fetchedCount, newCount, observationCount, monitoredCount, rejectedCount, candidateCount, message, startedAt, finishedAt),
+      env.DB.prepare("UPDATE riskshield_collector_sources_v3 SET cursor = ?, last_run_at = ?, last_status = 'succeeded', last_message = ?, updated_at = ? WHERE id = ?")
         .bind(fetched.cursor, finishedAt, message, finishedAt, source.id),
     ]);
-    return { runId, status: "succeeded" as const, fetchedCount, newCount, candidateCount, message };
+    return { runId, status: "succeeded" as const, fetchedCount, newCount, observationCount, monitoredCount, rejectedCount, candidateCount, message };
   } catch (error) {
     const finishedAt = new Date().toISOString();
     const message = error instanceof Error ? error.message : "수집 중 알 수 없는 오류가 발생했습니다.";
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO riskshield_collector_runs_v2 (id, source_id, status, fetched_count, new_count, candidate_count, message, started_at, finished_at) VALUES (?, ?, 'failed', ?, ?, ?, ?, ?, ?)")
-        .bind(runId, source.id, fetchedCount, newCount, candidateCount, message, startedAt, finishedAt),
-      env.DB.prepare("UPDATE riskshield_collector_sources_v2 SET last_run_at = ?, last_status = 'failed', last_message = ?, updated_at = ? WHERE id = ?")
+      env.DB.prepare("INSERT INTO riskshield_collector_runs_v3 (id, source_id, status, fetched_count, new_count, observation_count, monitored_count, rejected_count, candidate_count, message, started_at, finished_at) VALUES (?, ?, 'failed', ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(runId, source.id, fetchedCount, newCount, observationCount, monitoredCount, rejectedCount, candidateCount, message, startedAt, finishedAt),
+      env.DB.prepare("UPDATE riskshield_collector_sources_v3 SET last_run_at = ?, last_status = 'failed', last_message = ?, updated_at = ? WHERE id = ?")
         .bind(finishedAt, message, finishedAt, source.id),
     ]);
-    return { runId, status: "failed" as const, fetchedCount, newCount, candidateCount, message };
+    return { runId, status: "failed" as const, fetchedCount, newCount, observationCount, monitoredCount, rejectedCount, candidateCount, message };
   }
 }
 
 export async function runDueCollectors(env: CollectorEnvironment) {
   const rows = await env.DB.prepare(`
     SELECT id, provider, label, query, endpoint, enabled, interval_minutes, cursor, last_run_at
-    FROM riskshield_collector_sources_v2
+    FROM riskshield_collector_sources_v3
     WHERE enabled = 1 AND (last_run_at IS NULL OR datetime(last_run_at, '+' || interval_minutes || ' minutes') <= datetime('now'))
     ORDER BY COALESCE(last_run_at, '') ASC LIMIT 12
   `).all<Record<string, unknown>>();
@@ -474,7 +561,7 @@ export async function runDueCollectors(env: CollectorEnvironment) {
 }
 
 export async function readCollectorSource(db: D1Database, id: string) {
-  const row = await db.prepare("SELECT id, provider, label, query, endpoint, enabled, interval_minutes, cursor, last_run_at FROM riskshield_collector_sources_v2 WHERE id = ? LIMIT 1")
+  const row = await db.prepare("SELECT id, provider, label, query, endpoint, enabled, interval_minutes, cursor, last_run_at FROM riskshield_collector_sources_v3 WHERE id = ? LIMIT 1")
     .bind(id).first<Record<string, unknown>>();
   return row ? sourceFromRow(row) : null;
 }

@@ -10,6 +10,9 @@ interface Env {
   RISKSHIELD_X_BEARER_TOKEN?: string;
   RISKSHIELD_THREADS_ACCESS_TOKEN?: string;
   RISKSHIELD_INTERPRETER_API_KEY?: string;
+  RISKSHIELD_YOUTUBE_API_KEY?: string;
+  RISKSHIELD_COLLECTOR_HASH_KEY?: string;
+  RISKSHIELD_SESSION_SIGNING_KEY?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

@@ -229,7 +229,7 @@ export const riskshieldAuditChain = sqliteTable(
 );
 
 export const riskshieldCollectorSources = sqliteTable(
-  "riskshield_collector_sources_v2",
+  "riskshield_collector_sources_v3",
   {
     id: text("id").primaryKey(),
     provider: text("provider").notNull(),
@@ -246,14 +246,14 @@ export const riskshieldCollectorSources = sqliteTable(
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
-    index("riskshield_collector_sources_v2_due_idx").on(table.enabled, table.lastRunAt),
-    check("riskshield_collector_sources_v2_provider_check", sql`${table.provider} IN ('bluesky', 'mastodon', 'x', 'threads', 'dcinside')`),
-    check("riskshield_collector_sources_v2_interval_check", sql`${table.intervalMinutes} BETWEEN 15 AND 10080`),
+    index("riskshield_collector_sources_v3_due_idx").on(table.enabled, table.lastRunAt),
+    check("riskshield_collector_sources_v3_provider_check", sql`${table.provider} IN ('youtube', 'bluesky', 'mastodon', 'x', 'threads', 'dcinside')`),
+    check("riskshield_collector_sources_v3_interval_check", sql`${table.intervalMinutes} BETWEEN 15 AND 10080`),
   ],
 );
 
 export const riskshieldCollectedPosts = sqliteTable(
-  "riskshield_collected_posts_v2",
+  "riskshield_collected_posts_v3",
   {
     id: text("id").primaryKey(),
     sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
@@ -263,28 +263,61 @@ export const riskshieldCollectedPosts = sqliteTable(
     sourceUrl: text("source_url"),
     publishedAt: text("published_at"),
     collectedAt: text("collected_at").notNull(),
+    authorHash: text("author_hash"),
     candidateId: text("candidate_id"),
   },
   (table) => [
-    uniqueIndex("riskshield_collected_posts_v2_source_external_idx").on(table.sourceId, table.externalId),
-    index("riskshield_collected_posts_v2_collected_idx").on(table.collectedAt),
+    uniqueIndex("riskshield_collected_posts_v3_source_external_idx").on(table.sourceId, table.externalId),
+    index("riskshield_collected_posts_v3_collected_idx").on(table.collectedAt),
+  ],
+);
+
+export const riskshieldExpressionObservations = sqliteTable(
+  "riskshield_expression_observations",
+  {
+    id: text("id").primaryKey(),
+    normalizedExpression: text("normalized_expression").notNull(),
+    displayExpression: text("display_expression").notNull(),
+    sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
+    provider: text("provider").notNull(),
+    postId: text("post_id").notNull().references(() => riskshieldCollectedPosts.id),
+    authorHash: text("author_hash"),
+    redactedExcerpt: text("redacted_excerpt").notNull(),
+    sourceUrl: text("source_url"),
+    publishedAt: text("published_at"),
+    contextLabel: text("context_label").notNull().default("uncertain"),
+    classifierConfidence: real("classifier_confidence"),
+    riskFamily: text("risk_family"),
+    qualificationStatus: text("qualification_status").notNull().default("observed"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("riskshield_expression_observations_unique_idx").on(table.sourceId, table.postId, table.normalizedExpression),
+    index("riskshield_expression_observations_expression_idx").on(table.normalizedExpression, table.createdAt),
+    index("riskshield_expression_observations_status_idx").on(table.qualificationStatus, table.createdAt),
+    check("riskshield_expression_observations_label_check", sql`${table.contextLabel} IN ('direct_attack', 'group_discrimination', 'threat', 'coded_reference', 'quotation', 'warning', 'definition', 'benign', 'uncertain')`),
+    check("riskshield_expression_observations_status_check", sql`${table.qualificationStatus} IN ('observed', 'monitor', 'rejected', 'qualified')`),
   ],
 );
 
 export const riskshieldCollectorRuns = sqliteTable(
-  "riskshield_collector_runs_v2",
+  "riskshield_collector_runs_v3",
   {
     id: text("id").primaryKey(),
     sourceId: text("source_id").notNull().references(() => riskshieldCollectorSources.id),
     status: text("status").notNull(),
     fetchedCount: integer("fetched_count").notNull().default(0),
     newCount: integer("new_count").notNull().default(0),
+    observationCount: integer("observation_count").notNull().default(0),
+    monitoredCount: integer("monitored_count").notNull().default(0),
+    rejectedCount: integer("rejected_count").notNull().default(0),
     candidateCount: integer("candidate_count").notNull().default(0),
     message: text("message"),
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at").notNull(),
   },
-  (table) => [index("riskshield_collector_runs_v2_source_idx").on(table.sourceId, table.startedAt)],
+  (table) => [index("riskshield_collector_runs_v3_source_idx").on(table.sourceId, table.startedAt)],
 );
 
 export const riskshieldEvaluationCases = sqliteTable(
