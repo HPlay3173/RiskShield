@@ -14,15 +14,18 @@ export default async function AccessPage() {
   return (
     <main className="accessCodePage" id="access-main">
       <section className="accessCodeCard" aria-labelledby="access-title">
-        <div className="accessCodeBrand" aria-hidden="true">R</div>
-        <p className="accessCodeEyebrow">PROTECTED CONTROL PLANE</p>
-        <h1 id="access-title">RiskShield 관리 접근</h1>
-        <p>{localDevelopment ? "로컬 개발용 비밀코드로 관리 화면을 엽니다." : "허용된 Google 계정으로 관리 콘솔에 로그인합니다."}</p>
+        <div className="accessCodeBrandRow">
+          <div className="accessCodeBrand" aria-hidden="true">R</div>
+          <div><strong>RiskShield</strong><span>관리 콘솔</span></div>
+        </div>
+        <p className="accessCodeEyebrow">관리자 전용</p>
+        <h1 id="access-title">관리자 로그인</h1>
+        <p className="accessCodeDescription">{localDevelopment ? "로컬 개발용 비밀코드로 관리 화면을 엽니다." : "허용된 Google 계정으로 로그인해 분석 지식과 수집 결과를 관리하세요."}</p>
         {localDevelopment ? <AccessCodeLogin /> : (
-          <Link className="pressable primaryButton" href="/api/auth/google/start?return_to=%2Fmanage">Google로 로그인</Link>
+          <Link className="pressable primaryButton accessCodePrimary" href="/api/auth/google/start?return_to=%2Fmanage">Google로 계속하기</Link>
         )}
-        <p className="accessCodeNotice">세션은 15분 후 만료됩니다. 운영 access code 로그인은 비활성화되어 있습니다.</p>
-        <Link href="/">공개 Analyzer로 돌아가기</Link>
+        <p className="accessCodeNotice">로그인 세션은 15분 동안 유지됩니다.</p>
+        <Link className="accessCodeBack" href="/">← 공개 분석기로 돌아가기</Link>
       </section>
     </main>
   );
