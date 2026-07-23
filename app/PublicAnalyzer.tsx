@@ -124,6 +124,8 @@ export function PublicAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<ProfileId>("balanced");
   const [candidateState, setCandidateState] = useState<"idle" | "submitting" | "submitted" | "failed">("idle");
+  const [feedbackExpression, setFeedbackExpression] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
   const [lastText, setLastText] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -136,7 +138,7 @@ export function PublicAnalyzer() {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    setLoading(true); setError(""); setCandidateState("idle"); setLastText(value);
+    setLoading(true); setError(""); setCandidateState("idle"); setFeedbackExpression(""); setFeedbackMessage(""); setLastText(value);
     try {
       const response = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: value, profile }), cache: "no-store", signal: controller.signal });
       const payload = await response.json() as PublicAnalysis & { message?: string };
@@ -158,16 +160,29 @@ export function PublicAnalyzer() {
   }
 
   async function submitCandidate(reportType: "missed_detection" | "false_positive" | "new_expression") {
-    if (!result || result.novelty.candidateRegistration !== "available") return;
+    if (!result || (reportType !== "false_positive" && result.novelty.candidateRegistration !== "available")) return;
+    if (reportType !== "false_positive" && !feedbackExpression.trim()) {
+      setFeedbackMessage("놓친 위험 표현만 짧게 입력해 주세요.");
+      return;
+    }
     setCandidateState("submitting");
+    setFeedbackMessage("");
     try {
-      const response = await fetch("/api/analyze/candidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, text: lastText, reportType }), cache: "no-store" });
+      const response = await fetch("/api/analyze/candidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, text: lastText, expression: feedbackExpression.trim(), reportType }), cache: "no-store" });
+      const payload = await response.json() as { intakeStatus?: string; message?: string };
       if (!response.ok && response.status !== 409) throw new Error("candidate_failed");
       setCandidateState("submitted");
-    } catch { setCandidateState("failed"); }
+      setFeedbackMessage(payload.intakeStatus === "promoted"
+        ? reportType === "false_positive"
+          ? "오탐 신고가 기존 규칙의 음성 회귀 사례로 접수되었습니다."
+          : "자동 의미·검색 검증을 통과해 관리자 검토함으로 전달되었습니다."
+        : payload.intakeStatus === "rejected"
+          ? "자동 확인 결과 새 위험 표현 후보로 만들지 않았습니다. 신고 기록은 품질 개선에 보존됩니다."
+          : payload.message ?? "신고가 접수되었습니다. 의미와 실제 사용 사례를 자동으로 확인한 뒤, 근거가 충분한 경우에만 관리자 검토함으로 전달됩니다.");
+    } catch { setCandidateState("failed"); setFeedbackMessage(""); }
   }
 
-  function reset() { setText(""); setResult(null); setError(""); setCandidateState("idle"); requestAnimationFrame(() => inputRef.current?.focus()); }
+  function reset() { setText(""); setResult(null); setError(""); setCandidateState("idle"); setFeedbackExpression(""); setFeedbackMessage(""); requestAnimationFrame(() => inputRef.current?.focus()); }
 
   return (
     <div className="publicAnalyzerShell">
@@ -221,7 +236,7 @@ export function PublicAnalyzer() {
 
             {result.rules.suggestedRewrite ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 표현</span><h3>{result.rules.suggestedRewrite}</h3><p>집단 일반화와 공격 표현을 줄이고, 구체적인 행동과 사실을 중심으로 다시 작성해 보세요.</p></article> : null}
 
-            <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">결과 개선 참여</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" ? <div className="publicAnalyzerActions">{result.feedback.missedDetectionAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("missed_detection")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토함에 전달됨" : candidateState === "submitting" ? "전달 중…" : "위험한 표현인데 놓쳤어요"}</button> : null}{result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("false_positive")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "검토함에 전달됨" : candidateState === "submitting" ? "전달 중…" : "위험하지 않은데 잘못 잡았어요"}</button> : null}{!result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("new_expression")} disabled={candidateState === "submitting" || candidateState === "submitted"}>새 표현 후보로 제공</button> : null}</div> : null}{candidateState === "failed" ? <p role="alert">신고를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
+            <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">결과 개선 참여</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" || result.feedback.falsePositiveAvailable ? <div className="publicAnalyzerActions">{result.novelty.candidateRegistration === "available" && (result.feedback.missedDetectionAvailable || (!result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable)) ? <label className="feedbackExpressionField"><span>놓친 위험 표현</span><input value={feedbackExpression} onChange={(event) => setFeedbackExpression(event.target.value)} maxLength={80} placeholder="예: 느개미" disabled={candidateState === "submitting" || candidateState === "submitted"} /></label> : null}{result.feedback.missedDetectionAvailable && result.novelty.candidateRegistration === "available" ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("missed_detection")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "신고 접수됨" : candidateState === "submitting" ? "자동 검증 중…" : "위험한 표현인데 놓쳤어요"}</button> : null}{result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("false_positive")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "신고 접수됨" : candidateState === "submitting" ? "접수 중…" : "위험하지 않은데 잘못 잡았어요"}</button> : null}{result.novelty.candidateRegistration === "available" && !result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("new_expression")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "신고 접수됨" : candidateState === "submitting" ? "자동 검증 중…" : "새 표현 후보로 제공"}</button> : null}</div> : null}{feedbackMessage ? <p role="status">{feedbackMessage}</p> : null}{candidateState === "failed" ? <p role="alert">신고를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
             <div className="publicAnalyzerResultActions"><button className="pressable primaryButton" type="button" onClick={reset}>다른 글 분석</button><span>Source {result.release.sourceCommit} · Sites v{result.release.sitesVersion} · Interpreter {result.release.interpreterSchema} · Scoring {result.release.scoringPolicy}</span></div>
           </section>
         ) : null}

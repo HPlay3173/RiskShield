@@ -22,6 +22,8 @@ RiskShield는 한국어 문장과 글에서 과장·기만, 혐오·차별, 욕�
 - AI 선택 구간 수와 실제 성공 수를 분리하고 일부 실패는 `partial`로 표시
 - 가장 위험한 독립 주장 하나를 최종 점수로 사용하고 나머지 위험 주장은 별도 목록으로 표시
 - 정확한 evidence 구간, 대체 문구, 불확실성 및 fallback 표시
+- 탐지 누락·새 표현 신고는 별도 접수함에서 의미 분류와 Google Search 검증을 거치며, 근거가 충분한 경우에만 후보함으로 승격
+- 오탐 신고는 새 위험 후보가 아니라 탐지한 기존 규칙의 음성 회귀 사례로 분리
 - 요청 취소·재시도, 키보드와 모바일 접근성
 - 내부 스킬 전체, matcher 패턴, prompt와 provider 원문은 공개 응답에서 제외
 
@@ -85,7 +87,7 @@ npm run dev
 
 ## 데이터와 저장소
 
-- D1: 운영 스킬, 설정, 후보, 수집 관찰, 검색 검증 쿨다운 및 관리 데이터
+- D1: 운영 스킬, 설정, 후보, 공개 신고 접수, 음성 회귀 사례, 수집 관찰, 검색 검증 쿨다운 및 관리 데이터
 - CSV: 브라우저에서 byte 단위 검사와 staging preview
 - R2: Dataset Version 원본을 SHA-256 content-addressed object로 불변 저장
 - Vector/embedding: 아직 연결되지 않음
@@ -112,7 +114,7 @@ GitHub Actions는 pull request에서 위 검사와 production dependency audit�
 - Dataset 원본은 immutable R2 저장과 서버 기준 SHA 계보를 사용합니다. 운영 R2 binding과 migration이 필수입니다.
 - 학습 파이프라인의 일부 단계는 휴리스틱 또는 `not_configured` 상태입니다.
 - 후보의 `approve_with_edits`와 merge revision 제안은 구현됐지만, release candidate와 active의 최종 배포 단계는 아직 분리 작업이 남아 있습니다.
-- Analyzer와 공개 후보 제출 제한 및 provider budget은 D1 원자적 카운터를 사용합니다. 공개 후보는 30일 기한 후 조회에서 제외되고 다음 제출 시 물리 삭제됩니다.
+- Analyzer와 공개 신고 제한 및 provider budget은 D1 원자적 카운터를 사용합니다. 공개 신고는 즉시 후보가 되지 않으며 검증 실패·근거 부족 상태도 별도 보존합니다. 30일 기한이 지난 접수는 다음 제출 시 삭제됩니다.
 - 단일 관리자 허용목록 세션은 운영 D1 기반 다중 사용자 RBAC의 임시 단계입니다.
 - 테스트 화면은 규칙 엔진만 평가합니다. AI를 포함한 전체 시스템의 품질·latency·비용과 calibration 결과는 아직 없습니다.
 

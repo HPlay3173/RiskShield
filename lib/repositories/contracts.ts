@@ -83,6 +83,7 @@ export type SkillAdminRecord = {
 export type CandidateSemanticRole =
   | "harmful_expression"
   | "coded_expression"
+  | "deceptive_claim"
   | "target_entity"
   | "proper_noun"
   | "common_word"

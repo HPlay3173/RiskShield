@@ -14,6 +14,7 @@ export type QualificationDisposition = "reject" | "monitor" | "review";
 export type ExpressionSemanticRole =
   | "harmful_expression"
   | "coded_expression"
+  | "deceptive_claim"
   | "target_entity"
   | "proper_noun"
   | "common_word"
@@ -77,7 +78,7 @@ export function isHardRejectedExpression(value: string) {
 }
 
 export function roleCanBecomeCandidate(role: ExpressionSemanticRole) {
-  return role === "harmful_expression" || role === "coded_expression";
+  return role === "harmful_expression" || role === "coded_expression" || role === "deceptive_claim";
 }
 
 export function searchVerificationGate(input: {

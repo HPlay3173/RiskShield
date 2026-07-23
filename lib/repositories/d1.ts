@@ -503,7 +503,7 @@ function parsedCandidate(row: CandidateRow): CandidateRecord | null {
 }
 
 const COLLECTOR_QUALITY_GATE_VERSION = "collector-semantic-search-v1";
-const REVIEWABLE_COLLECTOR_ROLES = new Set(["harmful_expression", "coded_expression"]);
+const REVIEWABLE_COLLECTOR_ROLES = new Set(["harmful_expression", "coded_expression", "deceptive_claim"]);
 
 export function visibleInDefaultCandidateInbox(candidate: CandidateRecord) {
   const collector = candidate.origin?.type === "collector" || candidate.reportType === "collector_discovery";

@@ -189,6 +189,10 @@
 .evidenceList span { color: var(--ink-600); font-size: 0.8rem; }
 .noveltyCard { border-style: dashed; }
 .noveltyCard button { margin-top: 0.5rem; }
+.feedbackExpressionField { display: grid; gap: 0.4rem; flex: 1 1 100%; min-width: min(100%, 18rem); }
+.feedbackExpressionField span { color: var(--text-muted); font-size: 0.82rem; font-weight: 700; }
+.feedbackExpressionField input { width: 100%; min-height: 2.8rem; border: 1px solid var(--line); border-radius: 0.8rem; background: var(--surface); color: var(--text); padding: 0.7rem 0.85rem; font: inherit; }
+.feedbackExpressionField input:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 28%, transparent); outline-offset: 2px; border-color: var(--brand); }
 .publicAnalyzerResultActions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .publicAnalyzerResultActions span { color: var(--ink-600); font-size: 0.82rem; }
 .publicAnalyzerResultGrid.profile-context .contextCard { order: -1; }
