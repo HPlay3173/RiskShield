@@ -4,11 +4,11 @@ import { protectedProductPage } from "../../lib/product-page";
 
 export default async function ManagePage() {
   const { presentation, repositories } = await protectedProductPage("/manage", "candidate:read");
-  const [candidates, skills, datasets, evaluations] = await Promise.all([
-    repositories.candidates.list(), repositories.skills.listAdmin({ limit: 100 }), repositories.datasets.list(), repositories.evaluation.listRuns(),
+  const [candidates, activeSkills, datasets, evaluations] = await Promise.all([
+    repositories.candidates.list(), repositories.skills.listReviewed(), repositories.datasets.list(), repositories.evaluation.listRuns(),
   ]);
   const pending = candidates.status === "ready" ? candidates.data.items.filter((item) => item.status === "pending").length : null;
-  const active = skills.status === "ready" ? skills.data.items.filter((item) => item.active === true || item.reviewStatus === "reviewed").length : null;
+  const active = activeSkills.status === "ready" ? activeSkills.data.length : null;
   const datasetCount = datasets.status === "ready" ? datasets.data.items.length : null;
   const latestEvaluation = evaluations.status === "ready" ? evaluations.data.items[0] : null;
   const nextHref = pending && pending > 0 ? "/manage/review" : datasetCount ? "/manage/training" : "/manage/materials";

@@ -142,7 +142,7 @@ export async function runDuePublicFeedbackIntakes(
     }
     try {
       await env.DB.prepare("UPDATE riskshield_public_feedback_intakes SET status = 'verifying', last_error = NULL, updated_at = ? WHERE id = ?").bind(now, row.id).run();
-      const verification = await verifyPublicFeedbackExpression({ expression: row.expression, contexts }, providers, AbortSignal.timeout(35_000));
+      const verification = await verifyPublicFeedbackExpression({ expression: row.expression, contexts }, providers, AbortSignal.timeout(60_000));
       if (verification.status === "promoted") {
         await savePromotedCandidate(env.DB, row, verification, now);
         return "promoted";

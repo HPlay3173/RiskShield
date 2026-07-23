@@ -125,6 +125,22 @@ function severityFloor(value: string) {
           : 60;
 }
 
+function compactExpression(value: string) {
+  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function contextRuleCoversExpression(
+  expression: string,
+  matches: ReturnType<typeof analyzeText>["matches"],
+) {
+  const normalizedExpression = compactExpression(expression);
+  if (!normalizedExpression) return false;
+  return matches.some((match) => match.hits.some((hit) => {
+    const normalizedHit = compactExpression(hit.text);
+    return normalizedHit.includes(normalizedExpression) || normalizedExpression.includes(normalizedHit);
+  }));
+}
+
 export async function POST(request: Request) {
   let db: D1Database;
   try {
@@ -193,7 +209,11 @@ export async function POST(request: Request) {
     const reviewedSkills = resolveActiveReviewedSkills(reviewedRows.results ?? []);
     const contextRuleResult = analyzeText(context, reviewedSkills);
     const existingExpressionResult = analyzeText(expression, reviewedSkills);
-    if (existingExpressionResult.matches.length > 0 && reportType !== "false_positive") {
+    if (
+      existingExpressionResult.matches.length > 0
+      && contextRuleCoversExpression(expression, contextRuleResult.matches)
+      && reportType !== "false_positive"
+    ) {
       return json({ error: "known_expression", message: "이미 검토된 규칙과 일치하는 문구는 신규 후보로 저장하지 않습니다." }, 409);
     }
 
@@ -266,7 +286,7 @@ export async function POST(request: Request) {
     const verification = await verifyPublicFeedbackExpression(
       { expression, contexts },
       { qualify: qualificationProvider.qualify.bind(qualificationProvider), verify: searchProvider.verify.bind(searchProvider) },
-      AbortSignal.timeout(35_000),
+      AbortSignal.timeout(60_000),
     );
     const qualificationJson = verification.qualification ? JSON.stringify(verification.qualification) : null;
     const searchJson = verification.searchVerification ? JSON.stringify(verification.searchVerification) : null;
@@ -354,7 +374,7 @@ export async function POST(request: Request) {
       await db.prepare(`UPDATE riskshield_public_feedback_intakes SET status = 'verification_error', last_error = ?,
         next_check_at = ?, updated_at = ? WHERE id = ?`).bind(code, nextCheckAt, new Date().toISOString(), id).run();
     } catch { /* preserve the original failure */ }
-    return json({ acknowledged: true, intakeStatus: "verification_error", reviewRequired: false,
+    return json({ acknowledged: true, intakeStatus: "verification_error", reviewRequired: false, retryAt: nextCheckAt,
       message: "신고는 접수했지만 자동 검증을 완료하지 못했습니다. 잠시 후 다시 확인합니다." }, 202);
   }
 }
