@@ -3,6 +3,7 @@ export type ObservationContextLabel =
   | "group_discrimination"
   | "threat"
   | "coded_reference"
+  | "deceptive_claim"
   | "quotation"
   | "warning"
   | "definition"

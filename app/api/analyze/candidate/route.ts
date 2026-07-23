@@ -10,8 +10,10 @@ import { analyzeText } from "../../../../lib/riskshield";
 import { GoogleCollectorQualificationProvider } from "../../../../lib/collectors/google-qualification-provider";
 import { GoogleCollectorSearchVerificationProvider } from "../../../../lib/collectors/google-search-verification-provider";
 import {
+  expressionAppearsInContext,
   normalizePublicFeedbackExpression,
   PUBLIC_FEEDBACK_GATE_VERSION,
+  verifiedContextTests,
   verifyPublicFeedbackExpression,
 } from "../../../../lib/public-feedback/intake";
 import type { ScorableRiskFamily } from "../../../../lib/risk-family";
@@ -163,6 +165,9 @@ export async function POST(request: Request) {
   if (!expression || expression.length > MAX_EXPRESSION_CHARS) {
     return json({ error: "invalid_expression", message: `놓친 표현을 ${MAX_EXPRESSION_CHARS}자 이하로 따로 입력해 주세요.` }, 400);
   }
+  if (reportType !== "false_positive" && !expressionAppearsInContext(expression, context)) {
+    return json({ error: "expression_not_found_in_context", message: "놓친 표현이 신고 문맥 안에 포함되어야 합니다." }, 400);
+  }
   const preparedContext = prepareInterpreterInput(context, MAX_CONTEXT_CHARS);
   const preparedExpression = prepareInterpreterInput(expression, MAX_EXPRESSION_CHARS);
   if (preparedContext.masked || preparedExpression.masked) {
@@ -185,8 +190,10 @@ export async function POST(request: Request) {
     const reviewedRows = await db.prepare(
       "SELECT id, review_status, payload FROM risk_skills WHERE review_status = 'reviewed' ORDER BY updated_at DESC",
     ).all<{ id: string; review_status: string; payload: string }>();
-    const existingRuleResult = analyzeText(context, resolveActiveReviewedSkills(reviewedRows.results ?? []));
-    if (existingRuleResult.matches.length > 0 && reportType !== "false_positive") {
+    const reviewedSkills = resolveActiveReviewedSkills(reviewedRows.results ?? []);
+    const contextRuleResult = analyzeText(context, reviewedSkills);
+    const existingExpressionResult = analyzeText(expression, reviewedSkills);
+    if (existingExpressionResult.matches.length > 0 && reportType !== "false_positive") {
       return json({ error: "known_expression", message: "이미 검토된 규칙과 일치하는 문구는 신규 후보로 저장하지 않습니다." }, 409);
     }
 
@@ -223,7 +230,7 @@ export async function POST(request: Request) {
     }
 
     if (reportType === "false_positive") {
-      const skillIds = [...new Set(existingRuleResult.matches.map((match) => match.skill.id))];
+      const skillIds = [...new Set(contextRuleResult.matches.map((match) => match.skill.id))];
       if (!skillIds.length) {
         await db.prepare("UPDATE riskshield_public_feedback_intakes SET status = 'rejected', last_error = 'no_detected_rule', updated_at = ? WHERE id = ?")
           .bind(now, id).run();
@@ -233,10 +240,11 @@ export async function POST(request: Request) {
       const evaluationCaseId = `evaluation_false_positive_${hash.slice(0, 24)}`;
       await db.batch([
         db.prepare(`INSERT INTO riskshield_rule_feedback_cases
-          (id, intake_id, text, skill_ids_json, expected_risk, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 0, 'pending_review', ?, ?)
-          ON CONFLICT(intake_id) DO UPDATE SET text = excluded.text, skill_ids_json = excluded.skill_ids_json, updated_at = excluded.updated_at`)
-          .bind(caseId, id, context, JSON.stringify(skillIds), now, now),
+          (id, intake_id, evaluation_case_id, text, skill_ids_json, expected_risk, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 0, 'pending_review', ?, ?)
+          ON CONFLICT(intake_id) DO UPDATE SET evaluation_case_id = excluded.evaluation_case_id,
+            text = excluded.text, skill_ids_json = excluded.skill_ids_json, updated_at = excluded.updated_at`)
+          .bind(caseId, id, evaluationCaseId, context, JSON.stringify(skillIds), now, now),
         db.prepare(`INSERT INTO riskshield_evaluation_cases
           (id, text, expected_risk, expected_family, context, enabled, created_at, updated_at)
           VALUES (?, ?, 0, NULL, 'public_false_positive', 0, ?, ?)
@@ -256,7 +264,7 @@ export async function POST(request: Request) {
     const searchProvider = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
     if (!qualificationProvider.configured || !searchProvider.configured) throw Object.assign(new Error("public_feedback_verification_not_configured"), { code: "verification_not_configured" });
     const verification = await verifyPublicFeedbackExpression(
-      { expression, context },
+      { expression, contexts },
       { qualify: qualificationProvider.qualify.bind(qualificationProvider), verify: searchProvider.verify.bind(searchProvider) },
       AbortSignal.timeout(35_000),
     );
@@ -275,6 +283,7 @@ export async function POST(request: Request) {
     const family = riskFamily(verification.searchVerification.riskFamily);
     const domain = riskDomain(verification.searchVerification.riskFamily);
     const candidateId = `public_verified_${hash.slice(0, 32)}`;
+    const verifiedTests = verifiedContextTests(contexts, verification.qualification);
     const payload: CandidateRecord & { consentPolicyVersion: string; retentionDeadline: string; submissionCount: number } = {
       id: candidateId,
       expression,
@@ -304,8 +313,8 @@ export async function POST(request: Request) {
       expressionGroup: [expression],
       contextSummary: verification.reason,
       evidence: contexts,
-      positiveTests: contexts,
-      negativeTests: [`“${expression}”라는 표현은 사용하지 마세요.`],
+      positiveTests: verifiedTests.positiveTests,
+      negativeTests: verifiedTests.negativeTests,
       draft: {
         title: `${expression} 표현 검토`, riskSummary: verification.reason, riskFamily: family, riskDomain: domain,
         matchMode: "atomic_lexeme", triggerPatterns: [expression], contextPatterns: [],

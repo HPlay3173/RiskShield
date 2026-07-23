@@ -3,6 +3,7 @@ import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } fr
 import handler from "vinext/server/app-router-entry";
 import { RESPONSE_SECURITY_HEADERS } from "../lib/security-headers";
 import { runDueCollectors } from "../lib/collectors/runner";
+import { runDuePublicFeedbackIntakes } from "../lib/public-feedback/runner";
 
 interface Env {
   ASSETS: Fetcher;
@@ -71,7 +72,10 @@ const worker = {
     return withSecurityHeaders(await handler.fetch(request, env, ctx));
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runDueCollectors(env));
+    ctx.waitUntil(Promise.all([
+      runDueCollectors(env),
+      runDuePublicFeedbackIntakes(env),
+    ]));
   },
 };
 

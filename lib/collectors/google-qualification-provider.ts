@@ -23,7 +23,7 @@ export type QualificationAssessment = {
 };
 
 type ProviderResponse = { candidates?: Array<{ content?: { parts?: Array<{ functionCall?: { name?: string; args?: unknown } }> } }> };
-const LABELS = new Set<ObservationContextLabel>(["direct_attack", "group_discrimination", "threat", "coded_reference", "quotation", "warning", "definition", "benign", "uncertain"]);
+const LABELS = new Set<ObservationContextLabel>(["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim", "quotation", "warning", "definition", "benign", "uncertain"]);
 const DISPOSITIONS = new Set<QualificationDisposition>(["reject", "monitor", "review"]);
 const FAMILIES = new Set<QualificationRiskFamily>(["hate_discrimination", "abusive_language", "coded_expression", "violent_threat", "deceptive_claim", "none"]);
 const ROLES = new Set<ExpressionSemanticRole>(["harmful_expression", "coded_expression", "deceptive_claim", "target_entity", "proper_noun", "common_word", "quantity_or_date", "reaction", "unknown"]);

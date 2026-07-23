@@ -426,7 +426,7 @@ async function persistAssessment(group: ExpressionGroup, assessment: Qualificati
 }
 
 function passesQualification(group: ExpressionGroup, assessment: QualificationAssessment) {
-  const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
+  const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim"].includes(item.label)).length;
   const contextual = group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).length;
   return qualificationGate({ observationCount: group.postIds.size, distinctAuthorCount: group.authorHashes.size, distinctSourceCount: group.providers.size, directEvidenceCount: direct, contextualEvidenceCount: contextual, confidence: assessment.confidence, disposition: assessment.disposition });
 }
@@ -540,7 +540,7 @@ async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; ass
 }
 
 function passesSearchVerification(group: ExpressionGroup, verification: SearchVerification) {
-  const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
+  const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim"].includes(item.label)).length;
   const strongLocalEvidence = direct >= 3 && group.authorHashes.size >= 3 && group.providers.size >= 2;
   return searchVerificationGate({
     decision: verification.decision,
@@ -561,7 +561,7 @@ async function draftExpressionGroups(groups: ExpressionGroup[], source: Collecto
     representativeExpression: group.expression,
     category: "community_expression_unclassified",
     nearestReviewedSkill: null,
-    positiveTest: group.evidence.find((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label))?.excerpt ?? group.expression,
+    positiveTest: group.evidence.find((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim"].includes(item.label))?.excerpt ?? group.expression,
     negativeTest: `“${group.expression}”이라는 표현은 사용하지 마세요.`,
   })));
   try {
@@ -591,7 +591,7 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
   const evidence = [...new Set([...previousEvidence, ...group.evidence.map((item) => item.excerpt)])].slice(-8);
   const sources = candidateSourcesFromEvidence(previousSources, group.evidence, now);
   const sourceCount = Math.min(10_000, Number(previous.sourceCount ?? 0) + group.postIds.size);
-  const directUseCount = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
+  const directUseCount = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim"].includes(item.label)).length;
   const contextualUseCount = group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).length;
   const payload = {
     ...previous,
@@ -615,7 +615,7 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     expressionGroup: [...new Set([...(Array.isArray(previous.expressionGroup) ? previous.expressionGroup.filter((value): value is string => typeof value === "string") : []), group.expression])].slice(0, 20),
     contextSummary: `최근 14일 공개 관찰 ${group.postIds.size}건·독립 작성자 ${group.authorHashes.size}명·수집처 ${group.sourceIds.size}곳을 합산했습니다. AI 의미 심사와 검색 검증을 통과했으며 사람 검토로 최종 확정해야 합니다.`,
     evidence,
-    positiveTests: group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).map((item) => item.excerpt).slice(0, 5),
+    positiveTests: group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim"].includes(item.label)).map((item) => item.excerpt).slice(0, 5),
     negativeTests: [...group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).map((item) => item.excerpt), `“${group.expression}”이라는 표현은 사용하지 마세요.`].slice(0, 5),
     redTeam: "자동 발견 후보입니다. 인용·비판·동음이의 문맥을 반드시 확인하세요.",
     modelConflict: null,

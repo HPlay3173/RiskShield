@@ -6,6 +6,7 @@ import { analyzeText } from "../riskshield";
 import { PRODUCT_VERSION, SOURCE_COMMIT } from "../release";
 import { aggregateDocumentScore, scoreClaim, segmentClaims } from "../v0-5/document-scoring";
 import { fitIsotonicCalibration, measureScores, type LabeledScore } from "./calibration";
+import { evaluationEnabledForRuleFeedback } from "./rule-feedback";
 
 export async function handleEvaluationMutation(request: Request) {
   const denied = await requireApiCapability(request, "evaluation:run");
@@ -28,6 +29,27 @@ export async function handleEvaluationMutation(request: Request) {
     await db.prepare(`INSERT INTO riskshield_evaluation_cases (id, text, expected_risk, expected_family, context, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
       .bind(id, text, expectedRisk ? 1 : 0, expectedFamily, context, now, now).run();
     return controlJson({ acknowledged: true, id });
+  }
+  if (action === "review_false_positive") {
+    const id = typeof body?.id === "string" ? body.id : "";
+    const decision = body?.decision === "approve" || body?.decision === "reject" ? body.decision : null;
+    if (!id || !decision) return controlJson({ error: "invalid_rule_feedback_decision" }, 400);
+    const feedback = await db.prepare(`SELECT id, evaluation_case_id, status FROM riskshield_rule_feedback_cases WHERE id = ? LIMIT 1`)
+      .bind(id).first<{ id: string; evaluation_case_id: string | null; status: string }>();
+    if (!feedback) return controlJson({ error: "rule_feedback_not_found" }, 404);
+    if (feedback.status !== "pending_review") return controlJson({ error: "rule_feedback_already_decided" }, 409);
+    const now = new Date().toISOString();
+    const status = decision === "approve" ? "accepted" : "rejected";
+    const statements = [
+      db.prepare("UPDATE riskshield_rule_feedback_cases SET status = ?, updated_at = ? WHERE id = ? AND status = 'pending_review'")
+        .bind(status, now, id),
+    ];
+    if (feedback.evaluation_case_id) {
+      statements.push(db.prepare("UPDATE riskshield_evaluation_cases SET enabled = ?, updated_at = ? WHERE id = ?")
+        .bind(evaluationEnabledForRuleFeedback(decision), now, feedback.evaluation_case_id));
+    }
+    await db.batch(statements);
+    return controlJson({ acknowledged: true, id, status, evaluationEnabled: decision === "approve" });
   }
   if (action !== "run") return controlJson({ error: "unsupported_evaluation_action" }, 400);
   const [caseRows, skillRows] = await Promise.all([

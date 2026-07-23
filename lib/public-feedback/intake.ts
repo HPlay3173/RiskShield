@@ -19,6 +19,30 @@ export function normalizePublicFeedbackExpression(value: string) {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/\s+/gu, " ").trim();
 }
 
+export function compactPublicFeedbackText(value: string) {
+  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+export function expressionAppearsInContext(expression: string, context: string) {
+  const needle = compactPublicFeedbackText(expression);
+  return Boolean(needle) && compactPublicFeedbackText(context).includes(needle);
+}
+
+const POSITIVE_LABELS = new Set(["direct_attack", "group_discrimination", "threat", "coded_reference", "deceptive_claim"]);
+const NEGATIVE_LABELS = new Set(["quotation", "warning", "definition", "benign"]);
+
+export function verifiedContextTests(contexts: readonly string[], qualification: QualificationAssessment) {
+  const labels = new Map(qualification.evidenceLabels.map((item) => [item.id, item.label]));
+  const positiveTests: string[] = [];
+  const negativeTests: string[] = [];
+  contexts.forEach((context, index) => {
+    const label = labels.get(`public-feedback-context-${index + 1}`);
+    if (label && POSITIVE_LABELS.has(label)) positiveTests.push(context);
+    else if (label && NEGATIVE_LABELS.has(label)) negativeTests.push(context);
+  });
+  return { positiveTests, negativeTests };
+}
+
 export function publicFeedbackSearchPassed(verification: SearchVerification) {
   return searchVerificationGate({
     decision: verification.decision,
@@ -31,7 +55,7 @@ export function publicFeedbackSearchPassed(verification: SearchVerification) {
 }
 
 export async function verifyPublicFeedbackExpression(
-  input: { expression: string; context: string },
+  input: { expression: string; contexts: string[] },
   providers: PublicFeedbackVerificationProviders,
   signal: AbortSignal,
 ): Promise<PublicFeedbackVerification> {
@@ -40,7 +64,7 @@ export async function verifyPublicFeedbackExpression(
     return { status: "rejected", qualification: null, searchVerification: null, reason: "명백한 일반어·수량·날짜·반응 표현은 후보로 만들지 않습니다." };
   }
 
-  const evidence = [{ id: "public-feedback-context", excerpt: input.context }];
+  const evidence = input.contexts.slice(0, 5).map((excerpt, index) => ({ id: `public-feedback-context-${index + 1}`, excerpt }));
   const assessments = await providers.qualify([{ expression: input.expression, normalized, evidence }], signal);
   const qualification = assessments.find((item) => item.normalized === normalized);
   if (!qualification) throw Object.assign(new Error("public_feedback_qualification_contract_failed"), { code: "qualification_contract_failed" });
