@@ -305,6 +305,26 @@ export function SkillLibrary({
     }
   }
 
+  async function confirmAutomaticSkillReview() {
+    if (!selectedSkill || !selectedSkill.active || !selectedSkill.automaticallyVerified || !selectedSkill.humanReviewPending || activationState.state === "submitting") return;
+    setActivationState({ state: "submitting", skillId: selectedSkill.id });
+    try {
+      const response = await fetch(sameOriginEndpoint(activationEndpoint), {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken },
+        body: JSON.stringify({ skillId: selectedSkill.id }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(isRecord(payload) && typeof payload.message === "string" ? payload.message : "사람 검토를 완료하지 못했습니다.");
+      setActivationState({ state: "success", skillId: selectedSkill.id, message: isRecord(payload) && typeof payload.message === "string" ? payload.message : "사람 검토를 완료했습니다." });
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      setActivationState({ state: "error", skillId: selectedSkill.id, message: error instanceof Error ? error.message : "사람 검토를 완료하지 못했습니다." });
+    }
+  }
+
   return (
     <section className="skillLibrary" aria-label="위험 표현 데이터베이스">
       <div className="skillLibraryHeading">
@@ -312,8 +332,8 @@ export function SkillLibrary({
           label="위험 표현 규칙 요약"
           metrics={[
             { key: "total", label: "전체", value: skills.length, numeric: true },
-            { key: "reviewed", label: "검토 완료", value: skills.filter((skill) => skill.reviewStatus === "reviewed").length, numeric: true },
-            { key: "draft", label: "초안", value: skills.filter((skill) => skill.reviewStatus === "draft").length, numeric: true },
+            { key: "reviewed", label: "사람 검토 완료", value: skills.filter((skill) => skill.reviewStatus === "reviewed" && !skill.humanReviewPending).length, numeric: true },
+            { key: "auto-pending", label: "자동 확인 대기", value: skills.filter((skill) => skill.active && skill.automaticallyVerified && skill.humanReviewPending).length, numeric: true },
             { key: "active", label: "활성", value: skills.filter((skill) => skill.active).length, numeric: true },
           ]}
         />
@@ -387,7 +407,7 @@ export function SkillLibrary({
                   >
                     <span className="skillLibraryListTopline">
                       <strong>{skill.name}</strong>
-                      <small>{skill.automaticallyVerified ? "자동 검증" : reviewStatusLabels[skill.reviewStatus]}</small>
+                      <small>{skill.automaticallyVerified ? skill.humanReviewPending ? "자동 검증 · 확인 대기" : "자동 검증 · 사람 확인 완료" : reviewStatusLabels[skill.reviewStatus]}</small>
                     </span>
                     <span>{skill.category}{skill.subcategory ? ` · ${skill.subcategory}` : ""}</span>
                     <span>점수 {displayNumber(skill.score)} · 출처 {displayNumber(skill.sourceCount)} · revision {skill.revision}</span>
@@ -405,7 +425,9 @@ export function SkillLibrary({
                   <h2 id={`skill-${selectedSkill.id}-title`}>{selectedSkill.name}</h2>
                 </div>
                 <span className={`skillStatus skillStatus-${selectedSkill.reviewStatus}`}>
-                  {reviewStatusLabels[selectedSkill.reviewStatus]}
+                  {selectedSkill.automaticallyVerified && selectedSkill.humanReviewPending
+                    ? "자동 검증 · 사람 확인 대기"
+                    : reviewStatusLabels[selectedSkill.reviewStatus]}
                 </span>
               </header>
               <ProductDefinitionList
@@ -428,10 +450,17 @@ export function SkillLibrary({
               {selectedSkill.active && selectedSkill.automaticallyVerified ? (
                 <section className="skillRevisionForm" aria-labelledby="auto-rule-control-title">
                   <h3 id="auto-rule-control-title">자동 검증 규칙</h3>
-                  <p>LLM·검색 근거와 회귀 검사를 통과해 제한적으로 활성화된 규칙입니다. 사람 검토 전에는 우세 위험 규칙으로 사용하지 않습니다.</p>
-                  <Pressable className="skillRevisionSubmit" disabled={activationState.state === "submitting"} onClick={() => void deactivateAutomaticSkill()}>
-                    {activationState.state === "submitting" ? "비활성화 중…" : "자동 규칙 비활성화"}
-                  </Pressable>
+                  <p>{selectedSkill.humanReviewPending
+                    ? "LLM·검색 근거와 회귀 검사를 통과해 제한적으로 활성화된 규칙입니다. 근거와 반례를 확인한 뒤 사람 검토를 완료하거나 즉시 비활성화하세요."
+                    : "자동 검증 후 관리자가 근거와 회귀 사례를 다시 확인한 활성 규칙입니다."}</p>
+                  <div className="inlineActions">
+                    {selectedSkill.humanReviewPending ? <Pressable className="skillRevisionSubmit" disabled={activationState.state === "submitting"} onClick={() => void confirmAutomaticSkillReview()}>
+                      {activationState.state === "submitting" ? "처리 중…" : "회귀 테스트 후 사람 검토 완료"}
+                    </Pressable> : null}
+                    <Pressable className="skillRevisionSubmit" disabled={activationState.state === "submitting"} onClick={() => void deactivateAutomaticSkill()}>
+                      {activationState.state === "submitting" ? "처리 중…" : "자동 규칙 비활성화"}
+                    </Pressable>
+                  </div>
                   {activationState.skillId === selectedSkill.id && activationState.message ? <p className="serverAcknowledgement" data-status={activationState.state === "error" ? "error" : "success"}>{activationState.message}</p> : null}
                 </section>
               ) : null}

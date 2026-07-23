@@ -169,13 +169,17 @@ export function PublicAnalyzer() {
     setFeedbackMessage("");
     try {
       const response = await fetch("/api/analyze/candidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ consent: true, text: lastText, expression: feedbackExpression.trim(), reportType }), cache: "no-store" });
-      const payload = await response.json() as { intakeStatus?: string; message?: string };
+      const payload = await response.json() as { intakeStatus?: string; message?: string; autoActivated?: boolean; reviewRequired?: boolean };
       if (!response.ok && response.status !== 409) throw new Error("candidate_failed");
       setCandidateState("submitted");
       setFeedbackMessage(payload.intakeStatus === "promoted"
         ? reportType === "false_positive"
           ? "오탐 신고가 기존 규칙의 음성 회귀 사례로 접수되었습니다."
-          : "자동 의미·검색 검증을 통과해 관리자 검토함으로 전달되었습니다."
+          : payload.autoActivated
+            ? "고신뢰 자동 검증과 회귀 검사를 통과해 제한적 분석 규칙으로 반영되었습니다. 관리 화면에서 사람이 다시 확인할 수 있습니다."
+            : payload.reviewRequired
+              ? "자동 의미·검색 검증을 통과해 관리자 검토함으로 전달되었습니다."
+              : "이미 자동 검증과 관리자 처리를 마친 신고입니다. 결과는 품질 개선 기록에 보존됩니다."
         : payload.intakeStatus === "rejected"
           ? "자동 확인 결과 새 위험 표현 후보로 만들지 않았습니다. 신고 기록은 품질 개선에 보존됩니다."
           : payload.message ?? "신고가 접수되었습니다. 의미와 실제 사용 사례를 자동으로 확인한 뒤, 근거가 충분한 경우에만 관리자 검토함으로 전달됩니다.");

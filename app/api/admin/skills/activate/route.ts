@@ -29,7 +29,6 @@ export async function POST(request: Request) {
   const row = await db.prepare("SELECT review_status, payload FROM risk_skills WHERE id = ? LIMIT 1")
     .bind(skillId).first<{ review_status: string; payload: string }>();
   if (!row) return controlJson({ error: "skill_not_found", message: "스킬을 찾을 수 없습니다." }, 404);
-  if (row.review_status === "reviewed") return controlJson({ acknowledged: true, skillId, alreadyActive: true, message: "이미 분석 규칙으로 활성화되어 있습니다." });
 
   let draft: RiskSkill;
   try {
@@ -38,6 +37,58 @@ export async function POST(request: Request) {
     return controlJson({ error: "invalid_skill_payload", message: "스킬 payload를 읽을 수 없습니다." }, 409);
   }
   const now = new Date().toISOString();
+  if (row.review_status === "reviewed") {
+    const tags = draft.recentContextTags ?? [];
+    const isPendingAutomaticReview = tags.includes("auto_verified") && tags.includes("human_review_pending");
+    if (!isPendingAutomaticReview) {
+      return controlJson({ acknowledged: true, skillId, alreadyActive: true, message: "이미 분석 규칙으로 활성화되어 있습니다." });
+    }
+
+    const issues = validateManagedSkill(draft);
+    if (issues.length) return controlJson({ error: "skill_validation_failed", message: issues[0], issues }, 409);
+    const activeSkillsResult = await new D1SkillRepository(db).listReviewed();
+    if (activeSkillsResult.status !== "ready") {
+      return controlJson({ error: "active_skills_unavailable", message: "기존 활성 규칙을 불러오지 못해 사람 검토 완료 처리를 중단했습니다." }, 503);
+    }
+    const regression = runSkillActivationRegression(draft, activeSkillsResult.data);
+    if (!regression.passed) {
+      return controlJson({
+        error: "skill_regression_failed",
+        message: `회귀 테스트 ${regression.passedCount}/${regression.totalCount}개만 통과해 사람 검토를 완료하지 않았습니다.`,
+        checks: regression.checks,
+        evaluatedSkillCount: regression.evaluatedSkillCount,
+      }, 409);
+    }
+
+    const confirmed: RiskSkill = {
+      ...draft,
+      updatedAt: now,
+      recentContextTags: [...new Set([
+        ...tags.filter((tag) => tag !== "human_review_pending" && tag !== "human_review_required"),
+        "human_reviewed",
+      ])],
+    };
+    const result = await db.prepare(`UPDATE risk_skills SET payload = ?, updated_at = ?
+      WHERE id = ? AND review_status = 'reviewed'`)
+      .bind(JSON.stringify(confirmed), now, skillId).run();
+    if (!result.meta.changes) return controlJson({ error: "skill_review_conflict", message: "다른 변경과 충돌해 사람 검토를 완료하지 못했습니다." }, 409);
+
+    await db.prepare(`INSERT INTO riskshield_audit_logs
+      (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
+      VALUES (?, ?, ?, 'skill.auto_review_confirm', 'skill', ?, 'succeeded', ?, ?, ?)`)
+      .bind(crypto.randomUUID(), now, principal.userId, skillId, JSON.stringify(draft), JSON.stringify(confirmed), `회귀 테스트 ${regression.passedCount}/${regression.totalCount} 재확인 후 사람 검토 완료`).run();
+
+    return controlJson({
+      acknowledged: true,
+      skillId,
+      alreadyActive: true,
+      humanReviewConfirmed: true,
+      checks: regression.checks,
+      evaluatedSkillCount: regression.evaluatedSkillCount,
+      message: `회귀 테스트 ${regression.passedCount}/${regression.totalCount}개를 다시 확인하고 사람 검토를 완료했습니다.`,
+    });
+  }
+
   const reviewed: RiskSkill = { ...draft, reviewStatus: "reviewed", updatedAt: now };
   const issues = validateManagedSkill(reviewed);
   if (issues.length) return controlJson({ error: "skill_validation_failed", message: issues[0], issues }, 409);

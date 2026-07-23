@@ -212,7 +212,22 @@ export async function POST(request: Request) {
         submissionCount, retentionDeadline, now, now).run();
 
     if (existing?.status === "promoted") {
-      return json({ acknowledged: true, intakeStatus: "promoted", candidateId: existing.candidate_id, ruleFeedbackCaseId: existing.rule_feedback_case_id, reviewRequired: true });
+      const autoSkillId = id.replace(/^public_intake_/u, "risk_auto_verified_");
+      const autoSkill = reportType === "false_positive" ? null : await db.prepare(
+        "SELECT id FROM risk_skills WHERE id = ? AND review_status = 'reviewed' LIMIT 1",
+      ).bind(autoSkillId).first<{ id: string }>();
+      const candidate = existing.candidate_id ? await db.prepare(
+        "SELECT status FROM riskshield_candidates WHERE id = ? LIMIT 1",
+      ).bind(existing.candidate_id).first<{ status: string }>() : null;
+      const reviewRequired = !autoSkill && (candidate?.status === "pending" || candidate?.status === "held");
+      return json({
+        acknowledged: true,
+        intakeStatus: "promoted",
+        candidateId: existing.candidate_id,
+        ruleFeedbackCaseId: existing.rule_feedback_case_id,
+        reviewRequired,
+        autoActivated: Boolean(autoSkill),
+      });
     }
     if ((existing?.status === "monitor" || existing?.status === "rejected" || existing?.status === "verification_error")
       && existing.next_check_at && Date.parse(existing.next_check_at) > Date.now()) {

@@ -239,6 +239,7 @@
 
 .reviewInbox, .skillLibrary, .datasetConsole, .trainingConsole { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .reviewInboxHeading, .skillLibraryHeading, .datasetConsoleHeader, .trainingConsoleHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.skillLibraryHeading .productMetricGrid { flex: 1; }
 .reviewInboxHeading h2, .skillLibraryHeading h2, .datasetConsoleHeader h2, .trainingConsoleHeader h2 { margin-bottom: 0.25rem; }
 .reviewInboxHeading p, .skillLibraryHeading p, .datasetConsoleHeader p, .trainingConsoleHeader p { margin-bottom: 0; color: var(--ink-600); }
 .reviewInboxFilters, .skillLibraryFilters { display: grid; grid-template-columns: repeat(4, minmax(8rem, 1fr)); gap: 0.65rem; padding: 0.75rem; background: rgb(255 255 255 / 0.82); border: 1px solid var(--line); border-radius: var(--radius-md); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
