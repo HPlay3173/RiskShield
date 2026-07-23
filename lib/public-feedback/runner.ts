@@ -64,10 +64,25 @@ function severityOf(value: string) {
 const AUTO_RULE_MIN_CONFIDENCE = 0.95;
 const AUTO_RULE_ROLES = new Set(["harmful_expression", "coded_expression"]);
 
+function independentSearchDomainCount(
+  sources: readonly { uri: string }[],
+) {
+  return new Set(sources.flatMap((source) => {
+    try {
+      return [new URL(source.uri).hostname.toLocaleLowerCase("en-US").replace(/^www\./u, "")];
+    } catch {
+      return [];
+    }
+  })).size;
+}
+
 function canAutoActivateRule(
   verification: Extract<Awaited<ReturnType<typeof verifyPublicFeedbackExpression>>, { status: "promoted" }>,
   positiveTestCount: number,
+  distinctReporterCount: number,
 ) {
+  const hasIndependentSupport = distinctReporterCount >= 2
+    || independentSearchDomainCount(verification.searchVerification.sources) >= 3;
   return verification.qualification.disposition === "review"
     && AUTO_RULE_ROLES.has(verification.qualification.role)
     && verification.qualification.confidence >= AUTO_RULE_MIN_CONFIDENCE
@@ -75,7 +90,7 @@ function canAutoActivateRule(
     && AUTO_RULE_ROLES.has(verification.searchVerification.role)
     && verification.searchVerification.confidence >= AUTO_RULE_MIN_CONFIDENCE
     && verification.searchVerification.directUseSupported
-    && verification.searchVerification.sources.length >= 2
+    && hasIndependentSupport
     && positiveTestCount > 0;
 }
 
@@ -123,11 +138,11 @@ function autoVerifiedSkill(
     legalOrEthicIssue: "직접 비하·모욕 또는 숨은 혐오 표현으로 사용될 수 있습니다.",
     riskReason: verification.reason,
     severityFloor: severityOf(verification.searchVerification.riskFamily),
-    dominantRisk: true,
+    dominantRisk: false,
     confidence: Math.min(verification.qualification.confidence, verification.searchVerification.confidence),
     riskFamily: family,
     riskDomain: domainOf(verification.searchVerification.riskFamily),
-    recentContextTags: ["public_feedback", "auto_verified", verification.searchVerification.role],
+    recentContextTags: ["public_feedback", "auto_verified", "human_review_pending", verification.searchVerification.role],
     safeRewrite: ["비하·공격 표현 대신 대상과 상황을 사실 중심으로 구체적으로 설명해 주세요."],
     falsePositiveNote: "인용·비판·교육·사용 금지 문맥은 별도로 억제합니다.",
     notes: `공개 누락 신고 ${row.id}가 고신뢰 자동 검증 기준을 통과해 활성화되었습니다.`,
@@ -177,7 +192,7 @@ async function autoActivationStatements(db: D1Database, skill: RiskSkill, now: s
 
 async function savePromotedCandidate(db: D1Database, row: DueIntake, verification: Extract<Awaited<ReturnType<typeof verifyPublicFeedbackExpression>>, { status: "promoted" }>, now: string) {
   const contexts = jsonStrings(row.contexts_json).filter((context) => expressionAppearsInContext(row.expression, context)).slice(-5);
-  const reporters = jsonStrings(row.reporter_fingerprints_json);
+  const reporters = [...new Set(jsonStrings(row.reporter_fingerprints_json))];
   const tests = verifiedContextTests(contexts, verification.qualification);
   const family = familyOf(verification.searchVerification.riskFamily);
   const domain = domainOf(verification.searchVerification.riskFamily);
@@ -185,7 +200,7 @@ async function savePromotedCandidate(db: D1Database, row: DueIntake, verificatio
   const activeSkillsResult = await new D1SkillRepository(db).listReviewed();
   const expressionAlreadyActive = activeSkillsResult.status === "ready"
     && analyzeText(row.expression, [...activeSkillsResult.data]).matches.length > 0;
-  const proposedAutoSkill = canAutoActivateRule(verification, tests.positiveTests.length)
+  const proposedAutoSkill = canAutoActivateRule(verification, tests.positiveTests.length, reporters.length)
     && activeSkillsResult.status === "ready"
     && !expressionAlreadyActive
     ? autoVerifiedSkill(row, verification, tests.positiveTests, tests.negativeTests, now)

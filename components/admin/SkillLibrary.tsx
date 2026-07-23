@@ -32,6 +32,8 @@ export type SkillLibraryItem = {
   revision: number;
   updatedAt: string;
   active: boolean;
+  automaticallyVerified: boolean;
+  humanReviewPending: boolean;
   payload: SerializableJson;
   regressionTests: SkillRegressionCase[];
 };
@@ -40,6 +42,7 @@ export type SkillLibraryProps = {
   skills: SkillLibraryItem[];
   revisionEndpoint: string;
   activationEndpoint: string;
+  deactivationEndpoint: string;
   csrfToken: string;
   initialSkillId?: string;
   developmentFixture?: boolean;
@@ -150,6 +153,7 @@ export function SkillLibrary({
   skills,
   revisionEndpoint,
   activationEndpoint,
+  deactivationEndpoint,
   csrfToken,
   initialSkillId,
   developmentFixture = false,
@@ -281,6 +285,26 @@ export function SkillLibrary({
     }
   }
 
+  async function deactivateAutomaticSkill() {
+    if (!selectedSkill || !selectedSkill.active || !selectedSkill.automaticallyVerified || activationState.state === "submitting") return;
+    setActivationState({ state: "submitting", skillId: selectedSkill.id });
+    try {
+      const response = await fetch(sameOriginEndpoint(deactivationEndpoint), {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken },
+        body: JSON.stringify({ skillId: selectedSkill.id }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(isRecord(payload) && typeof payload.message === "string" ? payload.message : "자동 규칙을 비활성화하지 못했습니다.");
+      setActivationState({ state: "success", skillId: selectedSkill.id, message: isRecord(payload) && typeof payload.message === "string" ? payload.message : "자동 규칙을 비활성화했습니다." });
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      setActivationState({ state: "error", skillId: selectedSkill.id, message: error instanceof Error ? error.message : "자동 규칙을 비활성화하지 못했습니다." });
+    }
+  }
+
   return (
     <section className="skillLibrary" aria-label="위험 표현 데이터베이스">
       <div className="skillLibraryHeading">
@@ -363,7 +387,7 @@ export function SkillLibrary({
                   >
                     <span className="skillLibraryListTopline">
                       <strong>{skill.name}</strong>
-                      <small>{reviewStatusLabels[skill.reviewStatus]}</small>
+                      <small>{skill.automaticallyVerified ? "자동 검증" : reviewStatusLabels[skill.reviewStatus]}</small>
                     </span>
                     <span>{skill.category}{skill.subcategory ? ` · ${skill.subcategory}` : ""}</span>
                     <span>점수 {displayNumber(skill.score)} · 출처 {displayNumber(skill.sourceCount)} · revision {skill.revision}</span>
@@ -394,8 +418,23 @@ export function SkillLibrary({
                   { key: "revision", term: "Revision", description: selectedSkill.revision },
                   { key: "updated", term: "수정 시각", description: displayDate(selectedSkill.updatedAt) },
                   { key: "active", term: "활성 여부", description: selectedSkill.active ? "활성" : "비활성" },
+                  ...(selectedSkill.automaticallyVerified ? [
+                    { key: "activation-origin", term: "활성화 방식", description: "고신뢰 자동 검증" },
+                    { key: "human-review", term: "사람 검토", description: selectedSkill.humanReviewPending ? "미실시 · 확인 필요" : "완료" },
+                  ] : []),
                 ]}
               />
+
+              {selectedSkill.active && selectedSkill.automaticallyVerified ? (
+                <section className="skillRevisionForm" aria-labelledby="auto-rule-control-title">
+                  <h3 id="auto-rule-control-title">자동 검증 규칙</h3>
+                  <p>LLM·검색 근거와 회귀 검사를 통과해 제한적으로 활성화된 규칙입니다. 사람 검토 전에는 우세 위험 규칙으로 사용하지 않습니다.</p>
+                  <Pressable className="skillRevisionSubmit" disabled={activationState.state === "submitting"} onClick={() => void deactivateAutomaticSkill()}>
+                    {activationState.state === "submitting" ? "비활성화 중…" : "자동 규칙 비활성화"}
+                  </Pressable>
+                  {activationState.skillId === selectedSkill.id && activationState.message ? <p className="serverAcknowledgement" data-status={activationState.state === "error" ? "error" : "success"}>{activationState.message}</p> : null}
+                </section>
+              ) : null}
 
               <details className="technicalDetails">
                 <summary><span><strong>기술 payload</strong><small>규칙 원본 JSON을 확인합니다.</small></span><b>열기</b></summary>

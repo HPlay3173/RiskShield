@@ -18,6 +18,8 @@ function skillView(record: SkillAdminRecord, activeIds: ReadonlySet<string>): Sk
     revision: record.payload.revision,
     updatedAt: record.updatedAt,
     active: activeIds.has(record.id),
+    automaticallyVerified: record.payload.recentContextTags?.includes("auto_verified") ?? false,
+    humanReviewPending: record.payload.recentContextTags?.includes("human_review_pending") ?? false,
     payload: record.payload as unknown as SerializableJson,
     regressionTests: (record.payload.regressionTests ?? []).map((regressionCase) => ({
       ...regressionCase,
@@ -40,6 +42,8 @@ function activeSkillView(skill: RiskSkill): SkillLibraryItem {
     revision: skill.revision,
     updatedAt: skill.updatedAt,
     active: true,
+    automaticallyVerified: skill.recentContextTags?.includes("auto_verified") ?? false,
+    humanReviewPending: skill.recentContextTags?.includes("human_review_pending") ?? false,
     payload: skill as unknown as SerializableJson,
     regressionTests: (skill.regressionTests ?? []).map((regressionCase) => ({
       ...regressionCase,
@@ -76,6 +80,7 @@ export async function renderAdminSkillsPage(returnTo = "/admin/skills") {
         skills={skills}
         revisionEndpoint="/api/manage/skills/revisions"
         activationEndpoint="/api/manage/skills/activate"
+        deactivationEndpoint="/api/manage/skills/deactivate"
         csrfToken={principal.csrfToken}
         developmentFixture={result.fixture}
         degradedMessage={invalidCount ? `검증할 수 없는 payload ${invalidCount}건은 상세 목록에서 제외했습니다.` : result.fixture ? "개발 데이터입니다. production D1을 변경하지 않습니다." : null}
