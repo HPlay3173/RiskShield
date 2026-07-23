@@ -69,11 +69,7 @@ const worker = {
       return withSecurityHeaders(response);
     }
 
-    const response = withSecurityHeaders(await handler.fetch(request, env, ctx));
-    if (request.method === "POST" && url.pathname === "/api/analyze/candidate" && response.status === 202) {
-      ctx.waitUntil(runDuePublicFeedbackIntakes(env));
-    }
-    return response;
+    return withSecurityHeaders(await handler.fetch(request, env, ctx));
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(Promise.all([

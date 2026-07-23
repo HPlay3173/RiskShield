@@ -122,14 +122,16 @@ export async function runDuePublicFeedbackIntakes(
   overrides?: PublicFeedbackVerificationProviders,
 ): Promise<PublicFeedbackRetryResult> {
   const now = new Date().toISOString();
+  const staleVerificationBefore = new Date(Date.parse(now) - 10 * 60_000).toISOString();
   const due = await env.DB.prepare(`SELECT id, expression, report_type, contexts_json, reporter_fingerprints_json,
     submission_count, retention_deadline FROM riskshield_public_feedback_intakes
     WHERE report_type IN ('missed_detection', 'new_expression')
-      AND status IN ('received', 'monitor', 'verification_error')
-      AND (next_check_at IS NULL OR next_check_at <= ?)
+      AND ((status IN ('received', 'monitor', 'verification_error')
+        AND (next_check_at IS NULL OR next_check_at <= ?))
+        OR (status = 'verifying' AND updated_at <= ?))
     ORDER BY CASE WHEN status = 'received' THEN 0 ELSE 1 END ASC,
       CASE WHEN status = 'received' THEN updated_at END DESC,
-      updated_at ASC LIMIT 3`).bind(now).all<DueIntake>();
+      updated_at ASC LIMIT 3`).bind(now, staleVerificationBefore).all<DueIntake>();
   const qualification = new GoogleCollectorQualificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const search = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const providers = overrides ?? {
