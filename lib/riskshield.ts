@@ -655,7 +655,7 @@ export const starterSkills: RiskSkill[] = [
     patternType: "ilbe + community_slang",
     matchMode: "atomic_lexeme",
     riskFamily: "coded_expression",
-    triggerPatterns: ["운지", "노알라", "일베충", "홍어", "느개미", "느금마", "느금"],
+    triggerPatterns: ["운지", "노알라", "일베충", "홍어", "느개미", "느금마", "느금", "피싸개", "보릉내", "보댕이"],
     contextPatterns: [],
     exclusionPatterns: ["용어의 뜻", "혐오 표현", "사용하지 마세요", "문제되는 은어", "사전적 의미"],
     surfaceMeaning: "특정 커뮤니티에서 조롱이나 혐오 의미로 쓰이는 코드 표현을 사용합니다.",
