@@ -4,19 +4,12 @@ import {
   JSON_BODY_TOO_LARGE,
   readJsonValue,
 } from "../../../../lib/http/control-response";
-import type { CandidateRecord } from "../../../../lib/repositories/contracts";
 import { resolveActiveReviewedSkills } from "../../../../lib/active-skills";
 import { analyzeText } from "../../../../lib/riskshield";
-import { GoogleCollectorQualificationProvider } from "../../../../lib/collectors/google-qualification-provider";
-import { GoogleCollectorSearchVerificationProvider } from "../../../../lib/collectors/google-search-verification-provider";
 import {
   expressionAppearsInContext,
   normalizePublicFeedbackExpression,
-  PUBLIC_FEEDBACK_GATE_VERSION,
-  verifiedContextTests,
-  verifyPublicFeedbackExpression,
 } from "../../../../lib/public-feedback/intake";
-import type { ScorableRiskFamily } from "../../../../lib/risk-family";
 
 const MAX_REQUEST_BYTES = 8 * 1024;
 const MAX_EXPRESSION_CHARS = 80;
@@ -25,7 +18,6 @@ const WINDOW_MS = 60 * 60 * 1_000;
 const SUBMISSION_LIMIT = 5;
 const DAILY_SUBMISSION_LIMIT = 20;
 
-const CONSENT_POLICY_VERSION = "public-candidate-2026-07-21";
 const RETENTION_DAYS = 30;
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
@@ -101,28 +93,6 @@ function stringArray(value: string | null | undefined) {
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch { return []; }
-}
-
-function riskFamily(value: string): ScorableRiskFamily {
-  return value === "hate_discrimination" || value === "abusive_language" || value === "coded_expression" || value === "violent_threat"
-    ? value
-    : "general_substantiation";
-}
-
-function riskDomain(value: string) {
-  return value === "hate_discrimination" ? "혐오·차별 표현"
-    : value === "abusive_language" ? "욕설·공격 표현"
-      : value === "coded_expression" ? "숨은 은어·코드 표현"
-        : value === "violent_threat" ? "폭력·위협 표현"
-          : "과장·기만 표현";
-}
-
-function severityFloor(value: string) {
-  return value === "violent_threat" ? 80
-    : value === "hate_discrimination" ? 75
-      : value === "abusive_language" ? 68
-        : value === "coded_expression" ? 65
-          : 60;
 }
 
 function compactExpression(value: string) {
@@ -277,104 +247,17 @@ export async function POST(request: Request) {
       return json({ acknowledged: true, intakeStatus: "promoted", ruleFeedbackCaseId: caseId, reviewRequired: true, feedbackKind: "negative_regression" });
     }
 
-    await db.prepare("UPDATE riskshield_public_feedback_intakes SET status = 'verifying', last_error = NULL, updated_at = ? WHERE id = ?")
-      .bind(now, id).run();
-    const { env } = await import("cloudflare:workers");
-    const qualificationProvider = new GoogleCollectorQualificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
-    const searchProvider = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
-    if (!qualificationProvider.configured || !searchProvider.configured) throw Object.assign(new Error("public_feedback_verification_not_configured"), { code: "verification_not_configured" });
-    const verification = await verifyPublicFeedbackExpression(
-      { expression, contexts },
-      { qualify: qualificationProvider.qualify.bind(qualificationProvider), verify: searchProvider.verify.bind(searchProvider) },
-      AbortSignal.timeout(60_000),
-    );
-    const qualificationJson = verification.qualification ? JSON.stringify(verification.qualification) : null;
-    const searchJson = verification.searchVerification ? JSON.stringify(verification.searchVerification) : null;
-    if (verification.status !== "promoted") {
-      const nextCheckAt = verification.status === "monitor"
-        ? new Date(Date.now() + 3 * 86_400_000).toISOString()
-        : new Date(Date.now() + 30 * 86_400_000).toISOString();
-      await db.prepare(`UPDATE riskshield_public_feedback_intakes SET status = ?, qualification_json = ?,
-        search_verification_json = ?, last_error = NULL, next_check_at = ?, updated_at = ? WHERE id = ?`)
-        .bind(verification.status, qualificationJson, searchJson, nextCheckAt, now, id).run();
-      return json({ acknowledged: true, intakeStatus: verification.status, reviewRequired: false });
-    }
-
-    const family = riskFamily(verification.searchVerification.riskFamily);
-    const domain = riskDomain(verification.searchVerification.riskFamily);
-    const candidateId = `public_verified_${hash.slice(0, 32)}`;
-    const verifiedTests = verifiedContextTests(contexts, verification.qualification);
-    const payload: CandidateRecord & { consentPolicyVersion: string; retentionDeadline: string; submissionCount: number } = {
-      id: candidateId,
-      expression,
-      riskFamily: family,
-      riskDomain: domain,
-      reportType,
-      origin: { type: "user_feedback", reportType },
-      qualityGateVersion: PUBLIC_FEEDBACK_GATE_VERSION,
-      qualification: {
-        disposition: verification.qualification.disposition,
-        role: verification.qualification.role,
-        riskFamily: family,
-        confidence: verification.qualification.confidence,
-        reason: verification.qualification.reason,
-        directUseCount: 1,
-        contextualUseCount: 0,
-        distinctAuthorCount: reporters.length,
-        distinctPlatformCount: 1,
-        observationCount: submissionCount,
-      },
-      searchVerification: { ...verification.searchVerification, riskFamily: family, verifiedAt: now },
-      status: "pending",
-      noveltyScore: null,
-      confidence: Math.min(verification.qualification.confidence, verification.searchVerification.confidence),
-      sourceCount: submissionCount,
-      createdAt: now,
-      expressionGroup: [expression],
-      contextSummary: verification.reason,
-      evidence: contexts,
-      positiveTests: verifiedTests.positiveTests,
-      negativeTests: verifiedTests.negativeTests,
-      draft: {
-        title: `${expression} 표현 검토`, riskSummary: verification.reason, riskFamily: family, riskDomain: domain,
-        matchMode: "atomic_lexeme", triggerPatterns: [expression], contextPatterns: [],
-        exclusionPatterns: ["뜻", "의미", "표현은 쓰지 마세요", "사용하지 마세요"],
-        severityFloor: severityFloor(verification.searchVerification.riskFamily),
-        safeRewrite: ["비하·공격·기만 표현 대신 대상과 상황을 사실 중심으로 구체적으로 설명해 주세요."],
-      },
-      lineage: null,
-      sources: verification.searchVerification.sources.map((source) => ({ title: source.title, url: source.uri, date: now.slice(0, 10) })),
-      autoInclusionBlockedReason: "의미·검색 검증은 통과했지만 사람 검토와 회귀 테스트 전에는 활성화하지 않습니다.",
-      consentPolicyVersion: CONSENT_POLICY_VERSION,
-      retentionDeadline,
-      submissionCount,
-    };
-    await db.prepare(`
-      INSERT INTO riskshield_candidates (id, status, payload, retention_deadline, created_at, updated_at)
-      VALUES (?, 'pending', ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        payload = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.payload ELSE riskshield_candidates.payload END,
-        retention_deadline = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.retention_deadline ELSE riskshield_candidates.retention_deadline END,
-        status = CASE WHEN riskshield_candidates.status = 'held' THEN 'pending' ELSE riskshield_candidates.status END,
-        updated_at = CASE WHEN riskshield_candidates.status IN ('pending', 'held') THEN excluded.updated_at ELSE riskshield_candidates.updated_at END
-    `).bind(candidateId, JSON.stringify(payload), retentionDeadline, now, now).run();
-    await db.prepare(`UPDATE riskshield_public_feedback_intakes SET status = 'promoted', qualification_json = ?,
-      search_verification_json = ?, candidate_id = ?, last_error = NULL, next_check_at = NULL, updated_at = ? WHERE id = ?`)
-      .bind(qualificationJson, searchJson, candidateId, now, id).run();
+    await db.prepare(`UPDATE riskshield_public_feedback_intakes
+      SET status = 'received', last_error = NULL, next_check_at = NULL, updated_at = ?
+      WHERE id = ? AND status <> 'promoted'`).bind(now, id).run();
     return json({
       acknowledged: true,
-      candidateId,
-      intakeStatus: "promoted",
-      reviewRequired: true,
-    });
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "verification_unavailable";
-    const nextCheckAt = new Date(Date.now() + 60 * 60_000).toISOString();
-    try {
-      await db.prepare(`UPDATE riskshield_public_feedback_intakes SET status = 'verification_error', last_error = ?,
-        next_check_at = ?, updated_at = ? WHERE id = ?`).bind(code, nextCheckAt, new Date().toISOString(), id).run();
-    } catch { /* preserve the original failure */ }
-    return json({ acknowledged: true, intakeStatus: "verification_error", reviewRequired: false, retryAt: nextCheckAt,
-      message: "신고는 접수했지만 자동 검증을 완료하지 못했습니다. 잠시 후 다시 확인합니다." }, 202);
+      intakeId: id,
+      intakeStatus: "received",
+      reviewRequired: false,
+      message: "신고가 접수되었습니다. 의미와 실제 사용 사례를 자동으로 확인한 뒤, 근거가 충분한 경우에만 관리자 검토함으로 전달됩니다.",
+    }, 202);
+  } catch {
+    return json({ error: "candidate_storage_unavailable", message: "신고를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요." }, 503);
   }
 }

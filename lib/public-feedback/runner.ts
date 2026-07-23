@@ -127,7 +127,9 @@ export async function runDuePublicFeedbackIntakes(
     WHERE report_type IN ('missed_detection', 'new_expression')
       AND status IN ('received', 'monitor', 'verification_error')
       AND (next_check_at IS NULL OR next_check_at <= ?)
-    ORDER BY updated_at ASC LIMIT 3`).bind(now).all<DueIntake>();
+    ORDER BY CASE WHEN status = 'received' THEN 0 ELSE 1 END ASC,
+      CASE WHEN status = 'received' THEN updated_at END DESC,
+      updated_at ASC LIMIT 3`).bind(now).all<DueIntake>();
   const qualification = new GoogleCollectorQualificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const search = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const providers = overrides ?? {
@@ -142,7 +144,7 @@ export async function runDuePublicFeedbackIntakes(
     }
     try {
       await env.DB.prepare("UPDATE riskshield_public_feedback_intakes SET status = 'verifying', last_error = NULL, updated_at = ? WHERE id = ?").bind(now, row.id).run();
-      const verification = await verifyPublicFeedbackExpression({ expression: row.expression, contexts }, providers, AbortSignal.timeout(60_000));
+      const verification = await verifyPublicFeedbackExpression({ expression: row.expression, contexts }, providers, AbortSignal.timeout(120_000));
       if (verification.status === "promoted") {
         await savePromotedCandidate(env.DB, row, verification, now);
         return "promoted";
