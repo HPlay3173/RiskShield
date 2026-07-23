@@ -55,7 +55,11 @@ function UnifiedManagementShell(props: AreaShellProps) {
       navigation={navigationFor(props.currentHref)}
       identity={identityFor(props.principal)}
       actions={props.actions}
-      navigationFooter={props.navigationFooter ?? <><Link href="/manage/labs">Labs · 실험 기능</Link><Link href="/manage/settings">설정</Link><Link href="/">공개 분석기로 돌아가기</Link></>}
+      navigationFooter={props.navigationFooter ?? <>
+        <Link className="managementFooterLink" href="/manage/labs">실험 기능</Link>
+        <Link className="managementFooterLink" href="/manage/settings">설정</Link>
+        <Link className="managementFooterLink managementFooterBack" href="/">← 공개 분석기로</Link>
+      </>}
       className={props.className}
     >{props.children}</ManagementShell>
   );

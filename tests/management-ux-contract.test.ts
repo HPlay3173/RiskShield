@@ -9,6 +9,8 @@ test("management navigation exposes five core tasks and separates labs and setti
   for (const label of ["관리 홈", "검토함", "위험 규칙", "자료 추가", "테스트"]) assert.match(core, new RegExp(`label: "${label}"`, "u"));
   assert.match(source, /href="\/manage\/labs"/u);
   assert.match(source, /href="\/manage\/settings"/u);
+  assert.match(source, /className="managementFooterLink" href="\/manage\/labs">실험 기능/u);
+  assert.match(source, /managementFooterLink managementFooterBack/u);
 });
 
 test("candidate review keeps approve and reject primary and advanced decisions collapsed", async () => {
