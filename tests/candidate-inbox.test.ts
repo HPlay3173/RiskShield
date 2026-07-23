@@ -3,7 +3,7 @@ import test from "node:test";
 
 import type { CandidateRecord } from "../lib/repositories/contracts.ts";
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
-import { visibleInDefaultCandidateInbox } from "../lib/repositories/d1.ts";
+import { D1CandidateRepository, visibleInDefaultCandidateInbox } from "../lib/repositories/d1.ts";
 
 function collectorCandidate(overrides: Partial<CandidateRecord> = {}): CandidateRecord {
   return {
@@ -50,4 +50,31 @@ test("default candidate inbox only admits fully verified collector candidates", 
 test("default candidate inbox preserves user and dataset candidates", () => {
   assert.equal(visibleInDefaultCandidateInbox(collectorCandidate({ reportType: "missed_detection", qualityGateVersion: undefined, qualification: undefined, searchVerification: undefined })), true);
   assert.equal(visibleInDefaultCandidateInbox(collectorCandidate({ reportType: undefined, qualityGateVersion: undefined, qualification: undefined, searchVerification: undefined })), true);
+});
+
+test("valid candidates are not hidden behind a full page of legacy collector rows", async () => {
+  const legacy = collectorCandidate({ qualityGateVersion: undefined, qualification: undefined, searchVerification: undefined });
+  const valid = collectorCandidate({ id: "dataset_candidate", reportType: undefined, qualityGateVersion: undefined, qualification: undefined, searchVerification: undefined });
+  const rows = [
+    ...Array.from({ length: 250 }, (_, index) => ({ id: `legacy_${index}`, status: "pending", payload: JSON.stringify({ ...legacy, id: `legacy_${index}` }), created_at: legacy.createdAt })),
+    { id: valid.id, status: "pending", payload: JSON.stringify(valid), created_at: valid.createdAt },
+  ];
+  const db = {
+    prepare() {
+      let values: unknown[] = [];
+      const statement = {
+        bind(...next: unknown[]) { values = next; return statement; },
+        async all<T>() {
+          const limit = Number(values[0]);
+          const offset = Number(values[1]);
+          return { results: rows.slice(offset, offset + limit) as T[], success: true };
+        },
+      };
+      return statement;
+    },
+  } as unknown as D1Database;
+
+  const result = await new D1CandidateRepository(db).list();
+  assert.equal(result.status, "ready");
+  if (result.status === "ready") assert.deepEqual(result.data.items.map((item) => item.id), ["dataset_candidate"]);
 });

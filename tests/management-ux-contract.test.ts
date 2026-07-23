@@ -16,3 +16,13 @@ test("candidate review keeps approve and reject primary and advanced decisions c
   assert.match(source, /primaryDecisions: ReviewDecision\[\] = \["approve", "reject"\]/u);
   assert.match(source, /<strong>고급 결정<\/strong>/u);
 });
+
+test("manual public materials and automatic collection use separate pages", async () => {
+  const materials = await readFile(new URL("../app/manage/materials/page.tsx", import.meta.url), "utf8");
+  const labs = await readFile(new URL("../app/manage/labs/page.tsx", import.meta.url), "utf8");
+  const legacy = await readFile(new URL("../app/manage/collect/page.tsx", import.meta.url), "utf8");
+  assert.match(materials, /href="\/manage\/materials\/public"/u);
+  assert.doesNotMatch(materials, /href="\/manage\/collect"/u);
+  assert.match(labs, /href="\/manage\/labs\/collect"/u);
+  assert.match(legacy, /redirect\("\/manage\/labs\/collect"\)/u);
+});

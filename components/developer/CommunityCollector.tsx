@@ -12,7 +12,7 @@ function toBase64(buffer: ArrayBuffer) {
   return btoa(binary);
 }
 
-export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
+export function CommunityCollector({ csrfToken, mode = "automatic" }: { csrfToken: string; mode?: "automatic" | "manual" }) {
   const [sources, setSources] = useState<Array<Record<string, unknown>>>([]);
   const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]);
   const [provider, setProvider] = useState<"youtube" | "bluesky" | "mastodon" | "x" | "threads" | "dcinside">("youtube");
@@ -43,9 +43,10 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
   }
 
   useEffect(() => {
+    if (mode !== "automatic") return;
     const timer = window.setTimeout(() => { refreshCollectors().catch(() => undefined); }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [mode]);
 
   async function saveCollector(event: FormEvent) {
     event.preventDefault(); setCollectorState("loading"); setCollectorMessage("");
@@ -121,8 +122,7 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
     } catch (error) { setState("failed"); setMessage(error instanceof Error ? error.message : "등록하지 못했습니다."); }
   }
 
-  return (
-    <>
+  if (mode === "automatic") return (
     <form className="communityCollector managementCard" onSubmit={saveCollector}>
       <div className="collectorIntro"><div><span className="manageHeroEyebrow">예약 수집</span><h2>자동 커뮤니티 수집</h2></div><span className="statusPill" data-tone="success">{intervalMinutes === 1440 ? "하루마다" : intervalMinutes >= 60 ? `${intervalMinutes / 60}시간마다` : `${intervalMinutes}분마다`} 확인</span></div>
       <p>수집 글은 바로 후보가 되지 않습니다. 최근 14일 관찰을 합쳐 독립 작성자와 직접 위험 문맥을 확인하고, AI가 정상 단어를 기각하거나 모니터링한 뒤 통과한 표현만 검토함으로 보냅니다.</p>
@@ -139,9 +139,10 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
       <div className="collectorSourceList">{sources.length ? sources.map((source) => <article key={String(source.id)}><div><strong>{String(source.label)}</strong><span>{String(source.provider).toUpperCase()} · {String(source.query)}</span></div><div><span className="statusPill" data-tone={source.enabled ? "success" : "info"}>{source.enabled ? "예약 중" : "일시중지"}</span><span className="statusPill" data-tone={source.last_status === "failed" ? "critical" : source.last_status === "succeeded" ? "success" : "info"}>{statusLabel(source.last_status)}</span><button className="pressable secondaryButton" type="button" onClick={() => runCollector(String(source.id))} disabled={collectorState === "loading"}>지금 수집</button><button className="pressable secondaryButton" type="button" onClick={() => editCollector(source)} disabled={collectorState === "loading"}>수정</button><button className="pressable secondaryButton" type="button" onClick={() => changeCollector(String(source.id), source.enabled ? "pause" : "resume")} disabled={collectorState === "loading"}>{source.enabled ? "일시중지" : "다시 켜기"}</button><button className="pressable secondaryButton" type="button" onClick={() => changeCollector(String(source.id), "archive")} disabled={collectorState === "loading"}>보관</button></div><small>{source.last_message ? String(source.last_message) : "아직 실행 기록이 없습니다."}</small></article>) : <p className="analysisMethodNote">등록된 자동 수집처가 없습니다. YouTube 공개 댓글을 주요 표본으로, Bluesky·Mastodon은 보조 관찰로 연결해 보세요.</p>}</div>
       {runs.length ? <p className="analysisMethodNote">최근 실행 {runs.length}건 · 마지막 실행 {String(runs[0]?.finished_at ?? "없음")}</p> : null}
     </form>
-    <details className="managementCard secondaryWorkflow">
-      <summary><span><small>직접 가져온 자료가 있나요?</small><strong>공개 글 묶음 직접 등록</strong></span><b>열기</b></summary>
-    <form className="communityCollector" onSubmit={submit}>
+  );
+
+  return (
+    <form className="communityCollector managementCard" onSubmit={submit}>
       <div className="collectorIntro"><div><span className="manageHeroEyebrow">수동 등록</span><h2>공개 글 묶음 등록</h2></div><span className="statusPill" data-tone="info">사람 검토 필수</span></div>
       <p>X·디시·Threads·Bluesky·Mastodon 등에서 이용 규칙을 지켜 확보한 공개 글을 한 줄에 하나씩 넣으세요. 사용자명과 링크의 개인정보는 넣지 말고, 원문은 바로 활성 규칙이 아닌 후보 생성용 데이터로만 저장됩니다.</p>
       <div className="collectorFields">
@@ -153,7 +154,5 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
       <div className="trainingRunActions"><button className="pressable" type="submit" disabled={state === "saving" || posts.length === 0}>{state === "saving" ? "등록 중…" : "후보 생성용 데이터로 등록"}</button>{state === "saved" ? <a className="pressable secondaryButton" href="/manage/training">다음: 후보 생성</a> : null}</div>
       {message ? <p className={state === "failed" ? "configurationNote" : "collectorSuccess"} role={state === "failed" ? "alert" : "status"}>{message}</p> : null}
     </form>
-    </details>
-    </>
   );
 }

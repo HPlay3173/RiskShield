@@ -80,7 +80,10 @@ function parsedEvaluation(row: EvaluationRow): EvaluationRunRecord | null {
       id: row.id, baselineVersion: null, candidateVersion: row.scoring_policy, codeSha: row.source_commit,
       modelVersion: "rules-only evaluation", promptVersion: "not-used", schemaVersion: row.scoring_policy,
       datasetVersion: "labeled-cases", testCount: row.case_count, passed, failed: Math.max(0, row.case_count - passed),
-      status: row.status === "completed" ? "passed" : row.status === "running" ? "running" : "unavailable",
+      status: row.status === "completed"
+        ? passed === row.case_count ? "passed" : "failed"
+        : row.status === "running" ? "running"
+          : row.status === "failed" ? "failed" : "unavailable",
       measuredAt: row.created_at,
       metrics: {
         falseHigh: metrics.falsePositive ?? null, falseNegative: metrics.falseNegative ?? null,
@@ -616,18 +619,28 @@ export class D1CandidateRepository implements CandidateRepository {
   async list() {
     if (!this.db) return storageRequired<RepositoryPage<CandidateRecord>>();
     try {
-      const response = await this.db.prepare(`
-        SELECT id, status, payload, created_at
-        FROM riskshield_candidates
-        WHERE retention_deadline IS NULL OR retention_deadline > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'held' THEN 1 ELSE 2 END, updated_at DESC
-        LIMIT 250
-      `).all<CandidateRow>();
-      return ready({
-        items: (response.results ?? []).flatMap((row) => {
+      const items: CandidateRecord[] = [];
+      const pageSize = 250;
+      let offset = 0;
+      while (items.length < pageSize) {
+        const response = await this.db.prepare(`
+          SELECT id, status, payload, created_at
+          FROM riskshield_candidates
+          WHERE retention_deadline IS NULL OR retention_deadline > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'held' THEN 1 ELSE 2 END, updated_at DESC
+          LIMIT ? OFFSET ?
+        `).bind(pageSize, offset).all<CandidateRow>();
+        const rows = response.results ?? [];
+        for (const row of rows) {
           const record = parsedCandidate(row);
-          return record && visibleInDefaultCandidateInbox(record) ? [record] : [];
-        }),
+          if (record && visibleInDefaultCandidateInbox(record)) items.push(record);
+          if (items.length >= pageSize) break;
+        }
+        if (rows.length < pageSize) break;
+        offset += rows.length;
+      }
+      return ready({
+        items,
         nextCursor: null,
       }, "d1");
     } catch {

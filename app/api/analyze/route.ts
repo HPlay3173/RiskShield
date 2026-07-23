@@ -31,6 +31,7 @@ import {
   segmentClaims,
   type ClaimScore,
 } from "../../../lib/v0-5/document-scoring";
+import { summarizeAiCoverage } from "../../../lib/v0-5/ai-coverage";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -473,6 +474,11 @@ export async function POST(request: Request) {
     const primaryClaim = claimScores[primaryIndex] ?? null;
     const run = claimRuns[primaryIndex] ?? unavailableRun(hashInterpreterInput(text), text, "server_secret_unavailable");
     const payload = run.payload;
+      const analyzedAiClaimCount = [...aiClaimIndexes].filter((index) => claimRuns[index]?.ok).length;
+      const aiCoverage = summarizeAiCoverage(aiClaimIndexes.size, analyzedAiClaimCount);
+      const aiStatusRun = aiCoverage.state === "ready"
+        ? run
+        : [...aiClaimIndexes].map((index) => claimRuns[index]).find((item) => item && !item.ok) ?? run;
       const uncertainty = !run.ok || scoring.conflict || scoring.status === "review"
         ? {
             level: "high" as const,
@@ -511,8 +517,8 @@ export async function POST(request: Request) {
               reason: "신규성이나 기존 패턴 여부를 확정할 근거가 충분하지 않습니다.",
               candidateRegistration: run.masked ? "disabled" as const : "available" as const,
             };
-      const aiFallback = publicAiFallback(run);
-      if (!run.ok) console.warn("RiskShield interpreter fallback", { reasonCode: aiFallback.reasonCode, timedOut: run.timedOut });
+      const aiFallback = publicAiFallback(aiStatusRun);
+      if (aiCoverage.state !== "ready") console.warn("RiskShield interpreter fallback", { reasonCode: aiFallback.reasonCode, timedOut: aiStatusRun.timedOut, state: aiCoverage.state });
       return json({
         beta: "RiskShield v0.5 alpha",
         release: {
@@ -537,7 +543,8 @@ export async function POST(request: Request) {
           calibration: null,
           totalClaimCount: segments.length,
           rulesAnalyzedClaimCount: segments.length,
-          aiAnalyzedClaimCount: aiClaimIndexes.size,
+          aiSelectedClaimCount: aiCoverage.selectedClaimCount,
+          aiAnalyzedClaimCount: aiCoverage.analyzedClaimCount,
         },
         claims: claimScores.map((claim, index) => ({
           id: claim.id,
@@ -565,7 +572,7 @@ export async function POST(request: Request) {
           aiState: claimRuns[index]?.ok ? "ready" as const : "fallback" as const,
         })),
         ai: {
-          state: run.ok ? "ready" : "fallback",
+          state: aiCoverage.state,
           ...aiFallback,
           confidence: payload?.confidence ?? null,
           riskIntent: payload?.risk_intent ?? null,

@@ -41,6 +41,11 @@ export function verificationShouldRun(previous: { decision: StoredVerificationDe
   return true;
 }
 
+export function verificationDecisionToPersist(decision: SearchVerificationDecision, passed: boolean) {
+  if (decision === "reject") return "reject" as const;
+  return passed ? decision : "monitor" as const;
+}
+
 export type QualificationGateInput = {
   observationCount: number;
   distinctAuthorCount: number;

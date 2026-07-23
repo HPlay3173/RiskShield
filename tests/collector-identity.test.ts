@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 import {
   canonicalCollectorIdentity,
@@ -28,4 +29,13 @@ test("post identity is global per provider instead of per collector setting", as
   const otherProvider = await collectedPostFingerprint("x", "comment-123");
   assert.equal(first, second);
   assert.notEqual(first, otherProvider);
+});
+
+test("archived collector identity can be reused and archived sources cannot run", async () => {
+  const migration = await readFile(new URL("../drizzle/0014_collector_archive_identity.sql", import.meta.url), "utf8");
+  const archiveRoute = await readFile(new URL("../app/api/manage/collectors/[id]/route.ts", import.meta.url), "utf8");
+  const runner = await readFile(new URL("../lib/collectors/runner.ts", import.meta.url), "utf8");
+  assert.match(migration, /WHERE `archived_at` IS NULL/u);
+  assert.match(archiveRoute, /source_fingerprint = NULL/u);
+  assert.match(runner, /WHERE id = \? AND archived_at IS NULL LIMIT 1/u);
 });

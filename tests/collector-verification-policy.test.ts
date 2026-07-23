@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  verificationDecisionToPersist,
   verificationNextCheckAt,
   verificationShouldRun,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
@@ -10,6 +11,9 @@ import {
 const now = "2026-07-23T00:00:00.000Z";
 
 test("search verification cooldowns keep reject and monitor expressions out of immediate retries", () => {
+  assert.equal(verificationDecisionToPersist("reject", false), "reject");
+  assert.equal(verificationDecisionToPersist("send_to_review", false), "monitor");
+  assert.equal(verificationDecisionToPersist("send_to_review", true), "send_to_review");
   assert.equal(verificationNextCheckAt("reject", 0, now), "2026-08-22T00:00:00.000Z");
   assert.equal(verificationNextCheckAt("monitor", 0, now), "2026-07-26T00:00:00.000Z");
   assert.equal(verificationShouldRun({ decision: "reject", nextCheckAt: "2026-08-22T00:00:00.000Z", verifiedObservationCount: 3 }, 20, now), false);

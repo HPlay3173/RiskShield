@@ -3,9 +3,10 @@ import { GoogleTrainingDraftProvider } from "../training/google-draft-provider";
 import type { TrainingDraft } from "../training/mvp";
 import { GoogleCollectorQualificationProvider, type QualificationAssessment } from "./google-qualification-provider";
 import { GoogleCollectorSearchVerificationProvider, type SearchVerification } from "./google-search-verification-provider";
-import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, roleCanBecomeCandidate, searchVerificationGate, verificationNextCheckAt, verificationShouldRun, type ObservationContextLabel } from "./quality";
+import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, roleCanBecomeCandidate, searchVerificationGate, verificationDecisionToPersist, verificationNextCheckAt, verificationShouldRun, type ObservationContextLabel } from "./quality";
 import { parseYouTubeVideoInput } from "./youtube";
 import { collectedPostFingerprint } from "./identity";
+import { candidateSourcesFromEvidence } from "./evidence";
 
 export type CollectorProvider = "youtube" | "bluesky" | "mastodon" | "x" | "threads" | "dcinside";
 
@@ -52,7 +53,7 @@ export type ExpressionGroup = {
   authorHashes: Set<string>;
   sourceIds: Set<string>;
   providers: Set<CollectorProvider>;
-  evidence: Array<{ id: string; excerpt: string; url: string | null; publishedAt: string | null; label: ObservationContextLabel }>;
+  evidence: Array<{ id: string; sourceId: string; provider: CollectorProvider; sourceLabel: string; excerpt: string; url: string | null; publishedAt: string | null; label: ObservationContextLabel }>;
   score: number;
 };
 
@@ -360,12 +361,15 @@ async function saveObservations(posts: StoredPost[], source: CollectorSource, ex
 
 async function recentExpressionGroups(env: CollectorEnvironment) {
   const rows = await env.DB.prepare(`
-    SELECT id, normalized_expression, display_expression, source_id, provider, post_id, author_hash, redacted_excerpt, source_url,
-           published_at, context_label
-    FROM riskshield_expression_observations
-    WHERE datetime(created_at) >= datetime('now', '-14 days')
-      AND qualification_status IN ('observed', 'monitor')
-    ORDER BY created_at DESC LIMIT 4000
+    SELECT observations.id, observations.normalized_expression, observations.display_expression,
+           observations.source_id, observations.provider, observations.post_id, observations.author_hash,
+           observations.redacted_excerpt, observations.source_url, observations.published_at,
+           observations.context_label, COALESCE(sources.label, observations.provider) AS source_label
+    FROM riskshield_expression_observations AS observations
+    LEFT JOIN riskshield_collector_sources_v3 AS sources ON sources.id = observations.source_id
+    WHERE datetime(observations.created_at) >= datetime('now', '-14 days')
+      AND observations.qualification_status IN ('observed', 'monitor')
+    ORDER BY observations.created_at DESC LIMIT 4000
   `).all<Record<string, unknown>>();
   const groups = new Map<string, ExpressionGroup>();
   for (const row of rows.results ?? []) {
@@ -374,7 +378,16 @@ async function recentExpressionGroups(env: CollectorEnvironment) {
     current.postIds.add(String(row.post_id)); current.sourceIds.add(String(row.source_id));
     current.providers.add(row.provider as CollectorProvider);
     if (typeof row.author_hash === "string" && row.author_hash) current.authorHashes.add(row.author_hash);
-    if (current.evidence.length < 6) current.evidence.push({ id: String(row.id), excerpt: String(row.redacted_excerpt), url: typeof row.source_url === "string" ? row.source_url : null, publishedAt: typeof row.published_at === "string" ? row.published_at : null, label: String(row.context_label) as ObservationContextLabel });
+    if (current.evidence.length < 6) current.evidence.push({
+      id: String(row.id),
+      sourceId: String(row.source_id),
+      provider: row.provider as CollectorProvider,
+      sourceLabel: String(row.source_label),
+      excerpt: String(row.redacted_excerpt),
+      url: typeof row.source_url === "string" ? row.source_url : null,
+      publishedAt: typeof row.published_at === "string" ? row.published_at : null,
+      label: String(row.context_label) as ObservationContextLabel,
+    });
     current.score = current.postIds.size * 10 + current.authorHashes.size * 8 + current.sourceIds.size * 6;
     groups.set(normalized, current);
   }
@@ -488,7 +501,8 @@ async function persistVerificationError(group: ExpressionGroup, previous: Stored
 async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }>, env: CollectorEnvironment, now: string) {
   const provider = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const verifications = new Map<string, SearchVerification>();
-  if (!groups.length) return { verifications, state: provider.configured ? "ready" as const : "not_configured" as const };
+  const rejectedExpressions = new Set<string>();
+  if (!groups.length) return { verifications, rejectedExpressions, state: provider.configured ? "ready" as const : "not_configured" as const };
   let state = provider.configured ? "ready" : "not_configured";
   let providerCalls = 0;
   for (const { group, assessment } of groups) {
@@ -510,13 +524,19 @@ async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; ass
         evidence: group.evidence.map(({ id, excerpt }) => ({ id, excerpt })),
       }, AbortSignal.timeout(20_000));
       const passed = passesSearchVerification(group, verification);
-      await persistVerification(group, passed ? verification : { ...verification, decision: "monitor" }, env, now);
+      const decision = verificationDecisionToPersist(verification.decision, passed);
+      await persistVerification(group, { ...verification, decision }, env, now);
+      if (decision === "reject") {
+        rejectedExpressions.add(group.normalized);
+        await env.DB.prepare("UPDATE riskshield_expression_observations SET qualification_status = 'rejected', updated_at = ? WHERE normalized_expression = ? AND datetime(created_at) >= datetime('now', '-14 days')")
+          .bind(now, group.normalized).run();
+      }
       if (passed) verifications.set(group.normalized, verification);
     } catch (error) {
       state = await persistVerificationError(group, previous, error, env, now);
     }
   }
-  return { verifications, state };
+  return { verifications, rejectedExpressions, state };
 }
 
 function passesSearchVerification(group: ExpressionGroup, verification: SearchVerification) {
@@ -569,9 +589,7 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
   const previousEvidence = Array.isArray(previous.evidence) ? previous.evidence.filter((value): value is string => typeof value === "string") : [];
   const previousSources = Array.isArray(previous.sources) ? previous.sources.filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value)) : [];
   const evidence = [...new Set([...previousEvidence, ...group.evidence.map((item) => item.excerpt)])].slice(-8);
-  const sources = [...previousSources, ...group.evidence.map((item) => ({ title: source.label, url: item.url ?? "", date: item.publishedAt?.slice(0, 10) ?? now.slice(0, 10) }))]
-    .filter((value, index, values) => values.findIndex((candidate) => candidate.url === value.url && candidate.title === value.title) === index)
-    .slice(-8);
+  const sources = candidateSourcesFromEvidence(previousSources, group.evidence, now);
   const sourceCount = Math.min(10_000, Number(previous.sourceCount ?? 0) + group.postIds.size);
   const directUseCount = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
   const contextualUseCount = group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).length;
@@ -606,7 +624,14 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     qualification: { disposition: assessment.disposition, role: assessment.role, riskFamily: assessment.riskFamily, reason: assessment.reason, confidence: assessment.confidence, directUseCount, contextualUseCount, distinctAuthorCount: group.authorHashes.size, distinctPlatformCount: group.providers.size, observationCount: group.postIds.size },
     searchVerification: { decision: verification.decision, role: verification.role, riskFamily: verification.riskFamily, meaning: verification.meaning, reason: verification.reason, confidence: verification.confidence, directUseSupported: verification.directUseSupported, queries: verification.queries, sources: verification.sources, verifiedAt: now },
     qualityGateVersion: COLLECTOR_QUALITY_GATE_VERSION,
-    lineage: { collectorSourceId: source.id, provider: source.provider, lastCollectedAt: now, observationWindowDays: 14 },
+    lineage: {
+      collectorSourceId: group.sourceIds.size === 1 ? [...group.sourceIds][0] : null,
+      collectorSourceIds: [...group.sourceIds],
+      provider: group.providers.size === 1 ? [...group.providers][0] : "multiple",
+      providers: [...group.providers],
+      lastCollectedAt: now,
+      observationWindowDays: 14,
+    },
     sources,
     retentionDeadline: new Date(Date.parse(now) + 30 * 24 * 60 * 60 * 1_000).toISOString(),
     autoInclusionBlockedReason: "자동 수집 데이터는 사람 검토와 회귀 테스트를 통과하기 전까지 활성 규칙에 반영되지 않습니다.",
@@ -682,7 +707,8 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
       const verification = searched.verifications.get(group.normalized);
       return verification && passesSearchVerification(group, verification) ? [{ group, assessment, verification }] : [];
     });
-    monitoredCount += qualifiedGroups.length - reviewGroups.length;
+    rejectedCount += searched.rejectedExpressions.size;
+    monitoredCount += qualifiedGroups.length - reviewGroups.length - searched.rejectedExpressions.size;
     const drafted = await draftExpressionGroups(reviewGroups.map((item) => item.group), source, env, runId);
     for (const { group, assessment, verification } of reviewGroups) {
       const candidateId = await candidateIdForExpression(group.normalized);
@@ -734,7 +760,7 @@ export async function runDueCollectors(env: CollectorEnvironment) {
 }
 
 export async function readCollectorSource(db: D1Database, id: string) {
-  const row = await db.prepare("SELECT id, provider, label, query, endpoint, enabled, interval_minutes, cursor, last_run_at FROM riskshield_collector_sources_v3 WHERE id = ? LIMIT 1")
+  const row = await db.prepare("SELECT id, provider, label, query, endpoint, enabled, interval_minutes, cursor, last_run_at FROM riskshield_collector_sources_v3 WHERE id = ? AND archived_at IS NULL LIMIT 1")
     .bind(id).first<Record<string, unknown>>();
   return row ? sourceFromRow(row) : null;
 }

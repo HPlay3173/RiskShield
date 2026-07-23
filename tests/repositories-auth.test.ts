@@ -29,6 +29,7 @@ import {
 } from "../lib/auth/identity-adapter.ts";
 import {
   D1PrincipalRepository,
+  D1EvaluationRepository,
   D1SkillRepository,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/repositories/d1.ts";
@@ -107,6 +108,29 @@ test("development owner fixture requires non-production, explicit enablement, an
   assert.equal(developmentPrincipalForHost({ runtime: {}, host: "localhost:3000", nodeEnv: "development" }), null);
   assert.equal(developmentPrincipalForHost({ runtime, host: "riskshield.example", nodeEnv: "development" }), null);
   assert.equal(developmentPrincipalForHost({ runtime, host: "riskshield.example@localhost", nodeEnv: "development" }), null);
+});
+
+test("completed evaluations with failed cases are not reported as passed", async () => {
+  const queries: string[] = [];
+  const db = fakeD1(() => ({
+    all: [{
+      id: "evaluation-with-failures",
+      status: "completed",
+      case_count: 2,
+      metrics_json: JSON.stringify({ falsePositive: 1, falseNegative: 0 }),
+      results_json: JSON.stringify([{ riskCorrect: true }, { riskCorrect: false }]),
+      source_commit: "test",
+      scoring_policy: "4.1.0",
+      created_at: "2026-07-23T00:00:00.000Z",
+    }],
+  }), queries);
+  const result = await new D1EvaluationRepository(db).listRuns();
+  assert.equal(result.status, "ready");
+  if (result.status === "ready") {
+    assert.equal(result.data.items[0]?.status, "failed");
+    assert.equal(result.data.items[0]?.passed, 1);
+    assert.equal(result.data.items[0]?.failed, 1);
+  }
 });
 
 test("access-code authentication requires strong server-only secrets and resolves an owner session", async () => {

@@ -19,6 +19,7 @@ RiskShield는 한국어 문장과 글에서 과장·기만, 혐오·차별, 욕�
 - 선택적 Google Gemma 문맥 해석
 - 규칙·AI 충돌 또는 AI 단독 고위험 결과의 사람 검토 전환
 - 최대 20개 문장·주장 구간의 전체 규칙 분석과 위험도가 높은 최대 6개 구간의 AI 문맥 분석
+- AI 선택 구간 수와 실제 성공 수를 분리하고 일부 실패는 `partial`로 표시
 - 가장 위험한 독립 주장 하나를 최종 점수로 사용하고 나머지 위험 주장은 별도 목록으로 표시
 - 정확한 evidence 구간, 대체 문구, 불확실성 및 fallback 표시
 - 요청 취소·재시도, 키보드와 모바일 접근성
@@ -38,7 +39,7 @@ RiskShield는 한국어 문장과 글에서 과장·기만, 혐오·차별, 욕�
 - `/manage/materials`: CSV·공개 글 자료 등록과 후보 생성 연결
 - `/manage/test`: 규칙 엔진 탐지·오탐 테스트
 
-자동 커뮤니티 관찰·모델·추세는 `/manage/labs`, 팀원·권한과 변경 기록은 `/manage/settings`로 분리합니다.
+자동 커뮤니티 관찰·모델·추세는 `/manage/labs`, 팀원·권한과 변경 기록은 `/manage/settings`로 분리합니다. 공개 글 직접 등록은 `/manage/materials/public`, 자동 관찰 설정은 `/manage/labs/collect`에서 서로 섞이지 않게 제공합니다.
 
 기존 `/admin/*`, `/dev/*`, `/owner/*` 경로는 호환 경로이며 제품의 기준 namespace는 `/manage/*`입니다.
 

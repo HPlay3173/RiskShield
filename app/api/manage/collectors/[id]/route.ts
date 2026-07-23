@@ -33,7 +33,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const db = await runtimeDb();
   if (!db) return controlJson({ error: "collector_storage_unavailable" }, 503);
   const now = new Date().toISOString();
-  const result = await db.prepare("UPDATE riskshield_collector_sources_v3 SET enabled = 0, archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL")
+  const result = await db.prepare("UPDATE riskshield_collector_sources_v3 SET enabled = 0, archived_at = ?, source_fingerprint = NULL, updated_at = ? WHERE id = ? AND archived_at IS NULL")
     .bind(now, now, id).run();
   if (!result.meta.changes) return controlJson({ error: "collector_source_not_found" }, 404);
   return controlJson({ acknowledged: true, id, archived: true, message: "수집 설정을 보관했습니다. 과거 근거와 실행 기록은 유지됩니다." });

@@ -53,6 +53,7 @@ type PublicAnalysis = {
     aggregateBonus: number;
     totalClaimCount: number;
     rulesAnalyzedClaimCount: number;
+    aiSelectedClaimCount: number;
     aiAnalyzedClaimCount: number;
     primaryCategory: { id: string; label: string; score: number; ruleScore: number; aiScore: number; source: "rule" | "ai" | "hybrid" } | null;
     categoryScores: Array<{ id: string; label: string; score: number; ruleScore: number; aiScore: number; source: "rule" | "ai" | "hybrid" }>;
@@ -70,7 +71,7 @@ type PublicAnalysis = {
     aiState: "ready" | "fallback";
   }>;
   ai: {
-    state: "ready" | "fallback";
+    state: "ready" | "partial" | "fallback";
     reasonCode: string | null;
     reasonLabel: string | null;
     confidence: number | null;
@@ -200,9 +201,9 @@ export function PublicAnalyzer() {
         {result ? (
           <section className={`publicAnalyzerResults profile-${result.profile.emphasis}`} aria-labelledby="result-title">
             <p className="analysisProfileFocus"><strong>결과 보기:</strong> {result.profile.focus}</p>
-            {result.ai.state === "fallback" ? <div className="analysisBanner" role="status"><strong>규칙 중심 안전 모드</strong><span>{result.ai.reasonLabel ?? "AI 문맥 해석 없이 검토된 위험 규칙만 사용했습니다."}</span></div> : <div className="analysisBanner isReady" role="status"><strong>AI 문맥 분석 사용됨</strong><span>검토된 규칙과 AI 문맥 해석을 함께 반영했습니다.</span></div>}
+            {result.ai.state === "fallback" ? <div className="analysisBanner" role="status"><strong>규칙 중심 안전 모드</strong><span>{result.ai.reasonLabel ?? "AI 문맥 해석 없이 검토된 위험 규칙만 사용했습니다."}</span></div> : result.ai.state === "partial" ? <div className="analysisBanner" role="status"><strong>AI 문맥 분석 일부 사용</strong><span>{result.scoring.aiSelectedClaimCount}개 선택 구간 중 {result.scoring.aiAnalyzedClaimCount}개를 해석했고, 나머지는 검토된 규칙만 사용했습니다.</span></div> : <p className="analysisMethodNote">AI 문맥 분석 사용 · 선택한 {result.scoring.aiSelectedClaimCount}개 구간 모두 완료</p>}
             <div className={`publicAnalyzerVerdict status-${result.hybrid.status}`}>
-              <div><span>글에서 가장 높은 위험도</span><strong>{result.scoring.finalScore}<small>/100</small></strong><small>전체 {result.scoring.rulesAnalyzedClaimCount}개 구간 규칙 분석 · AI 문맥 분석 {result.scoring.aiAnalyzedClaimCount}개</small></div>
+              <div><span>글에서 가장 높은 위험도</span><strong>{result.scoring.finalScore}<small>/100</small></strong><small>전체 {result.scoring.rulesAnalyzedClaimCount}개 구간 규칙 분석 · AI {result.scoring.aiSelectedClaimCount}개 선택 / {result.scoring.aiAnalyzedClaimCount}개 성공</small></div>
               <div><span>현재 판정</span><h2 id="result-title" ref={resultHeadingRef} tabIndex={-1}>{statusLabels[result.hybrid.status]}</h2><p>{result.hybrid.reason}</p></div>
             </div>
 
