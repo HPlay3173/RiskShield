@@ -3,6 +3,7 @@ import { requireMutationIntegrity } from "../auth/request-integrity";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject } from "../http/control-response";
 import type { CollectorProvider } from "./runner";
 import { parseYouTubeVideoInput } from "./youtube";
+import { collectorSourceFingerprint } from "./identity";
 
 const PROVIDERS = new Set<CollectorProvider>(["youtube", "bluesky", "mastodon", "x", "threads", "dcinside"]);
 
@@ -44,11 +45,19 @@ export async function handleCollectorMutation(request: Request) {
   if (!db) return controlJson({ error: "collector_storage_unavailable" }, 503);
   const id = typeof body?.id === "string" && body.id.trim() ? body.id.trim().slice(0, 160) : `collector_${crypto.randomUUID()}`;
   const now = new Date().toISOString();
+  const sourceFingerprint = await collectorSourceFingerprint(provider as CollectorProvider, query, endpoint);
+  const duplicate = await db.prepare(`SELECT id, enabled FROM riskshield_collector_sources_v3
+    WHERE archived_at IS NULL AND (source_fingerprint = ? OR (source_fingerprint IS NULL AND provider = ? AND query = ? AND COALESCE(endpoint, '') = ?)) LIMIT 1`)
+    .bind(sourceFingerprint, provider, query, endpoint ?? "").first<{ id: string; enabled: number }>();
+  if (duplicate && duplicate.id !== id) {
+    return controlJson({ acknowledged: true, id: duplicate.id, enabled: Boolean(duplicate.enabled), duplicate: true, message: "같은 수집 설정이 이미 등록되어 있습니다." });
+  }
   await db.prepare(`
-    INSERT INTO riskshield_collector_sources_v3 (id, provider, label, query, endpoint, enabled, interval_minutes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO riskshield_collector_sources_v3 (id, provider, label, query, endpoint, enabled, interval_minutes, source_fingerprint, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, label = excluded.label, query = excluded.query,
-      endpoint = excluded.endpoint, enabled = excluded.enabled, interval_minutes = excluded.interval_minutes, updated_at = excluded.updated_at
-  `).bind(id, provider, label, query, endpoint, enabled ? 1 : 0, intervalMinutes, now, now).run();
+      endpoint = excluded.endpoint, enabled = excluded.enabled, interval_minutes = excluded.interval_minutes,
+      source_fingerprint = excluded.source_fingerprint, updated_at = excluded.updated_at
+  `).bind(id, provider, label, query, endpoint, enabled ? 1 : 0, intervalMinutes, sourceFingerprint, now, now).run();
   return controlJson({ acknowledged: true, id, enabled, message: enabled ? "예약 수집을 켰습니다." : "수집 설정을 저장했습니다." });
 }

@@ -66,6 +66,7 @@ export type ReviewCandidate = {
   riskDomain: string;
   noveltyPercent: number | null;
   confidencePercent: number | null;
+  searchConfidencePercent: number | null;
   sourceCount: number | null;
   createdAt: string;
   status: ReviewCandidateStatus;
@@ -91,6 +92,28 @@ export type ReviewCandidate = {
     summary: string;
   };
   autoInclusionBlockedReason: string;
+  qualification: {
+    disposition: "reject" | "monitor" | "review";
+    role: string;
+    reason: string;
+    confidencePercent: number;
+    directUseCount: number | null;
+    distinctAuthorCount: number;
+    distinctPlatformCount: number | null;
+    observationCount: number;
+  } | null;
+  searchVerification: {
+    decision: "reject" | "monitor" | "send_to_review";
+    role: string;
+    meaning: string | null;
+    reason: string;
+    confidencePercent: number;
+    directUseSupported: boolean;
+    queries: string[];
+    sources: Array<{ uri: string; title: string }>;
+    verifiedAt: string | null;
+    qualityGateVersion: string | null;
+  } | null;
   draft: {
     title: string;
     riskSummary: string;
@@ -145,6 +168,12 @@ const decisionLabels: Record<ReviewDecision, string> = {
 };
 
 const supportedDecisions: ReviewDecision[] = ["approve", "approve_with_edits", "merge", "hold", "reject"];
+const primaryDecisions: ReviewDecision[] = ["approve", "reject"];
+const advancedDecisions = supportedDecisions.filter((decision) => !primaryDecisions.includes(decision));
+
+function sourceHostname(uri: string) {
+  try { return new URL(uri).hostname; } catch { return "확인할 수 없는 주소"; }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -213,6 +242,30 @@ function CandidateDetail({ candidate, instance = "desktop" }: { candidate: Revie
           { key: "created", term: "생성 시각", description: displayDate(candidate.createdAt) },
         ]}
       />
+
+      {candidate.qualification && candidate.searchVerification ? (
+        <section className="reviewDetailSection" aria-labelledby={`${domId}-verification`}>
+          <h3 id={`${domId}-verification`}>후보 통과 근거</h3>
+          <ProductDefinitionList
+            label="AI 의미·검색 검증"
+            items={[
+              { key: "role", term: "의미 역할", description: candidate.searchVerification.role },
+              { key: "qualification", term: "1차 문맥 판단", description: `${candidate.qualification.reason} · ${candidate.qualification.confidencePercent}%` },
+              { key: "search", term: "검색 검증", description: `${candidate.searchVerification.reason} · ${candidate.searchVerification.confidencePercent}%` },
+              { key: "direct", term: "직접 유해 사용", description: candidate.searchVerification.directUseSupported ? "검색 근거에서 확인" : "확인되지 않음" },
+              { key: "gate", term: "품질 게이트", description: candidate.searchVerification.qualityGateVersion ?? "버전 정보 없음" },
+            ]}
+          />
+          {candidate.searchVerification.queries.length ? <p><strong>검색어</strong> · {candidate.searchVerification.queries.join(" · ")}</p> : null}
+          {candidate.searchVerification.sources.length ? (
+            <ul className="reviewSourceList">
+              {candidate.searchVerification.sources.map((source) => (
+                <li key={source.uri}><a href={source.uri} target="_blank" rel="noreferrer">{source.title}</a><small>{sourceHostname(source.uri)}</small></li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       <details className="reviewEvidenceDetails">
         <summary><span><strong>근거·문맥·회귀 테스트</strong><small>결정 전에 필요한 상세 자료를 펼쳐 봅니다.</small></span><b>열기</b></summary>
@@ -592,7 +645,9 @@ export function ReviewInbox({
                       <span>{candidate.candidateType} · {candidate.riskDomain}</span>
                       <span>{candidate.reviewReason}</span>
                       <span className="reviewCandidateListMetrics">
-                        신규성 {displayNumber(candidate.noveltyPercent, "%")} · 신뢰도 {displayNumber(candidate.confidencePercent, "%")} · 출처 {displayNumber(candidate.sourceCount)}
+                        {candidate.qualification
+                          ? `직접 사용 ${displayNumber(candidate.qualification.directUseCount)} · 작성자 ${displayNumber(candidate.qualification.distinctAuthorCount)} · 플랫폼 ${displayNumber(candidate.qualification.distinctPlatformCount)} · 검색 ${displayNumber(candidate.searchConfidencePercent, "%")}`
+                          : `신뢰도 ${displayNumber(candidate.confidencePercent, "%")} · 출처 ${displayNumber(candidate.sourceCount)}`}
                       </span>
                       <time dateTime={candidate.createdAt}>{displayDate(candidate.createdAt)}</time>
                     </Pressable>
@@ -651,8 +706,8 @@ export function ReviewInbox({
               <label><span>대체 문구 · 한 줄에 하나</span><textarea rows={3} value={draftRewrites} onChange={(event) => setDraftRewrites(event.target.value)} /></label>
             </fieldset>
             </details>
-            <div className="candidateDecisionActions" aria-label="후보 결정">
-              {supportedDecisions.map((decision) => (
+            <div className="candidateDecisionActions" aria-label="기본 후보 결정">
+              {primaryDecisions.map((decision) => (
                 <Pressable
                   key={decision}
                   className={`candidateDecisionButton candidateDecision-${decision}`}
@@ -665,6 +720,16 @@ export function ReviewInbox({
                 </Pressable>
               ))}
             </div>
+            <details className="candidateDraftDetails">
+              <summary><span><strong>고급 결정</strong><small>수정 승인·병합·보류가 필요할 때만 여세요.</small></span><b>열기</b></summary>
+              <div className="candidateDecisionActions" aria-label="고급 후보 결정">
+                {advancedDecisions.map((decision) => (
+                  <Pressable key={decision} className={`candidateDecisionButton candidateDecision-${decision}`} disabled={submitting} onClick={() => void submitDecision(decision)}>
+                    {submitting && decisionState.state === "submitting" && decisionState.decision === decision ? "서버 확인 중…" : decisionLabels[decision]}
+                  </Pressable>
+                ))}
+              </div>
+            </details>
             <div className="candidateDecisionStatus" aria-live="polite" aria-atomic="true">
               {decisionState.state === "success" && decisionState.candidateId === selectedCandidate.id ? (
                 <p className="serverAcknowledgement" data-status="success">

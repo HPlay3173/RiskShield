@@ -31,7 +31,6 @@ import {
   segmentClaims,
   type ClaimScore,
 } from "../../../lib/v0-5/document-scoring";
-import { applyCalibration, type CalibrationPoint } from "../../../lib/evaluation/calibration";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -43,6 +42,7 @@ const DAILY_REQUEST_LIMIT = 40;
 const DAILY_PROVIDER_CALL_LIMIT = 250;
 const MAX_PROVIDER_CONCURRENCY = 4;
 const MAX_RETRY_AFTER_SECONDS = 2;
+const MAX_AI_ANALYZED_CLAIMS = 6;
 
 const ANALYSIS_PROFILES = {
   balanced: {
@@ -168,19 +168,6 @@ async function readSeverityRules(runtime: RuntimeEnvironment): Promise<SeverityR
   } catch (error) {
     if (developmentRuleFallback(runtime)) return DEFAULT_SEVERITY_RULES;
     throw error;
-  }
-}
-
-async function readActiveCalibration(runtime: RuntimeEnvironment) {
-  if (!runtime.DB) return null;
-  try {
-    const row = await runtime.DB.prepare(`SELECT id, mapping_json, sample_count FROM riskshield_calibration_policies WHERE active = 1 ORDER BY activated_at DESC LIMIT 1`)
-      .first<{ id: string; mapping_json: string; sample_count: number }>();
-    if (!row) return null;
-    const mapping = JSON.parse(row.mapping_json) as CalibrationPoint[];
-    return Array.isArray(mapping) ? { id: row.id, sampleCount: row.sample_count, mapping } : null;
-  } catch {
-    return null;
   }
 }
 
@@ -438,18 +425,28 @@ export async function POST(request: Request) {
   const profile = analysisProfile(body.profile);
   try {
     const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
-    const [skills, severityRules, calibration] = await Promise.all([
+    const [skills, severityRules] = await Promise.all([
       readReviewedSkills(runtime),
       readSeverityRules(runtime),
-      readActiveCalibration(runtime),
     ]);
     const rules = analyzeText(text, skills, { severityRules });
     const segments = segmentClaims(text);
+    const rulesByClaim = segments.map((segment) => analyzeText(segment.text, skills, { severityRules }));
+    const aiClaimIndexes = new Set(rulesByClaim
+      .map((claimRules, index) => ({ index, score: scoreClaim(segments[index], claimRules, null).scoring.finalScore }))
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, MAX_AI_ANALYZED_CLAIMS)
+      .map((item) => item.index));
     const claimScores: ClaimScore[] = [];
     const claimRuns: InterpreterRun[] = [];
     for (let offset = 0; offset < segments.length; offset += 3) {
-      const batch = await Promise.all(segments.slice(offset, offset + 3).map(async (segment) => {
-        const claimRules = analyzeText(segment.text, skills, { severityRules });
+      const batch = await Promise.all(segments.slice(offset, offset + 3).map(async (segment, batchIndex) => {
+        const claimIndex = offset + batchIndex;
+        const claimRules = rulesByClaim[claimIndex];
+        if (!aiClaimIndexes.has(claimIndex)) {
+          const claimRun = unavailableRun(hashInterpreterInput(segment.text), segment.text, "claim_ai_limit");
+          return { score: scoreClaim(segment, claimRules, null), run: claimRun };
+        }
         const key = cacheKeyFor(segment.text, skills, severityRules);
         let claimRun = readCached(key);
         if (!claimRun && apiKey) {
@@ -471,7 +468,6 @@ export async function POST(request: Request) {
       }
     }
     const scoring = aggregateDocumentScore(claimScores);
-    const calibratedScore = calibration ? applyCalibration(scoring.finalScore, calibration.mapping) : null;
     const primaryIndex = claimScores.reduce((best, claim, index) =>
       claim.scoring.finalScore > (claimScores[best]?.scoring.finalScore ?? -1) ? index : best, 0);
     const primaryClaim = claimScores[primaryIndex] ?? null;
@@ -537,8 +533,11 @@ export async function POST(request: Request) {
           ...scoring,
           status: scoring.status,
           rawScore: scoring.finalScore,
-          calibratedScore,
-          calibration: calibration ? { id: calibration.id, sampleCount: calibration.sampleCount, affectsDecision: false } : null,
+          calibratedScore: null,
+          calibration: null,
+          totalClaimCount: segments.length,
+          rulesAnalyzedClaimCount: segments.length,
+          aiAnalyzedClaimCount: aiClaimIndexes.size,
         },
         claims: claimScores.map((claim, index) => ({
           id: claim.id,

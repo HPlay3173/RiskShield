@@ -499,6 +499,22 @@ function parsedCandidate(row: CandidateRow): CandidateRecord | null {
   }
 }
 
+const COLLECTOR_QUALITY_GATE_VERSION = "collector-semantic-search-v1";
+const REVIEWABLE_COLLECTOR_ROLES = new Set(["harmful_expression", "coded_expression"]);
+
+export function visibleInDefaultCandidateInbox(candidate: CandidateRecord) {
+  const collector = candidate.origin?.type === "collector" || candidate.reportType === "collector_discovery";
+  if (!collector) return true;
+  const gateVersion = candidate.origin?.type === "collector"
+    ? candidate.origin.qualityGateVersion
+    : candidate.qualityGateVersion;
+  return gateVersion === COLLECTOR_QUALITY_GATE_VERSION
+    && candidate.qualification?.disposition === "review"
+    && REVIEWABLE_COLLECTOR_ROLES.has(candidate.qualification.role)
+    && candidate.searchVerification?.decision === "send_to_review"
+    && REVIEWABLE_COLLECTOR_ROLES.has(candidate.searchVerification.role);
+}
+
 function candidateStatus(decision: CandidateDecisionInput["decision"]): CandidateRecord["status"] {
   if (decision === "hold") return "held";
   if (decision === "reject") return "rejected";
@@ -610,7 +626,7 @@ export class D1CandidateRepository implements CandidateRepository {
       return ready({
         items: (response.results ?? []).flatMap((row) => {
           const record = parsedCandidate(row);
-          return record ? [record] : [];
+          return record && visibleInDefaultCandidateInbox(record) ? [record] : [];
         }),
         nextCursor: null,
       }, "d1");

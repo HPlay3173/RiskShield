@@ -20,6 +20,8 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
   const [query, setQuery] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [intervalMinutes, setIntervalMinutes] = useState(360);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingEnabled, setEditingEnabled] = useState(true);
   const [collectorState, setCollectorState] = useState<"idle" | "loading" | "failed">("idle");
   const [collectorMessage, setCollectorMessage] = useState("");
   const [sourceName, setSourceName] = useState("community-snapshot");
@@ -49,10 +51,10 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
     event.preventDefault(); setCollectorState("loading"); setCollectorMessage("");
     try {
       if (youtubeInputInvalid) throw new Error("영상 주소 또는 11자리 ID를 확인해 주세요.");
-      const response = await fetch("/api/manage/collectors", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken }, body: JSON.stringify({ provider, label: collectorLabel, query, endpoint: endpoint || null, intervalMinutes, enabled: true }) });
+      const response = await fetch("/api/manage/collectors", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken }, body: JSON.stringify({ id: editingId, provider, label: collectorLabel, query, endpoint: endpoint || null, intervalMinutes, enabled: editingId ? editingEnabled : true }) });
       const payload = await response.json() as { message?: string };
       if (!response.ok) throw new Error(payload.message ?? "수집 설정을 저장하지 못했습니다.");
-      setCollectorMessage(payload.message ?? "예약 수집을 켰습니다."); setCollectorState("idle"); await refreshCollectors();
+      setCollectorMessage(payload.message ?? (editingId ? "수집 설정을 수정했습니다." : "예약 수집을 켰습니다.")); setCollectorState("idle"); setEditingId(null); await refreshCollectors();
     } catch (error) { setCollectorState("failed"); setCollectorMessage(error instanceof Error ? error.message : "수집 설정을 저장하지 못했습니다."); }
   }
 
@@ -64,6 +66,33 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
       if (!response.ok) throw new Error(payload.message ?? "수집을 실행하지 못했습니다.");
       setCollectorMessage(`${payload.fetchedCount ?? 0}개 확인 · ${payload.observationCount ?? 0}개 관찰 · ${payload.monitoredCount ?? 0}개 모니터 · ${payload.rejectedCount ?? 0}개 기각 · ${payload.candidateCount ?? 0}개 검토 후보`); setCollectorState("idle"); await refreshCollectors();
     } catch (error) { setCollectorState("failed"); setCollectorMessage(error instanceof Error ? error.message : "수집을 실행하지 못했습니다."); }
+  }
+
+  async function changeCollector(sourceId: string, action: "pause" | "resume" | "archive") {
+    if (action === "archive" && !window.confirm("이 수집 설정을 목록에서 보관할까요? 과거 근거와 실행 기록은 유지됩니다.")) return;
+    setCollectorState("loading"); setCollectorMessage("");
+    try {
+      const response = await fetch(`/api/manage/collectors/${encodeURIComponent(sourceId)}`, {
+        method: action === "archive" ? "DELETE" : "PATCH",
+        credentials: "same-origin", cache: "no-store",
+        headers: { "content-type": "application/json", "x-riskshield-csrf": csrfToken },
+        body: action === "archive" ? undefined : JSON.stringify({ enabled: action === "resume" }),
+      });
+      const payload = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(payload.message ?? "수집 설정을 변경하지 못했습니다.");
+      setCollectorMessage(payload.message ?? "수집 설정을 변경했습니다."); setCollectorState("idle"); await refreshCollectors();
+    } catch (error) { setCollectorState("failed"); setCollectorMessage(error instanceof Error ? error.message : "수집 설정을 변경하지 못했습니다."); }
+  }
+
+  function editCollector(source: Record<string, unknown>) {
+    setEditingId(String(source.id));
+    setEditingEnabled(Boolean(source.enabled));
+    setProvider(String(source.provider) as typeof provider);
+    setCollectorLabel(String(source.label));
+    setQuery(String(source.query));
+    setEndpoint(typeof source.endpoint === "string" ? source.endpoint : "");
+    setIntervalMinutes(Number(source.interval_minutes) || 360);
+    setCollectorMessage("수집 설정을 편집하고 있습니다.");
   }
 
   async function submit(event: FormEvent) {
@@ -105,9 +134,9 @@ export function CommunityCollector({ csrfToken }: { csrfToken: string }) {
       </div>
       {provider === "mastodon" ? <label className="formField">공개 Mastodon 인스턴스<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://mastodon.social" required /><small>검색어에는 #을 제외한 해시태그 하나만 입력하세요.</small></label> : null}
       {provider === "dcinside" ? <label className="formField">공개 피드·검색 주소<input type="url" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://...dcinside.com/.../{query}" required /></label> : null}
-      <div className="trainingRunActions"><button className="pressable" type="submit" disabled={collectorState === "loading" || youtubeInputInvalid}>{collectorState === "loading" ? "처리 중…" : "예약 수집 켜기"}</button></div>
+      <div className="trainingRunActions"><button className="pressable" type="submit" disabled={collectorState === "loading" || youtubeInputInvalid}>{collectorState === "loading" ? "처리 중…" : editingId ? "수집 설정 저장" : "예약 수집 켜기"}</button>{editingId ? <button className="pressable secondaryButton" type="button" onClick={() => setEditingId(null)}>편집 취소</button> : null}</div>
       {collectorMessage ? <p className={collectorState === "failed" ? "configurationNote" : "collectorSuccess"} role={collectorState === "failed" ? "alert" : "status"}>{collectorMessage}</p> : null}
-      <div className="collectorSourceList">{sources.length ? sources.map((source) => <article key={String(source.id)}><div><strong>{String(source.label)}</strong><span>{String(source.provider).toUpperCase()} · {String(source.query)}</span></div><div><span className="statusPill" data-tone={source.last_status === "failed" ? "critical" : source.last_status === "succeeded" ? "success" : "info"}>{statusLabel(source.last_status)}</span><button className="pressable secondaryButton" type="button" onClick={() => runCollector(String(source.id))} disabled={collectorState === "loading"}>지금 수집</button></div><small>{source.last_message ? String(source.last_message) : "아직 실행 기록이 없습니다."}</small></article>) : <p className="analysisMethodNote">등록된 자동 수집처가 없습니다. YouTube 공개 댓글을 주요 표본으로, Bluesky·Mastodon은 보조 관찰로 연결해 보세요.</p>}</div>
+      <div className="collectorSourceList">{sources.length ? sources.map((source) => <article key={String(source.id)}><div><strong>{String(source.label)}</strong><span>{String(source.provider).toUpperCase()} · {String(source.query)}</span></div><div><span className="statusPill" data-tone={source.enabled ? "success" : "info"}>{source.enabled ? "예약 중" : "일시중지"}</span><span className="statusPill" data-tone={source.last_status === "failed" ? "critical" : source.last_status === "succeeded" ? "success" : "info"}>{statusLabel(source.last_status)}</span><button className="pressable secondaryButton" type="button" onClick={() => runCollector(String(source.id))} disabled={collectorState === "loading"}>지금 수집</button><button className="pressable secondaryButton" type="button" onClick={() => editCollector(source)} disabled={collectorState === "loading"}>수정</button><button className="pressable secondaryButton" type="button" onClick={() => changeCollector(String(source.id), source.enabled ? "pause" : "resume")} disabled={collectorState === "loading"}>{source.enabled ? "일시중지" : "다시 켜기"}</button><button className="pressable secondaryButton" type="button" onClick={() => changeCollector(String(source.id), "archive")} disabled={collectorState === "loading"}>보관</button></div><small>{source.last_message ? String(source.last_message) : "아직 실행 기록이 없습니다."}</small></article>) : <p className="analysisMethodNote">등록된 자동 수집처가 없습니다. YouTube 공개 댓글을 주요 표본으로, Bluesky·Mastodon은 보조 관찰로 연결해 보세요.</p>}</div>
       {runs.length ? <p className="analysisMethodNote">최근 실행 {runs.length}건 · 마지막 실행 {String(runs[0]?.finished_at ?? "없음")}</p> : null}
     </form>
     <details className="managementCard secondaryWorkflow">

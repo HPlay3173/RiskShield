@@ -15,21 +15,19 @@ export type AreaShellProps = {
 };
 
 const managementNavigation = [
-  { href: "/manage", label: "관리 홈", description: "현재 상태와 다음 작업", group: "시작" },
-  { href: "/manage/review", label: "후보 검토", description: "새 표현을 사람이 판단", group: "핵심 작업" },
-  { href: "/manage/skills", label: "위험 표현 DB", description: "활성 규칙과 수정 이력", group: "핵심 작업" },
-  { href: "/manage/collect", label: "커뮤니티 수집", description: "자동 수집과 공개 글 등록", group: "데이터 추가" },
-  { href: "/manage/datasets", label: "CSV 등록", description: "정리된 표현 자료 추가", group: "데이터 추가" },
-  { href: "/manage/training", label: "후보 생성", description: "등록 데이터에서 후보 찾기", group: "데이터 추가" },
-  { href: "/manage/evaluation", label: "품질 평가", description: "정확도 측정과 점수 보정", group: "확인" },
-  { href: "/manage/audit", label: "변경 기록", description: "결정과 변경 이력", group: "운영" },
-  { href: "/manage/access", label: "팀원·권한", description: "관리 사용자 설정", group: "운영" },
+  { href: "/manage", label: "관리 홈", description: "현재 상태와 다음 작업", group: "핵심 흐름" },
+  { href: "/manage/review", label: "검토함", description: "새 표현을 사람이 판단", group: "핵심 흐름" },
+  { href: "/manage/skills", label: "위험 규칙", description: "분석기에 반영된 지식", group: "핵심 흐름" },
+  { href: "/manage/materials", label: "자료 추가", description: "CSV·공개 글에서 후보 생성", group: "핵심 흐름" },
+  { href: "/manage/test", label: "테스트", description: "규칙 엔진 탐지 품질 확인", group: "핵심 흐름" },
 ] as const;
 
 const legacyMap: Record<string, string> = {
   "/admin/review": "/manage/review", "/admin/skills": "/manage/skills", "/admin/trends": "/manage/trends", "/admin/audit": "/manage/audit",
   "/dev/datasets": "/manage/datasets", "/dev/training": "/manage/training", "/dev/evaluation": "/manage/evaluation", "/dev/models": "/manage/models", "/dev/audit": "/manage/audit",
   "/owner/access": "/manage/access",
+  "/manage/datasets": "/manage/materials", "/manage/training": "/manage/materials",
+  "/manage/evaluation": "/manage/test",
 };
 
 function normalizedPath(href: string) {
@@ -57,7 +55,7 @@ function UnifiedManagementShell(props: AreaShellProps) {
       navigation={navigationFor(props.currentHref)}
       identity={identityFor(props.principal)}
       actions={props.actions}
-      navigationFooter={props.navigationFooter ?? <Link href="/">공개 분석기로 돌아가기</Link>}
+      navigationFooter={props.navigationFooter ?? <><Link href="/manage/labs">Labs · 실험 기능</Link><Link href="/manage/settings">설정</Link><Link href="/">공개 분석기로 돌아가기</Link></>}
       className={props.className}
     >{props.children}</ManagementShell>
   );

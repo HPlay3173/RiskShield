@@ -22,6 +22,24 @@ export type ExpressionSemanticRole =
   | "unknown";
 
 export type SearchVerificationDecision = "reject" | "monitor" | "send_to_review";
+export type StoredVerificationDecision = SearchVerificationDecision | "error";
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+export function verificationNextCheckAt(decision: StoredVerificationDecision, errorCount: number, now: string) {
+  const started = Date.parse(now);
+  const delay = decision === "reject" ? 30 * DAY_MS
+    : decision === "monitor" || decision === "send_to_review" ? 3 * DAY_MS
+      : [60 * 60 * 1_000, 6 * 60 * 60 * 1_000, DAY_MS][Math.min(Math.max(errorCount - 1, 0), 2)];
+  return new Date(started + delay).toISOString();
+}
+
+export function verificationShouldRun(previous: { decision: StoredVerificationDecision; nextCheckAt: string; verifiedObservationCount: number } | null, observationCount: number, now: string) {
+  if (!previous) return true;
+  if (previous.decision === "send_to_review") return false;
+  if (Date.parse(previous.nextCheckAt) > Date.parse(now)) return false;
+  if (previous.decision === "monitor" && observationCount < previous.verifiedObservationCount + 2) return false;
+  return true;
+}
 
 export type QualificationGateInput = {
   observationCount: number;

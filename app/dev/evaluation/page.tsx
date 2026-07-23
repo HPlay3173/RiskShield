@@ -8,8 +8,8 @@ export async function renderEvaluationPage(returnTo = "/dev/evaluation") {
     <DeveloperShell
       currentHref="/dev/evaluation"
       principal={presentation}
-      title="품질 확인"
-      description="사람이 정답을 붙인 실제 문장으로 현재 활성 규칙의 정확도·오탐·미탐을 측정하고, 최소 표본 기준을 통과한 점수 보정만 선택적으로 적용합니다."
+      title="규칙 엔진 테스트"
+      description="사람이 정답을 붙인 문장으로 현재 활성 규칙의 정확도·정밀도·재현율과 오탐·미탐을 확인합니다. AI를 포함한 전체 시스템 정확도나 보정 확률은 아닙니다."
     >
       <EvaluationWorkbench csrfToken={principal.csrfToken} />
     </DeveloperShell>

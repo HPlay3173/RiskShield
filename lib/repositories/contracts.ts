@@ -80,12 +80,70 @@ export type SkillAdminRecord = {
   validationIssues: readonly string[];
 };
 
+export type CandidateSemanticRole =
+  | "harmful_expression"
+  | "coded_expression"
+  | "target_entity"
+  | "proper_noun"
+  | "common_word"
+  | "quantity_or_date"
+  | "reaction"
+  | "unknown";
+
+export type CandidateOrigin =
+  | {
+      type: "user_feedback";
+      reportType: "missed_detection" | "false_positive" | "new_expression";
+    }
+  | {
+      type: "dataset";
+      runId: string;
+      datasetVersionId: string;
+      sourceSha256: string;
+    }
+  | {
+      type: "collector";
+      qualityGateVersion: string;
+      providers: readonly string[];
+      sourceIds: readonly string[];
+    };
+
+export type CandidateQualificationInfo = {
+  disposition: "reject" | "monitor" | "review";
+  role: CandidateSemanticRole;
+  riskFamily?: import("../risk-family").ScorableRiskFamily | null;
+  confidence: number;
+  reason: string;
+  directUseCount?: number;
+  contextualUseCount?: number;
+  distinctAuthorCount: number;
+  distinctPlatformCount?: number;
+  observationCount: number;
+};
+
+export type CandidateSearchVerificationInfo = {
+  decision: "reject" | "monitor" | "send_to_review";
+  role: CandidateSemanticRole;
+  meaning: string | null;
+  riskFamily: import("../risk-family").ScorableRiskFamily | null;
+  confidence: number;
+  directUseSupported: boolean;
+  reason: string;
+  queries: readonly string[];
+  sources: readonly { uri: string; title: string }[];
+  verifiedAt?: string;
+};
+
 export type CandidateRecord = {
   id: string;
   expression: string;
   riskFamily?: import("../risk-family").ScorableRiskFamily;
   riskDomain: string;
-  reportType?: "missed_detection" | "false_positive" | "new_expression";
+  reportType?: "missed_detection" | "false_positive" | "new_expression" | "collector_discovery";
+  origin?: CandidateOrigin;
+  qualityGateVersion?: string;
+  qualification?: CandidateQualificationInfo;
+  searchVerification?: CandidateSearchVerificationInfo;
   status: "pending" | "approved" | "merged" | "held" | "rejected";
   noveltyScore: number | null;
   confidence: number | null;

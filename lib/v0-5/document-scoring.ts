@@ -6,8 +6,8 @@ import {
   type DeterministicScoreResult,
 } from "./scoring";
 
-export const DOCUMENT_SCORING_POLICY_VERSION = "4.0.0" as const;
-export const MAX_DOCUMENT_CLAIMS = 6;
+export const DOCUMENT_SCORING_POLICY_VERSION = "4.1.0" as const;
+export const MAX_DOCUMENT_CLAIMS = 20;
 
 export type ClaimSegment = {
   id: string;
@@ -98,15 +98,8 @@ export function aggregateDocumentScore(claims: readonly ClaimScore[]): DocumentS
   const risky = [...uniqueRisky.values()]
     .sort((left, right) => right.scoring.finalScore - left.scoring.finalScore || left.start - right.start);
   const top = risky[0]?.scoring ?? null;
-  const additional = risky.slice(1).filter((claim) => claim.scoring.finalScore >= 40);
-  const aggregateBonus = Math.min(
-    12,
-    additional.reduce(
-      (sum, claim) => sum + Math.min(4, Math.max(1, Math.round((claim.scoring.finalScore - 30) * 0.08))),
-      0,
-    ),
-  );
-  const finalScore = top ? Math.min(100, top.finalScore + aggregateBonus) : 0;
+  const aggregateBonus = 0;
+  const finalScore = top?.finalScore ?? 0;
   const conflict = risky.some((claim) => claim.scoring.conflict);
   const highRequiresReview = Boolean(top?.highRequiresReview);
   const status = !top ? "no_match" as const
@@ -124,11 +117,8 @@ export function aggregateDocumentScore(claims: readonly ClaimScore[]): DocumentS
     confidence: top?.confidence ?? null,
     highRequiresReview,
     conflict,
-    decisionReasons: [
-      ...(top?.decisionReasons ?? []),
-      ...(additional.length ? ["independent_claims_aggregated"] : []),
-    ],
-    formula: "highest independent claim + capped bonus from other unique risky claims",
+    decisionReasons: top?.decisionReasons ?? [],
+    formula: "highest independent claim only; other risky claims are reported without score bonuses",
     experimental: true,
     claimCount: claims.length,
     riskyClaimCount: risky.length,
@@ -144,9 +134,7 @@ export function documentDecisionReason(result: DocumentScore) {
   if (result.status === "no_match") return "입력한 주장별 분석에서 직접 위험 근거를 확인하지 못했습니다.";
   if (result.conflict) return "일부 주장에서 규칙과 AI 문맥 신호가 충돌해 사람 검토로 전환했습니다.";
   if (result.highRequiresReview) return "높은 AI 신호가 있지만 같은 주장에 연결된 규칙 근거가 부족해 사람 확인이 필요합니다.";
-  if (result.status === "high") return result.riskyClaimCount > 1
-    ? `${result.riskyClaimCount}개의 독립 위험 주장을 함께 반영해 높은 위험으로 분류했습니다.`
-    : "가장 위험한 독립 주장에 규칙과 문맥 근거가 높은 위험을 가리킵니다.";
+  if (result.status === "high") return "가장 위험한 독립 주장에 규칙과 문맥 근거가 높은 위험을 가리킵니다.";
   if (result.status === "attention") return "하나 이상의 독립 주장에서 직접 위험 근거가 확인되어 주의가 필요합니다.";
   return "위험 관련 근거가 있으나 자동 결론보다 사람 검토가 적절합니다.";
 }

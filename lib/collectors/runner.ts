@@ -3,8 +3,9 @@ import { GoogleTrainingDraftProvider } from "../training/google-draft-provider";
 import type { TrainingDraft } from "../training/mvp";
 import { GoogleCollectorQualificationProvider, type QualificationAssessment } from "./google-qualification-provider";
 import { GoogleCollectorSearchVerificationProvider, type SearchVerification } from "./google-search-verification-provider";
-import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, roleCanBecomeCandidate, searchVerificationGate, type ObservationContextLabel } from "./quality";
+import { buildXRecentQuery, isHardRejectedExpression, newestNumericId, normalizeCollectedExpression, parseApprovedFeedEntries, qualificationGate, roleCanBecomeCandidate, searchVerificationGate, verificationNextCheckAt, verificationShouldRun, type ObservationContextLabel } from "./quality";
 import { parseYouTubeVideoInput } from "./youtube";
+import { collectedPostFingerprint } from "./identity";
 
 export type CollectorProvider = "youtube" | "bluesky" | "mastodon" | "x" | "threads" | "dcinside";
 
@@ -50,6 +51,7 @@ export type ExpressionGroup = {
   postIds: Set<string>;
   authorHashes: Set<string>;
   sourceIds: Set<string>;
+  providers: Set<CollectorProvider>;
   evidence: Array<{ id: string; excerpt: string; url: string | null; publishedAt: string | null; label: ObservationContextLabel }>;
   score: number;
 };
@@ -58,6 +60,25 @@ const MAX_POSTS_PER_RUN = 100;
 const MAX_CANDIDATES_PER_RUN = 12;
 const MAX_SEARCH_VERIFICATIONS_PER_RUN = 6;
 const MAX_STORED_EXCERPT_CHARS = 420;
+export const COLLECTOR_QUALITY_GATE_VERSION = "collector-semantic-search-v1";
+
+type StoredExpressionVerification = {
+  normalized_expression: string;
+  decision: "reject" | "monitor" | "send_to_review" | "error";
+  semantic_role: string | null;
+  risk_family: string | null;
+  meaning: string | null;
+  reason: string | null;
+  confidence: number | null;
+  direct_use_supported: number;
+  queries_json: string;
+  sources_json: string;
+  verified_observation_count: number;
+  verified_at: string;
+  next_check_at: string;
+  error_count: number;
+};
+
 const COMMON_TOKENS = new Set([
   "그리고", "그러나", "하지만", "그래서", "또한", "대한", "있는", "없는", "있다", "없다", "합니다", "입니다",
   "했다", "한다", "하는", "되는", "같은", "정말", "너무", "오늘", "이번", "이런", "저런", "그런", "우리", "여러분",
@@ -339,7 +360,7 @@ async function saveObservations(posts: StoredPost[], source: CollectorSource, ex
 
 async function recentExpressionGroups(env: CollectorEnvironment) {
   const rows = await env.DB.prepare(`
-    SELECT id, normalized_expression, display_expression, source_id, post_id, author_hash, redacted_excerpt, source_url,
+    SELECT id, normalized_expression, display_expression, source_id, provider, post_id, author_hash, redacted_excerpt, source_url,
            published_at, context_label
     FROM riskshield_expression_observations
     WHERE datetime(created_at) >= datetime('now', '-14 days')
@@ -349,15 +370,16 @@ async function recentExpressionGroups(env: CollectorEnvironment) {
   const groups = new Map<string, ExpressionGroup>();
   for (const row of rows.results ?? []) {
     const normalized = String(row.normalized_expression);
-    const current = groups.get(normalized) ?? { expression: String(row.display_expression), normalized, postIds: new Set<string>(), authorHashes: new Set<string>(), sourceIds: new Set<string>(), evidence: [], score: 0 };
+    const current = groups.get(normalized) ?? { expression: String(row.display_expression), normalized, postIds: new Set<string>(), authorHashes: new Set<string>(), sourceIds: new Set<string>(), providers: new Set<CollectorProvider>(), evidence: [], score: 0 };
     current.postIds.add(String(row.post_id)); current.sourceIds.add(String(row.source_id));
+    current.providers.add(row.provider as CollectorProvider);
     if (typeof row.author_hash === "string" && row.author_hash) current.authorHashes.add(row.author_hash);
     if (current.evidence.length < 6) current.evidence.push({ id: String(row.id), excerpt: String(row.redacted_excerpt), url: typeof row.source_url === "string" ? row.source_url : null, publishedAt: typeof row.published_at === "string" ? row.published_at : null, label: String(row.context_label) as ObservationContextLabel });
     current.score = current.postIds.size * 10 + current.authorHashes.size * 8 + current.sourceIds.size * 6;
     groups.set(normalized, current);
   }
   return [...groups.values()]
-    .filter((group) => (group.postIds.size >= 3 || group.sourceIds.size >= 2) && group.authorHashes.size >= 2)
+    .filter((group) => (group.postIds.size >= 3 || group.providers.size >= 2) && group.authorHashes.size >= 2)
     .sort((left, right) => right.score - left.score || left.expression.localeCompare(right.expression, "ko"))
     .slice(0, MAX_CANDIDATES_PER_RUN);
 }
@@ -393,25 +415,105 @@ async function persistAssessment(group: ExpressionGroup, assessment: Qualificati
 function passesQualification(group: ExpressionGroup, assessment: QualificationAssessment) {
   const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
   const contextual = group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).length;
-  return qualificationGate({ observationCount: group.postIds.size, distinctAuthorCount: group.authorHashes.size, distinctSourceCount: group.sourceIds.size, directEvidenceCount: direct, contextualEvidenceCount: contextual, confidence: assessment.confidence, disposition: assessment.disposition });
+  return qualificationGate({ observationCount: group.postIds.size, distinctAuthorCount: group.authorHashes.size, distinctSourceCount: group.providers.size, directEvidenceCount: direct, contextualEvidenceCount: contextual, confidence: assessment.confidence, disposition: assessment.disposition });
 }
 
-async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }>, env: CollectorEnvironment) {
+function parseStoredVerification(row: StoredExpressionVerification): SearchVerification | null {
+  if (row.decision !== "send_to_review" || !row.semantic_role || !row.risk_family || row.confidence === null) return null;
+  try {
+    const queries = JSON.parse(row.queries_json) as unknown;
+    const sources = JSON.parse(row.sources_json) as unknown;
+    if (!Array.isArray(queries) || !Array.isArray(sources)) return null;
+    return {
+      normalized: row.normalized_expression,
+      decision: "send_to_review",
+      role: row.semantic_role as SearchVerification["role"],
+      riskFamily: row.risk_family as SearchVerification["riskFamily"],
+      meaning: row.meaning,
+      confidence: row.confidence,
+      directUseSupported: Boolean(row.direct_use_supported),
+      reason: row.reason ?? "이전에 완료한 검색 검증을 재사용했습니다.",
+      queries: queries.filter((value): value is string => typeof value === "string"),
+      sources: sources.filter((value): value is SearchVerification["sources"][number] => Boolean(value) && typeof value === "object" && typeof (value as { uri?: unknown }).uri === "string" && typeof (value as { title?: unknown }).title === "string"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function storedVerification(normalized: string, env: CollectorEnvironment) {
+  return env.DB.prepare(`SELECT normalized_expression, decision, semantic_role, risk_family, meaning, reason, confidence,
+      direct_use_supported, queries_json, sources_json, verified_observation_count, verified_at, next_check_at, error_count
+    FROM riskshield_expression_verifications
+    WHERE normalized_expression = ? AND quality_gate_version = ? LIMIT 1`)
+    .bind(normalized, COLLECTOR_QUALITY_GATE_VERSION).first<StoredExpressionVerification>();
+}
+
+async function persistVerification(group: ExpressionGroup, verification: SearchVerification, env: CollectorEnvironment, now: string) {
+  const evidenceFingerprint = await digestId(group.evidence.map((item) => item.id).sort().join("\n"));
+  const nextCheckAt = verificationNextCheckAt(verification.decision, 0, now);
+  await env.DB.prepare(`INSERT INTO riskshield_expression_verifications
+      (normalized_expression, quality_gate_version, decision, semantic_role, risk_family, meaning, reason, confidence,
+       direct_use_supported, queries_json, sources_json, evidence_fingerprint, verified_observation_count, verified_at,
+       next_check_at, last_error, error_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+    ON CONFLICT(normalized_expression, quality_gate_version) DO UPDATE SET
+      decision = excluded.decision, semantic_role = excluded.semantic_role, risk_family = excluded.risk_family,
+      meaning = excluded.meaning, reason = excluded.reason, confidence = excluded.confidence,
+      direct_use_supported = excluded.direct_use_supported, queries_json = excluded.queries_json,
+      sources_json = excluded.sources_json, evidence_fingerprint = excluded.evidence_fingerprint,
+      verified_observation_count = excluded.verified_observation_count, verified_at = excluded.verified_at,
+      next_check_at = excluded.next_check_at, last_error = NULL, error_count = 0`)
+    .bind(group.normalized, COLLECTOR_QUALITY_GATE_VERSION, verification.decision, verification.role,
+      verification.riskFamily, verification.meaning, verification.reason, verification.confidence,
+      verification.directUseSupported ? 1 : 0, JSON.stringify(verification.queries), JSON.stringify(verification.sources),
+      evidenceFingerprint, group.postIds.size, now, nextCheckAt).run();
+}
+
+async function persistVerificationError(group: ExpressionGroup, previous: StoredExpressionVerification | null, error: unknown, env: CollectorEnvironment, now: string) {
+  const errorCount = (previous?.error_count ?? 0) + 1;
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "search_verification_unavailable";
+  await env.DB.prepare(`INSERT INTO riskshield_expression_verifications
+      (normalized_expression, quality_gate_version, decision, verified_observation_count, verified_at, next_check_at, last_error, error_count)
+    VALUES (?, ?, 'error', ?, ?, ?, ?, ?)
+    ON CONFLICT(normalized_expression, quality_gate_version) DO UPDATE SET
+      decision = 'error', verified_observation_count = excluded.verified_observation_count,
+      verified_at = excluded.verified_at, next_check_at = excluded.next_check_at,
+      last_error = excluded.last_error, error_count = excluded.error_count`)
+    .bind(group.normalized, COLLECTOR_QUALITY_GATE_VERSION, group.postIds.size, now,
+      verificationNextCheckAt("error", errorCount, now), code, errorCount).run();
+  return code;
+}
+
+async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; assessment: QualificationAssessment }>, env: CollectorEnvironment, now: string) {
   const provider = new GoogleCollectorSearchVerificationProvider(env.RISKSHIELD_INTERPRETER_API_KEY ?? "");
   const verifications = new Map<string, SearchVerification>();
-  if (!provider.configured || !groups.length) return { verifications, state: "not_configured" as const };
-  let state = "ready";
-  for (const { group, assessment } of groups.slice(0, MAX_SEARCH_VERIFICATIONS_PER_RUN)) {
+  if (!groups.length) return { verifications, state: provider.configured ? "ready" as const : "not_configured" as const };
+  let state = provider.configured ? "ready" : "not_configured";
+  let providerCalls = 0;
+  for (const { group, assessment } of groups) {
     if (assessment.role !== "unknown" && !roleCanBecomeCandidate(assessment.role)) continue;
+    const previous = await storedVerification(group.normalized, env);
+    const cached = previous ? parseStoredVerification(previous) : null;
+    if (cached && passesSearchVerification(group, cached)) {
+      verifications.set(group.normalized, cached);
+      continue;
+    }
+    const policyRecord = previous ? { decision: cached ? "monitor" as const : previous.decision, nextCheckAt: previous.next_check_at, verifiedObservationCount: previous.verified_observation_count } : null;
+    if (!verificationShouldRun(policyRecord, group.postIds.size, now) || providerCalls >= MAX_SEARCH_VERIFICATIONS_PER_RUN) continue;
+    if (!provider.configured) continue;
     try {
+      providerCalls += 1;
       const verification = await provider.verify({
         expression: group.expression,
         normalized: group.normalized,
         evidence: group.evidence.map(({ id, excerpt }) => ({ id, excerpt })),
       }, AbortSignal.timeout(20_000));
-      verifications.set(group.normalized, verification);
+      const passed = passesSearchVerification(group, verification);
+      await persistVerification(group, passed ? verification : { ...verification, decision: "monitor" }, env, now);
+      if (passed) verifications.set(group.normalized, verification);
     } catch (error) {
-      state = error && typeof error === "object" && "code" in error ? String(error.code) : "search_verification_unavailable";
+      state = await persistVerificationError(group, previous, error, env, now);
     }
   }
   return { verifications, state };
@@ -419,7 +521,7 @@ async function verifyQualifiedGroups(groups: Array<{ group: ExpressionGroup; ass
 
 function passesSearchVerification(group: ExpressionGroup, verification: SearchVerification) {
   const direct = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
-  const strongLocalEvidence = direct >= 3 && group.authorHashes.size >= 3 && group.sourceIds.size >= 2;
+  const strongLocalEvidence = direct >= 3 && group.authorHashes.size >= 3 && group.providers.size >= 2;
   return searchVerificationGate({
     decision: verification.decision,
     role: verification.role,
@@ -471,6 +573,8 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     .filter((value, index, values) => values.findIndex((candidate) => candidate.url === value.url && candidate.title === value.title) === index)
     .slice(-8);
   const sourceCount = Math.min(10_000, Number(previous.sourceCount ?? 0) + group.postIds.size);
+  const directUseCount = group.evidence.filter((item) => ["direct_attack", "group_discrimination", "threat", "coded_reference"].includes(item.label)).length;
+  const contextualUseCount = group.evidence.filter((item) => ["quotation", "warning", "definition", "benign"].includes(item.label)).length;
   const payload = {
     ...previous,
     id: candidateId,
@@ -478,6 +582,12 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     riskFamily: verification.riskFamily,
     riskDomain: "자동 수집 · 의미·검색 검증 통과",
     reportType: "collector_discovery",
+    origin: {
+      type: "collector",
+      qualityGateVersion: COLLECTOR_QUALITY_GATE_VERSION,
+      providers: [...group.providers],
+      sourceIds: [...group.sourceIds],
+    },
     status: "pending",
     noveltyScore: null,
     confidence: assessment.confidence,
@@ -493,9 +603,9 @@ async function saveCandidate(group: ExpressionGroup, source: CollectorSource, en
     modelConflict: null,
     policyChange: null,
     draft: draft ?? previous.draft ?? null,
-    qualification: { disposition: assessment.disposition, role: assessment.role, reason: assessment.reason, confidence: assessment.confidence, distinctAuthors: group.authorHashes.size, distinctSources: group.sourceIds.size, observationCount: group.postIds.size },
-    searchVerification: { decision: verification.decision, role: verification.role, riskFamily: verification.riskFamily, meaning: verification.meaning, reason: verification.reason, confidence: verification.confidence, directUseSupported: verification.directUseSupported, queries: verification.queries, sources: verification.sources },
-    qualityGateVersion: "collector-semantic-search-v1",
+    qualification: { disposition: assessment.disposition, role: assessment.role, riskFamily: assessment.riskFamily, reason: assessment.reason, confidence: assessment.confidence, directUseCount, contextualUseCount, distinctAuthorCount: group.authorHashes.size, distinctPlatformCount: group.providers.size, observationCount: group.postIds.size },
+    searchVerification: { decision: verification.decision, role: verification.role, riskFamily: verification.riskFamily, meaning: verification.meaning, reason: verification.reason, confidence: verification.confidence, directUseSupported: verification.directUseSupported, queries: verification.queries, sources: verification.sources, verifiedAt: now },
+    qualityGateVersion: COLLECTOR_QUALITY_GATE_VERSION,
     lineage: { collectorSourceId: source.id, provider: source.provider, lastCollectedAt: now, observationWindowDays: 14 },
     sources,
     retentionDeadline: new Date(Date.parse(now) + 30 * 24 * 60 * 60 * 1_000).toISOString(),
@@ -536,17 +646,21 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
       const prepared = prepareInterpreterInput(post.text, 2_000);
       const excerpt = boundedExcerpt(prepared.modelText);
       if (!excerpt) continue;
-      const postHash = await digestId(`${source.id}:${post.externalId}`);
-      const postId = `collected_${postHash.slice(0, 32)}`;
+      const postFingerprint = await collectedPostFingerprint(source.provider, post.externalId);
+      const existingPost = await env.DB.prepare("SELECT id FROM riskshield_collected_posts_v3 WHERE post_fingerprint = ? OR (provider = ? AND external_id = ?) LIMIT 1")
+        .bind(postFingerprint, source.provider, post.externalId).first<{ id: string }>();
+      const postId = existingPost?.id ?? `collected_${postFingerprint.slice(0, 32)}`;
       const authorHash = await authorHashFor(post, source, env);
-      const inserted = await env.DB.prepare(`
-        INSERT INTO riskshield_collected_posts_v3
-          (id, source_id, provider, external_id, text, source_url, published_at, collected_at, author_hash, candidate_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-        ON CONFLICT(source_id, external_id) DO NOTHING
-      `).bind(postId, source.id, source.provider, post.externalId, excerpt, post.url, post.publishedAt, startedAt, authorHash).run();
-      if (!inserted.meta.changes) continue;
-      newCount += 1;
+      if (!existingPost) {
+        const inserted = await env.DB.prepare(`
+          INSERT INTO riskshield_collected_posts_v3
+            (id, source_id, provider, external_id, text, source_url, published_at, collected_at, author_hash, candidate_id, post_fingerprint)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+          ON CONFLICT(post_fingerprint) DO NOTHING
+        `).bind(postId, source.id, source.provider, post.externalId, excerpt, post.url, post.publishedAt, startedAt, authorHash, postFingerprint).run();
+        if (!inserted.meta.changes) continue;
+        newCount += 1;
+      }
       storedPosts.push({ ...post, postId, excerpt, authorHash });
     }
     const excluded = await knownExpressions(env.DB);
@@ -563,7 +677,7 @@ export async function runCollectorSource(source: CollectorSource, env: Collector
       if (passesQualification(group, assessment)) qualifiedGroups.push({ group, assessment });
       else monitoredCount += 1;
     }
-    const searched = await verifyQualifiedGroups(qualifiedGroups, env);
+    const searched = await verifyQualifiedGroups(qualifiedGroups, env, startedAt);
     const reviewGroups = qualifiedGroups.flatMap(({ group, assessment }) => {
       const verification = searched.verifications.get(group.normalized);
       return verification && passesSearchVerification(group, verification) ? [{ group, assessment, verification }] : [];
@@ -611,7 +725,7 @@ export async function runDueCollectors(env: CollectorEnvironment) {
   const rows = await env.DB.prepare(`
     SELECT id, provider, label, query, endpoint, enabled, interval_minutes, cursor, last_run_at
     FROM riskshield_collector_sources_v3
-    WHERE enabled = 1 AND (last_run_at IS NULL OR datetime(last_run_at, '+' || interval_minutes || ' minutes') <= datetime('now'))
+    WHERE enabled = 1 AND archived_at IS NULL AND (last_run_at IS NULL OR datetime(last_run_at, '+' || interval_minutes || ' minutes') <= datetime('now'))
     ORDER BY COALESCE(last_run_at, '') ASC LIMIT 12
   `).all<Record<string, unknown>>();
   const results = [];
