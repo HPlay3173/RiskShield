@@ -293,8 +293,8 @@ async function enforceRateLimit(request: Request, runtime: RuntimeEnvironment) {
   const day = utcDay();
   if (!runtime.DB) {
     return developmentRuleFallback(runtime)
-      ? null
-      : json({ error: "rate_limit_storage_unavailable", message: "요청 제한 저장소를 사용할 수 없습니다." }, 503);
+      ? { response: null, aiFallbackReason: null }
+      : { response: json({ error: "rate_limit_storage_unavailable", message: "요청 제한 저장소를 사용할 수 없습니다." }, 503), aiFallbackReason: null };
   }
   let bucket: { day_count: number; window_started_at: number; window_count: number } | null;
   try {
@@ -325,22 +325,23 @@ async function enforceRateLimit(request: Request, runtime: RuntimeEnvironment) {
     `).bind(key, day, now, new Date(now).toISOString(), BURST_WINDOW_MS, BURST_WINDOW_MS)
       .first<{ day_count: number; window_started_at: number; window_count: number }>();
   } catch {
-    if (developmentRuleFallback(runtime)) return null;
-    return json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503);
+    if (developmentRuleFallback(runtime)) return { response: null, aiFallbackReason: null };
+    return { response: json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503), aiFallbackReason: null };
   }
-  if (!bucket) return json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503);
+  if (!bucket) return { response: json({ error: "rate_limit_unavailable", message: "요청 제한을 확인하지 못했습니다." }, 503), aiFallbackReason: null };
   const burstBlocked = bucket.window_count > BURST_LIMIT;
   const dailyBlocked = bucket.day_count > DAILY_REQUEST_LIMIT;
-  if (burstBlocked || dailyBlocked) {
-    const retryAfter = burstBlocked
-      ? Math.max(1, Math.ceil((bucket.window_started_at + BURST_WINDOW_MS - now) / 1_000))
-      : Math.max(1, Math.ceil((Date.parse(`${day}T00:00:00.000Z`) + 86_400_000 - now) / 1_000));
-    return Response.json(
+  if (burstBlocked) {
+    const retryAfter = Math.max(1, Math.ceil((bucket.window_started_at + BURST_WINDOW_MS - now) / 1_000));
+    return { response: Response.json(
       { error: "rate_limited", message: "요청이 많습니다. 잠시 후 다시 시도해 주세요." },
       { status: 429, headers: { "retry-after": String(retryAfter), "cache-control": "no-store" } },
-    );
+    ), aiFallbackReason: null };
   }
-  return null;
+  return {
+    response: null,
+    aiFallbackReason: dailyBlocked ? "client_daily_ai_limit" : null,
+  };
 }
 
 function unavailableRun(key: string, text: string, reason = "server_secret_unavailable"): InterpreterRun {
@@ -381,6 +382,7 @@ function json(body: unknown, status = 200, extraHeaders: HeadersInit = {}) {
 function publicAiFallback(run: InterpreterRun) {
   if (run.ok) return { reasonCode: null, reasonLabel: null };
   const reason = run.errors.join(" ").toLocaleLowerCase("en-US");
+  if (reason.includes("client_daily_ai_limit")) return { reasonCode: "network_daily_limit", reasonLabel: "이 네트워크의 오늘 AI 분석 한도에 도달해 검토된 규칙만 사용했습니다." };
   if (reason.includes("server_secret_unavailable")) return { reasonCode: "configuration_missing", reasonLabel: "AI 설정이 준비되지 않았습니다." };
   if (reason.includes("budget")) return { reasonCode: "daily_limit", reasonLabel: "오늘의 AI 분석 한도에 도달했습니다." };
   if (reason.includes("concurrency") || reason.includes("saturated")) return { reasonCode: "temporarily_busy", reasonLabel: "AI 분석 요청이 몰려 잠시 사용할 수 없습니다." };
@@ -396,8 +398,8 @@ function publicAiFallback(run: InterpreterRun) {
 
 export async function POST(request: Request) {
   const runtime = await getRuntimeEnvironment();
-  const limited = await enforceRateLimit(request, runtime);
-  if (limited) return limited;
+  const rateLimit = await enforceRateLimit(request, runtime);
+  if (rateLimit.response) return rateLimit.response;
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
     return json({ error: "unsupported_media_type", message: "JSON 요청이 필요합니다." }, 415);
   }
@@ -426,7 +428,7 @@ export async function POST(request: Request) {
   const text = body.text.trim();
   const profile = analysisProfile(body.profile);
   try {
-    const apiKey = runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
+    const apiKey = rateLimit.aiFallbackReason ? "" : runtime.RISKSHIELD_INTERPRETER_API_KEY ?? "";
     const [skills, severityRules] = await Promise.all([
       readReviewedSkills(runtime),
       readSeverityRules(runtime),
@@ -461,7 +463,7 @@ export async function POST(request: Request) {
           );
           writeCached(key, claimRun);
         }
-        claimRun ??= unavailableRun(key, segment.text, "server_secret_unavailable");
+        claimRun ??= unavailableRun(key, segment.text, rateLimit.aiFallbackReason ?? "server_secret_unavailable");
         return { score: scoreClaim(segment, claimRules, claimRun.payload), run: claimRun };
       }));
       for (const item of batch) {
