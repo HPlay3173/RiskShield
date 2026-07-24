@@ -1,32 +1,27 @@
 import { createHash } from "node:crypto";
 
 import type { AnalysisResult } from "../riskshield.ts";
+// @ts-expect-error Node 22 direct TypeScript execution requires the runtime extension.
+import { RISK_FAMILIES, type RiskFamily } from "../risk-family.ts";
 
-export const INTERPRETER_SCHEMA_VERSION = "1.1.0" as const;
-export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-19-v0.4.1-r2" as const;
+// @ts-expect-error Node 22 direct TypeScript execution requires the runtime extension.
+export { RISK_FAMILIES } from "../risk-family.ts";
+export type { RiskFamily } from "../risk-family";
+
+export const INTERPRETER_SCHEMA_VERSION = "1.2.0" as const;
+export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-24-context-risk-r3" as const;
 export const HIGH_CONFIDENCE_THRESHOLD = 0.82;
 export const MEDIUM_CONFIDENCE_THRESHOLD = 0.55;
 export const SAFE_NO_MATCH_CONFIDENCE_THRESHOLD = 0.5;
 export const CONTEXT_SUPPRESSION_CONFIDENCE_THRESHOLD = 0.8;
 
-export const RISK_INTENTS = ["direct_promotional", "contextual_only", "uncertain"] as const;
+export const RISK_INTENTS = ["direct_promotional", "direct_harmful", "contextual_only", "uncertain"] as const;
 export const SPEECH_ACTS = ["claim", "quote", "warning", "criticism", "report", "definition", "condition"] as const;
-export const CLAIM_TARGETS = ["health", "finance", "education", "legal", "privacy", "general", "none"] as const;
+export const CLAIM_TARGETS = ["individual", "protected_group", "regional_group", "community", "health", "finance", "education", "legal", "privacy", "general", "none"] as const;
 export const CONTEXT_RELATIONS = ["supports", "negates", "warns_about", "reports", "defines", "conditions", "unclear"] as const;
-export const ACTORS = ["advertiser", "reporter", "regulator", "consumer", "unknown"] as const;
+export const ACTORS = ["advertiser", "speaker", "reporter", "regulator", "consumer", "unknown"] as const;
 export const CLAIM_STRENGTHS = ["absolute", "strong", "limited", "none", "unclear"] as const;
 export const POLICY_RELEVANCES = ["none", "substantiation", "potentially_high", "uncertain"] as const;
-export const RISK_FAMILIES = [
-  "health_claim",
-  "financial_guarantee",
-  "income_claim",
-  "education_outcome",
-  "legal_outcome",
-  "privacy_intrusion",
-  "urgency",
-  "general_substantiation",
-  "none",
-] as const;
 export const POLICY_REASONS = [
   "DIRECT_ABSOLUTE_CLAIM",
   "DIRECT_STRONG_RESULT",
@@ -49,9 +44,19 @@ export type ContextRelation = typeof CONTEXT_RELATIONS[number];
 export type Actor = typeof ACTORS[number];
 export type ClaimStrength = typeof CLAIM_STRENGTHS[number];
 export type PolicyRelevance = typeof POLICY_RELEVANCES[number];
-export type RiskFamily = typeof RISK_FAMILIES[number];
 export type PolicyReason = typeof POLICY_REASONS[number];
 export type HybridStatus = "no_match" | "review" | "attention" | "high";
+
+export interface InterpreterCategoryAssessment {
+  risk_family: Exclude<RiskFamily, "none">;
+  relevance: 0 | 1 | 2 | 3 | 4;
+  certainty: 0 | 1 | 2 | 3 | 4;
+  harm: 0 | 1 | 2 | 3 | 4;
+  deception: 0 | 1 | 2 | 3 | 4;
+  vulnerability: 0 | 1 | 2 | 3 | 4;
+  privacy_intrusion: 0 | 1 | 2 | 3 | 4;
+  evidence_strength: 0 | 1 | 2 | 3 | 4;
+}
 
 export interface EvidenceSpan {
   start: number;
@@ -74,6 +79,7 @@ export interface InterpreterPayload {
   confidence: number;
   evidence_spans: EvidenceSpan[];
   policy_reason: PolicyReason;
+  category_assessments?: InterpreterCategoryAssessment[];
 }
 
 export interface MaskRange {
@@ -158,7 +164,7 @@ export interface RecordedInterpreterRecord {
 
 export interface HybridDecision {
   status: HybridStatus;
-  score: number;
+  score: number | null;
   conflict: boolean;
   conflictReasons: string[];
   recoveredByInterpreter: boolean;
@@ -195,6 +201,61 @@ const PROVIDER_RESPONSE_KEYS = [
   "evidence_quotes",
   "policy_reason",
 ] as const;
+
+const OPTIONAL_RESPONSE_KEYS = ["category_assessments"] as const;
+const ALLOWED_RESPONSE_KEYS = [...RESPONSE_KEYS, ...OPTIONAL_RESPONSE_KEYS] as const;
+const OPTIONAL_PROVIDER_RESPONSE_KEYS = ["category_assessments"] as const;
+const ALLOWED_PROVIDER_RESPONSE_KEYS = [...PROVIDER_RESPONSE_KEYS, ...OPTIONAL_PROVIDER_RESPONSE_KEYS] as const;
+
+const CATEGORY_ASSESSMENT_PROPERTIES = {
+  risk_family: { type: "string", enum: RISK_FAMILIES.filter((family) => family !== "none") },
+  relevance: { type: "integer", minimum: 0, maximum: 4 },
+  certainty: { type: "integer", minimum: 0, maximum: 4 },
+  harm: { type: "integer", minimum: 0, maximum: 4 },
+  deception: { type: "integer", minimum: 0, maximum: 4 },
+  vulnerability: { type: "integer", minimum: 0, maximum: 4 },
+  privacy_intrusion: { type: "integer", minimum: 0, maximum: 4 },
+  evidence_strength: { type: "integer", minimum: 0, maximum: 4 },
+} as const;
+
+const CATEGORY_ASSESSMENT_KEYS = Object.keys(CATEGORY_ASSESSMENT_PROPERTIES);
+
+function categoryAssessments(value: unknown, errors: string[]): InterpreterCategoryAssessment[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 5) {
+    errors.push("category_assessments must be an array with at most 5 items");
+    return [];
+  }
+  const seen = new Set<string>();
+  const assessments: InterpreterCategoryAssessment[] = [];
+  for (const [index, raw] of value.entries()) {
+    if (!isRecord(raw)) {
+      errors.push(`category_assessments[${index}] must be an object`);
+      continue;
+    }
+    const keys = Object.keys(raw);
+    if (keys.length !== CATEGORY_ASSESSMENT_KEYS.length || !CATEGORY_ASSESSMENT_KEYS.every((key) => keys.includes(key))) {
+      errors.push(`category_assessments[${index}] fields are invalid`);
+      continue;
+    }
+    if (!includesValue(RISK_FAMILIES, raw.risk_family) || raw.risk_family === "none") {
+      errors.push(`category_assessments[${index}].risk_family is invalid`);
+      continue;
+    }
+    if (seen.has(raw.risk_family)) {
+      errors.push(`category_assessments contains duplicate risk_family: ${raw.risk_family}`);
+      continue;
+    }
+    const axes = CATEGORY_ASSESSMENT_KEYS.filter((key) => key !== "risk_family");
+    if (!axes.every((key) => Number.isInteger(raw[key]) && Number(raw[key]) >= 0 && Number(raw[key]) <= 4)) {
+      errors.push(`category_assessments[${index}] axes must be integers from 0 to 4`);
+      continue;
+    }
+    seen.add(raw.risk_family);
+    assessments.push(raw as unknown as InterpreterCategoryAssessment);
+  }
+  return assessments;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -316,7 +377,7 @@ export function validateInterpreterPayload(
     if (!keys.includes(key)) errors.push(`필수 필드 누락: ${key}`);
   }
   for (const key of keys) {
-    if (!(RESPONSE_KEYS as readonly string[]).includes(key)) errors.push(`허용되지 않은 필드: ${key}`);
+    if (!(ALLOWED_RESPONSE_KEYS as readonly string[]).includes(key)) errors.push(`허용되지 않은 필드: ${key}`);
   }
   if (value.schema_version !== INTERPRETER_SCHEMA_VERSION) {
     errors.push(`schema_version이 ${INTERPRETER_SCHEMA_VERSION}이 아닙니다.`);
@@ -336,6 +397,7 @@ export function validateInterpreterPayload(
   }
 
   const normalizedSpans: EvidenceSpan[] = [];
+  const normalizedAssessments = categoryAssessments(value.category_assessments, errors);
   if (!Array.isArray(value.evidence_spans)) {
     errors.push("evidence_spans는 배열이어야 합니다.");
   } else {
@@ -374,14 +436,14 @@ export function validateInterpreterPayload(
       });
     }
   }
-  if (value.risk_intent === "direct_promotional" && normalizedSpans.length === 0) {
-    errors.push("직접 홍보 판단에는 검증 가능한 evidence span이 필요합니다.");
+  if (["direct_promotional", "direct_harmful"].includes(String(value.risk_intent)) && normalizedSpans.length === 0) {
+    errors.push("직접 위험 판단에는 검증 가능한 evidence span이 필요합니다.");
   }
-  if (value.risk_intent === "direct_promotional" && value.speech_act !== "claim") {
-    errors.push("direct_promotional은 speech_act=claim이어야 합니다.");
+  if (["direct_promotional", "direct_harmful"].includes(String(value.risk_intent)) && value.speech_act !== "claim") {
+    errors.push("직접 위험 판단은 speech_act=claim이어야 합니다.");
   }
-  if (value.risk_intent === "direct_promotional" && value.context_relation !== "supports") {
-    errors.push("direct_promotional은 context_relation=supports여야 합니다.");
+  if (["direct_promotional", "direct_harmful"].includes(String(value.risk_intent)) && value.context_relation !== "supports") {
+    errors.push("직접 위험 판단은 context_relation=supports여야 합니다.");
   }
   if (["warning", "criticism", "report"].includes(String(value.speech_act))
     && value.context_relation === "supports") {
@@ -398,6 +460,12 @@ export function validateInterpreterPayload(
     && ["warning", "criticism", "report", "definition"].includes(String(value.speech_act))
     && value.policy_relevance !== "none") {
     errors.push("경고·비판·보도·정의 문맥은 policy_relevance=none이어야 합니다.");
+  }
+  if (value.policy_relevance === "none" && normalizedAssessments.length > 0) {
+    errors.push("policy_relevance=none이면 category_assessments는 비어 있어야 합니다.");
+  }
+  if (normalizedAssessments.length > 0 && normalizedSpans.length === 0) {
+    errors.push("category_assessments에는 검증 가능한 evidence span이 필요합니다.");
   }
 
   if (errors.length > 0) return { success: false, errors };
@@ -416,6 +484,7 @@ export function validateInterpreterPayload(
       confidence: value.confidence as number,
       evidence_spans: normalizedSpans,
       policy_reason: value.policy_reason as PolicyReason,
+      category_assessments: normalizedAssessments,
     },
   };
 }
@@ -449,6 +518,16 @@ export const INTERPRETER_JSON_SCHEMA: Record<string, unknown> = {
       },
     },
     policy_reason: { type: "string", enum: [...POLICY_REASONS] },
+    category_assessments: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [...CATEGORY_ASSESSMENT_KEYS],
+        properties: CATEGORY_ASSESSMENT_PROPERTIES,
+      },
+    },
   },
 };
 
@@ -473,6 +552,16 @@ export const INTERPRETER_PROVIDER_JSON_SCHEMA: Record<string, unknown> = {
       items: { type: "string", minLength: 1 },
     },
     policy_reason: { type: "string", enum: [...POLICY_REASONS] },
+    category_assessments: {
+      type: "array",
+      maxItems: 5,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [...CATEGORY_ASSESSMENT_KEYS],
+        properties: CATEGORY_ASSESSMENT_PROPERTIES,
+      },
+    },
   },
 };
 
@@ -567,7 +656,7 @@ export function validateProviderInterpreterPayload(
     if (!keys.includes(key)) errors.push(`provider 필수 필드 누락: ${key}`);
   }
   for (const key of keys) {
-    if (!(PROVIDER_RESPONSE_KEYS as readonly string[]).includes(key)) {
+    if (!(ALLOWED_PROVIDER_RESPONSE_KEYS as readonly string[]).includes(key)) {
       errors.push(`provider에 허용되지 않은 필드: ${key}`);
     }
   }
@@ -584,10 +673,14 @@ export function validateProviderInterpreterPayload(
   return validateInterpreterPayload(internalValue, prepared);
 }
 
-export const INTERPRETER_SYSTEM_PROMPT = `당신은 RiskShield의 광고 문맥 Interpreter입니다.
-광고의 위법 여부나 게시 가능 여부를 최종 판단하지 마세요.
-규칙 엔진의 결과를 추측하지 말고 입력 문구의 발화 목적, 행위자, 주장 대상, 부정·대조·인용 관계와 RiskShield 정책 관련성만 독립적으로 구조화하세요.
-직접 주장을 인용·비판·경고·보도·정의하는 문맥과 광고주의 직접 주장을 구분하세요.
+export const INTERPRETER_SYSTEM_PROMPT = `당신은 RiskShield의 한국어 텍스트 위험 문맥 Interpreter입니다.
+스포츠·게임·연예 팬의 응원, 승부 예측, 감상이나 개인적 확신은 광고·판매·도박·금융 이해관계가 없는 한 policy_relevance=none, risk_family=none입니다. “100%”, “무조건”, “반드시”만으로 위험을 만들지 마세요.
+성적 단어의 단순 언급이나 비공격적 감탄은 abusive_language가 아닙니다. 특정 개인·집단에 대한 성적 비하·모욕·괴롭힘·강요가 실제 문장에 있을 때만 direct_harmful, abusive_language로 분류하세요.
+게시 가능 여부나 법률 위반 여부를 최종 판단하지 마세요.
+규칙 엔진의 결과를 추측하지 말고 입력 문구의 발화 목적, 행위자, 대상, 부정·대조·인용 관계와 RiskShield 정책 관련성만 독립적으로 구조화하세요.
+과장·기만 광고뿐 아니라 혐오·차별, 직접 모욕, 숨은 커뮤니티 은어, 폭력적 위협을 분석하세요.
+위험 표현을 인용·비판·경고·보도·정의하는 문맥과 화자의 직접 유해 발화를 구분하세요.
+직접 혐오·모욕·은어 공격·위협은 direct_harmful, claim, supports로 분류하고 정확한 evidence를 제공하세요.
 광고성 표현이라는 이유만으로 위험 관련이라고 판정하지 마세요. 직접 광고와 위험 광고는 다릅니다.
 CTA, 상품 소개, 기능 안내, 사용 절차, 과거 사건 제목은 구체적인 위험 요소가 없으면 policy_relevance=none일 수 있습니다.
 비교·실적·최상급·할인 조건처럼 근거 확인이 필요한 경우에만 substantiation을 사용하세요.
@@ -595,6 +688,10 @@ CTA, 상품 소개, 기능 안내, 사용 절차, 과거 사건 제목은 구체
 문맥이 부족하거나 판단할 수 없으면 policy_relevance=uncertain을 사용하세요.
 policy_relevance=none이면 risk_family=none이어야 하며, substantiation 또는 potentially_high이면 가장 구체적인 risk_family를 선택하세요.
 대조 예시:
+- “너는 정말 느개미다” → direct_harmful, claim, supports, claim_target=individual, risk_family=coded_expression
+- “특정 지역 사람은 원래 열등하다” → direct_harmful, claim, supports, claim_target=regional_group, risk_family=hate_discrimination
+- “'느개미'라는 표현은 쓰지 마세요” → contextual_only, warning, warns_about, policy_relevance=none, evidence_quotes=[]
+- “느개미는 온라인 비하 은어를 뜻합니다” → contextual_only, definition, defines, policy_relevance=none, evidence_quotes=[]
 - “지금 무료로 시작해 보세요” → direct_promotional, claim, supports일 수 있지만 policy_relevance=none, risk_family=none
 - “앱에서 메뉴를 검색한 뒤 추가를 클릭합니다” → contextual_only, condition, conditions, policy_relevance=none, risk_family=none, evidence_quotes=[]
 - “강의 자료를 제공합니다” → policy_relevance=none, risk_family=none
@@ -609,6 +706,7 @@ policy_relevance=none이면 risk_family=none이어야 하며, substantiation 또
 - “누구나 월 300만원을 보장합니다”, “부작용이 전혀 없습니다”, “전원 합격을 약속합니다”, “상대방 몰래 메시지를 확인합니다” → potentially_high
 원문에 없는 사실이나 근거를 만들지 마세요. evidence_quotes에는 제공된 입력에서 그대로 복사한 정확한 연속 substring만 사용하고 offset은 만들지 마세요.
 confidence는 위험 점수가 아니라 문맥 해석의 확실성입니다. 명백한 일반 CTA·절차·과거 사례·경고를 policy_relevance=none으로 분류했더라도 해석이 명확하면 confidence를 불필요하게 낮추지 마세요.
+category_assessments는 위험 점수를 직접 쓰는 곳이 아닙니다. 입력에서 evidence_quotes로 뒷받침되는 위험 분야마다 relevance, certainty, harm, deception, vulnerability, privacy_intrusion, evidence_strength를 0~4 정수로 평가하세요. 여러 분야가 동시에 존재하면 최대 5개까지 각각 반환하고, policy_relevance=none이면 빈 배열을 반환하세요. 점수 계산은 서버의 고정 공식이 수행합니다.
 확신이 없으면 uncertain 또는 unclear를 사용하세요.
 지정된 JSON schema에 맞는 JSON 객체 외에는 아무 텍스트도 출력하지 마세요.`;
 
@@ -638,6 +736,10 @@ function firstEvidenceSpan(prepared: PreparedInterpreterInput, expression?: RegE
 
 function targetForText(text: string, hint?: ClaimTarget): ClaimTarget {
   const candidates: Array<[ClaimTarget, RegExp]> = [
+    ["regional_group", /(?:전라도|경상도|지역\s*사람|홍어)/u],
+    ["protected_group", /(?:여자는|남자는|한남|한녀|김치녀|장애인|외국인|종교|인종)/u],
+    ["community", /(?:일베충|노알라|운지|커뮤니티|도그휘슬)/u],
+    ["individual", /(?:느개미|느금마|느금|병신|개새끼|씨발|꺼져|닥쳐|멍청이|쓰레기|죽여|죽인다|패버려)/u],
     ["privacy", /(?:위치|gps|추적|메시지|문자|대화|채팅|감시|몰래|상대방|배우자|아내|아이콘|스토커웨어|통화|녹음|오디오)/u],
     ["legal", /(?:승소|형량|무죄|기각|법률|변호사|손해배상|전관|합의금|불기소|감형|집행유예)/u],
     ["education", /(?:합격|진학|취업|특채|수강|학원|교육|자격증|수능|대학|로드맵)/u],
@@ -650,6 +752,10 @@ function targetForText(text: string, hint?: ClaimTarget): ClaimTarget {
 }
 
 function riskFamilyForText(text: string, target: ClaimTarget): RiskFamily {
+  if (/(?:죽여|죽인다|패버려|때려죽|칼로|폭행|살해|불을\s*지르)/u.test(text)) return "violent_threat";
+  if (/(?:운지|노알라|일베충|느개미|느금마|느금|숨은\s*은어|코드\s*표현|도그휘슬)/u.test(text)) return "coded_expression";
+  if (/(?:한남|한녀|김치녀|맘충|틀딱|홍어|장애인|외국인|여자는|남자는)[^.!?\n]{0,40}(?:원래|다|혐오|꺼져|열등|문제|답이\s*없)/u.test(text)) return "hate_discrimination";
+  if (/(?:병신|개새끼|씨발|꺼져|닥쳐|멍청이|쓰레기)[^.!?\n]{0,30}(?:너|새끼|놈|년|인간)?/u.test(text)) return "abusive_language";
   if (target === "health") return "health_claim";
   if (target === "privacy") return "privacy_intrusion";
   if (target === "education") return "education_outcome";
@@ -669,12 +775,12 @@ function classifyMock(prepared: PreparedInterpreterInput, hint?: ClaimTarget): I
   const report = /(?:보도|기사|보도입니다|보도했다|보도했습니다|편취|검거|기소|적발|피해가\s*발생|밝혔|판결|내용이다|사례로\s*소개)/u.test(text);
   const quote = /[“”「」『』"]/u.test(text) && /(?:문구|표현|주장|내용|기사|인용|광고|말했|소개)/u.test(text);
   const criticism = /(?:과장(?:된|될|입니다|광고)?|허위|장담하는\s*광고|문제(?:가|점|인)|오인|비판|지나치게\s*장담)/u.test(text);
-  const warning = /(?:주의|경계|피하|사기|불법|형사처벌|처벌\s*대상|금지|불가|위험|피해\s*예방|경고등|동의\s*없이[^\n]{0,40}(?:안\s*됩|처벌|불법|위반))/u.test(text);
-  const definition = /(?:이란|란)\s|(?:뜻|의미)합니다|정의(?:는|입니다)|(?:교육|분석)\s*자료에서[^\n]{0,30}(?:분석|설명)|정책[^\n]{0,24}설명/u.test(text);
+  const warning = /(?:주의|경계|피하|사기|불법|형사처벌|처벌\s*대상|금지|불가|위험|피해\s*예방|사용하지\s*마세요|쓰지\s*마세요|경고등|동의\s*없이[^\n]{0,40}(?:안\s*됩|처벌|불법|위반))/u.test(text);
+  const definition = /(?:이란|란)\s|(?:뜻|의미)(?:합니다|입니다|한다)|정의(?:는|입니다)|(?:교육|분석)\s*자료에서[^\n]{0,30}(?:분석|설명)|정책[^\n]{0,24}설명/u.test(text);
   const procedure = /(?:메뉴|설정|패널|앱|페이지)[^\n]{0,60}(?:열고|선택|검색|클릭|추가)|(?:검색|선택|입력)한\s*(?:뒤|다음)|단계별|사용\s*(?:방법|절차)/u.test(text);
   const reviewClaim = /(?:자극\s*없이|콜라겐[^\n]{0,24}촉진|뛰어난[^\n]{0,24}(?:개선|효과)|가장\s*완벽|과정\s*전체[^\n]{0,20}책임|결과(?:는|가)?\s*180도|제한\s*없음|어플리케이션을\s*열지\s*않아도|가장\s*쉽고\s*안전|모든\s*통화를\s*녹음)/u.test(text);
   const condition = procedure || /(?:에\s*따라|계약상|근로계약|약관|한도(?:까지|는)|동의를\s*받아|동의한\s*경우|본인\s*(?:계정|기기)|기본급|제도상|보호됩니다|지급됩니다|보상\s*범위|현재\s*측정|과거[^\n]{0,30}(?:기록|실적|검사)|일정\s*안내|참고용|상담(?:하세요|하시기|이\s*필요)|가능성을\s*높이기|손실\s*가능성|개인차|심사(?:로|를\s*통해)\s*결정|성과에\s*따라|달라질\s*수|정보를\s*제공|개인정보\s*보호)/u.test(text);
-  const negates = /(?:보장할\s*수(?:\s*있는[^\n]{0,30})?\s*없|보장되지\s*않|보장하지(?:는|도)?\s*않|보장하는[^\n]{0,30}(?:아니|없)|아닙니다|아니다|불가능|없다고[^\n]{0,30}(?:말|단정)할\s*수\s*없|사용하면\s*안|해서는\s*안)/u.test(text);
+  const negates = /(?:보장할\s*수(?:\s*있는[^\n]{0,30})?\s*없|보장되지\s*않|보장하지(?:는|도)?\s*않|보장하는[^\n]{0,30}(?:아니|없)|아닙니다|아니다|불가능|없다고[^\n]{0,30}(?:말|단정)할\s*수\s*없|사용하면\s*안|해서는\s*안|사용하지\s*마세요|쓰지\s*마세요)/u.test(text);
 
   const speechAct: InterpreterSpeechAct = hasContrastPromotion
     ? "claim"
@@ -769,7 +875,9 @@ function classifyMock(prepared: PreparedInterpreterInput, hint?: ClaimTarget): I
   const limited = /(?:가능성|예상|평균|최대|약\s*\d|일정\s*수준|도움)/u.test(text);
   const potentiallyHigh = /(?:누구나|모두|전원|100\s*%|무조건|반드시|절대|전혀)[^\n]{0,60}(?:보장|약속|합격|수익|부작용|효과)|(?:부작용|자극)[^\n]{0,30}(?:전혀|없음|없이)|(?:상대방|배우자|타인)[^\n]{0,30}(?:몰래|동의\s*없이|추적|확인)|(?:몰래|동의\s*없이)[^\n]{0,30}(?:메시지|통화|위치|사진)/u.test(text);
   const substantiation = reviewClaim || /(?:업계\s*최고|가장\s*(?:완벽|안전|쉽)|\d+(?:[.]\d+)?\s*%|\d+명의|절반|고수익|뛰어난|촉진|개선\s*효과|본연의\s*톤|결과는\s*180도|책임져야|합격할\s*수|수익화)/u.test(text);
-  const direct = target !== "none" && (absolute || strong || limited || hasContrastPromotion || substantiation);
+  const harmfulFamily = riskFamilyForText(text, target);
+  const directHarmful = ["hate_discrimination", "abusive_language", "coded_expression", "violent_threat"].includes(harmfulFamily);
+  const direct = directHarmful || (target !== "none" && (absolute || strong || limited || hasContrastPromotion || substantiation));
 
   if (direct) {
     const strength: ClaimStrength = absolute ? "absolute" : strong ? "strong" : "limited";
@@ -779,17 +887,17 @@ function classifyMock(prepared: PreparedInterpreterInput, hint?: ClaimTarget): I
         : strength === "strong" ? "DIRECT_STRONG_RESULT"
           : "DIRECT_LIMITED_CLAIM";
     const confidence = strength === "limited" ? 0.74 : 0.94;
-    const evidenceExpression = /(?:100\s*%|무조건|반드시|절대|하나도|전혀|누구나|모두|전원|보장|확정|\d+(?:[.]\d+)?\s*(?:cm|kg|%|만원)|볼\s*수\s*있|읽을\s*수\s*있|확인할\s*수\s*있|추적|숨기|표시되지|합격시켜|고수익|고소득|수익|성장|효과|환불|마감|한정)/u;
+    const evidenceExpression = /(?:느개미|느금마|느금|운지|노알라|일베충|한남|한녀|김치녀|맘충|틀딱|홍어|병신|개새끼|씨발|꺼져|닥쳐|멍청이|쓰레기|죽여|죽인다|패버려|때려죽|100\s*%|무조건|반드시|절대|하나도|전혀|누구나|모두|전원|보장|확정|\d+(?:[.]\d+)?\s*(?:cm|kg|%|만원)|볼\s*수\s*있|읽을\s*수\s*있|확인할\s*수\s*있|추적|숨기|표시되지|합격시켜|고수익|고소득|수익|성장|효과|환불|마감|한정)/u;
     return {
       schema_version: INTERPRETER_SCHEMA_VERSION,
-      risk_intent: "direct_promotional",
+      risk_intent: directHarmful ? "direct_harmful" : "direct_promotional",
       speech_act: "claim",
       claim_target: target,
       context_relation: "supports",
-      actor: "advertiser",
+      actor: directHarmful ? "speaker" : "advertiser",
       claim_strength: strength,
       policy_relevance: potentiallyHigh ? "potentially_high" : "substantiation",
-      risk_family: riskFamilyForText(text, target),
+      risk_family: harmfulFamily,
       confidence,
       evidence_spans: firstEvidenceSpan(prepared, evidenceExpression),
       policy_reason: policyReason,
@@ -1066,7 +1174,10 @@ function reviewDecision(
 ): HybridDecision {
   return {
     status: "review",
-    score: Math.max(55, Math.min(69, rules.finalScore || 55)),
+    // A review state is a routing decision, not a synthetic risk score.
+    // Preserve a real rule score when evidence exists; otherwise expose the
+    // absence of a score instead of inventing the old 55-point floor.
+    score: rules.finalScore > 0 ? rules.finalScore : null,
     conflict,
     conflictReasons,
     recoveredByInterpreter: false,
@@ -1183,7 +1294,7 @@ export function combineHybrid(rules: AnalysisResult, run: InterpreterRun): Hybri
     );
   }
 
-  if (ai.risk_intent === "direct_promotional"
+  if (["direct_promotional", "direct_harmful"].includes(ai.risk_intent)
     && ai.speech_act === "claim"
     && ai.context_relation === "supports"
     && ai.policy_relevance === "potentially_high"
@@ -1230,7 +1341,7 @@ export function combinePrivateBetaHybrid(
   return {
     ...decision,
     status: "review",
-    score: Math.max(55, Math.min(69, rules.finalScore || 55)),
+    score: rules.finalScore > 0 ? rules.finalScore : null,
     reason: "규칙과 AI의 위험 해석이 충돌해 자동 결론 대신 담당자 검토로 전환했습니다.",
   };
 }

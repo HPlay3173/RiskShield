@@ -79,6 +79,20 @@ test("meaningful negative and false-positive cases do not become active findings
   }
 });
 
+test("reviewed coded expressions match atomically while warning context is suppressed", () => {
+  for (const text of ["느개미", "느개미네", "느개미라고 했다", "피싸개야", "보릉내라는 말", "보댕이다"]) {
+    const direct = analyzeText(text, starterSkills);
+    assert.equal(direct.primaryMatch?.skill.riskFamily, "coded_expression", text);
+    assert.ok(direct.finalScore >= 78, text);
+  }
+
+  for (const text of ["느개미라는 표현은 사용하지 마세요", "피싸개라는 표현은 사용하지 마세요"]) {
+    const warning = analyzeText(text, starterSkills);
+    assert.equal(warning.matches.length, 0, text);
+    assert.equal(warning.finalScore, 0, text);
+  }
+});
+
 test("required groups never combine across sentence boundaries", () => {
   const result = analyzeText(
     "15초만에 상담 접수가 끝났습니다. 형량 분석은 별도로 진행됩니다.",

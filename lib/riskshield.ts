@@ -1,3 +1,6 @@
+// @ts-expect-error Node 22 direct TypeScript execution requires the runtime extension.
+import { RISK_FAMILIES, riskFamilyForPatternType, type ScorableRiskFamily } from "./risk-family.ts";
+
 export const RISK_SKILL_SCHEMA_VERSION = "2.0.0" as const;
 
 export type ReviewStatus = "draft" | "reviewed" | "rejected";
@@ -30,6 +33,13 @@ export interface RiskSource {
   provenanceStatus?: "provided" | "verified" | "synthetic_unverified";
 }
 
+export interface RiskSkillRegressionCase {
+  id: string;
+  input: string;
+  expected: "match" | "no_match";
+  contextSlice?: string;
+}
+
 export interface RiskSkill {
   schemaVersion: typeof RISK_SKILL_SCHEMA_VERSION;
   revision: number;
@@ -37,10 +47,14 @@ export interface RiskSkill {
   category: string;
   subcategory: string;
   patternType: string;
+  /** Atomic lexemes may match on one reviewed expression; composite rules require trigger + context. */
+  matchMode?: "atomic_lexeme" | "trigger_and_context";
   triggerPatterns: string[];
   contextPatterns: string[];
   anyOfPatterns: string[];
   exclusionPatterns?: string[];
+  /** Candidate-authored examples that must pass before a draft can become active. */
+  regressionTests?: RiskSkillRegressionCase[];
   conditionScope: PatternScope;
   maxDistance: number;
   surfaceMeaning: string;
@@ -51,6 +65,8 @@ export interface RiskSkill {
   severityFloor: number;
   dominantRisk: boolean;
   confidence: number;
+  /** Stable scoring identifier. Required for managed skills; inferred only for legacy fixtures. */
+  riskFamily?: ScorableRiskFamily;
   riskDomain: string;
   recentContextTags: string[];
   safeRewrite: string[];
@@ -231,6 +247,7 @@ function seedSkill(
 ): RiskSkill {
   return {
     ...skill,
+    riskFamily: skill.riskFamily ?? riskFamilyForPatternType(skill.patternType),
     schemaVersion: skill.schemaVersion ?? RISK_SKILL_SCHEMA_VERSION,
     revision: skill.revision ?? 1,
     anyOfPatterns: skill.anyOfPatterns ?? [],
@@ -587,6 +604,95 @@ export const starterSkills: RiskSkill[] = [
     falsePositiveNote: "교육 격차를 설명하는 공익·정책적 문맥은 별도로 검토합니다.",
     reviewStatus: "draft",
   }),
+  seedSkill({
+    id: "risk_hate_000002",
+    category: "혐오·차별 표현",
+    subcategory: "집단 비하와 배제",
+    patternType: "protected_group + degrading_generalization",
+    riskFamily: "hate_discrimination",
+    triggerPatterns: ["여자는", "남자는", "외국인은", "장애인은", "전라도 사람은", "경상도 사람은"],
+    contextPatterns: ["원래 다", "열등", "믿으면 안", "사라져야", "문제다", "답이 없다"],
+    exclusionPatterns: ["차별 표현", "사용하지 마세요", "혐오를 비판", "잘못된 일반화"],
+    surfaceMeaning: "특정 집단 전체를 부정적으로 일반화하거나 배제합니다.",
+    riskSummary: "개인의 행동을 집단의 속성으로 확대해 차별과 혐오를 강화할 수 있습니다.",
+    socialContext: "지역·성별·국적·장애 등 정체성 집단에 대한 일반화는 실제 배제와 괴롭힘으로 이어질 수 있습니다.",
+    legalOrEthicIssue: "차별 조장과 인격권 침해 위험이 있습니다.",
+    riskReason: "집단 지칭 표현과 비하·배제 문맥이 같은 주장에 결합합니다.",
+    severityFloor: 84,
+    dominantRisk: true,
+    confidence: 0.88,
+    riskDomain: "혐오·차별",
+    recentContextTags: ["집단 일반화", "지역 비하", "정체성 공격"],
+    safeRewrite: ["집단 전체가 아니라 문제가 된 구체적인 행동과 상황을 설명해 주세요."],
+    falsePositiveNote: "혐오 표현을 인용해 비판하거나 교육하는 문맥은 낮춰서 검토합니다.",
+  }),
+  seedSkill({
+    id: "risk_abuse_000001",
+    category: "욕설·공격 표현",
+    subcategory: "직접 모욕과 괴롭힘",
+    patternType: "profanity + personal_attack",
+    riskFamily: "abusive_language",
+    triggerPatterns: ["개새끼", "병신", "씨발", "쓰레기", "멍청이"],
+    contextPatterns: ["너", "네가", "저 인간", "저 새끼", "꺼져", "닥쳐"],
+    exclusionPatterns: ["욕설 표현", "사용하지 마세요", "비속어를 설명", "모욕으로 신고"],
+    surfaceMeaning: "상대방을 직접 겨냥한 욕설이나 모욕을 사용합니다.",
+    riskSummary: "직접적인 인신공격과 괴롭힘으로 받아들여질 수 있습니다.",
+    socialContext: "반복되는 공격 표현은 온라인 괴롭힘과 갈등 확산 위험을 높입니다.",
+    legalOrEthicIssue: "모욕과 인격권 침해 위험이 있습니다.",
+    riskReason: "강한 비속어와 특정 상대를 지목하는 표현이 결합합니다.",
+    severityFloor: 76,
+    dominantRisk: true,
+    confidence: 0.9,
+    riskDomain: "욕설·괴롭힘",
+    recentContextTags: ["직접 모욕", "인신공격", "괴롭힘"],
+    safeRewrite: ["사람을 모욕하지 말고 문제가 된 행동과 그 영향만 구체적으로 설명해 주세요."],
+    falsePositiveNote: "언어 연구·교육·신고를 위한 인용은 별도로 검토합니다.",
+  }),
+  seedSkill({
+    id: "risk_coded_000001",
+    category: "숨은 은어·코드 표현",
+    subcategory: "커뮤니티 기반 혐오 은어",
+    patternType: "ilbe + community_slang",
+    matchMode: "atomic_lexeme",
+    riskFamily: "coded_expression",
+    triggerPatterns: ["운지", "노알라", "일베충", "홍어", "느개미", "느금마", "느금", "피싸개", "보릉내", "보댕이"],
+    contextPatterns: [],
+    exclusionPatterns: ["용어의 뜻", "혐오 표현", "사용하지 마세요", "문제되는 은어", "사전적 의미"],
+    surfaceMeaning: "특정 커뮤니티에서 조롱이나 혐오 의미로 쓰이는 코드 표현을 사용합니다.",
+    riskSummary: "겉으로 의미가 드러나지 않아도 특정 인물·지역·집단을 비하하는 신호가 될 수 있습니다.",
+    socialContext: "은어는 철자와 형태가 빠르게 바뀌므로 출처와 실제 사용 맥락을 함께 확인해야 합니다.",
+    legalOrEthicIssue: "우회적인 혐오·모욕과 오해 확산 위험이 있습니다.",
+    riskReason: "검토된 커뮤니티 은어가 직접 사용된 구간을 확인했습니다.",
+    severityFloor: 78,
+    dominantRisk: true,
+    confidence: 0.82,
+    riskDomain: "커뮤니티 은어·코드 표현",
+    recentContextTags: ["일베 은어", "우회 표현", "정치적 조롱"],
+    safeRewrite: ["특정 커뮤니티 은어 대신 의도와 사실을 일반적인 말로 분명하게 표현해 주세요."],
+    falsePositiveNote: "용어의 의미를 설명하거나 비판하는 문맥은 별도로 검토합니다.",
+  }),
+  seedSkill({
+    id: "risk_violent_000001",
+    category: "폭력·위협 표현",
+    subcategory: "직접적인 신체 위해 위협",
+    patternType: "violent_threat + target",
+    riskFamily: "violent_threat",
+    triggerPatterns: ["죽여 버린다", "때려 죽인다", "칼로 찌른다", "패버린다", "가만 안 둔다"],
+    contextPatterns: ["너", "네가", "찾아가서", "당장", "진짜로", "두고 봐"],
+    exclusionPatterns: ["위협 표현", "사용하지 마세요", "범죄 예방", "신고하세요", "영화 대사"],
+    surfaceMeaning: "특정 상대에게 신체 위해를 가하겠다는 직접적인 위협입니다.",
+    riskSummary: "현실적인 폭력 가능성과 공포를 유발할 수 있어 즉각적인 검토가 필요합니다.",
+    socialContext: "구체적인 대상·행동·시간이 포함될수록 위협의 긴급성이 높아집니다.",
+    legalOrEthicIssue: "협박과 안전 침해 위험이 있습니다.",
+    riskReason: "폭력 행동과 대상 지칭이 같은 문맥에 결합합니다.",
+    severityFloor: 92,
+    dominantRisk: true,
+    confidence: 0.94,
+    riskDomain: "폭력·위협",
+    recentContextTags: ["신체 위해", "직접 위협", "긴급 안전"],
+    safeRewrite: ["위협을 중단하고 갈등 상황과 필요한 도움을 사실 중심으로 설명해 주세요."],
+    falsePositiveNote: "창작물 인용·위협 예방 교육·신고 문맥은 별도로 검토합니다.",
+  }),
 ];
 
 function clamp(value: number, min: number, max: number) {
@@ -740,9 +846,37 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const MAX_PATTERNS_PER_SKILL = 64;
+const MAX_PATTERN_LENGTH = 320;
+
+function rawRegexIssue(pattern: string) {
+  const source = pattern.slice(3);
+  if (source.length > MAX_PATTERN_LENGTH) return "정규식 패턴은 320자 이하여야 합니다.";
+  if (/\\[1-9]|\\k</u.test(source)) return "역참조 정규식은 사용할 수 없습니다.";
+  if (/\((?:\?:)?[^()]*(?:[+*]|\{\d*,?\d*\})[^()]*\)(?:[+*]|\{\d*,?\d*\})/u.test(source)) {
+    return "중첩 반복 정규식은 사용할 수 없습니다.";
+  }
+  try {
+    const compiled = new RegExp(source, "giu");
+    compiled.test("RiskShield 안전성 검증용 입력 0000000000000000");
+  } catch {
+    return "컴파일할 수 없는 정규식입니다.";
+  }
+  return null;
+}
+
+function patternIssue(pattern: string) {
+  if (!pattern.trim()) return "빈 패턴은 사용할 수 없습니다.";
+  if (pattern.length > MAX_PATTERN_LENGTH + (pattern.startsWith("re:") ? 3 : 0)) {
+    return "패턴은 320자 이하여야 합니다.";
+  }
+  if (pattern.startsWith("re:")) return rawRegexIssue(pattern);
+  return null;
+}
+
 function literalRegExp(pattern: string) {
   const normalized = normalizeText(pattern);
-  if (normalized.length < 2) return null;
+  if (!normalized.length) return null;
   const source = normalized.split(/\s+/u).map(escapeRegExp).join("\\s*");
   return new RegExp(source, "giu");
 }
@@ -753,9 +887,10 @@ function isWordCharacter(character: string) {
 
 const KOREAN_SUFFIXES = [
   "으로", "에서", "에게", "까지", "부터", "처럼", "보다",
-  "이라고", "입니다", "이었다", "합니다", "하며", "하고", "하지", "하다", "할", "하세요",
+  "이라고", "이라는", "이라며", "이라서", "이지만", "라고", "라는", "라며", "라서", "란", "입니다", "이었다", "합니다", "하며", "하고", "하지", "하다", "할", "하세요",
+  "이라고요", "이라니", "이야", "이네", "이냐", "인가", "인", "임",
   "됩니다", "되는", "된다", "이다",
-  "을", "를", "은", "는", "이", "가", "도", "만", "의", "에", "와", "과", "로",
+  "을", "를", "은", "는", "이", "가", "도", "만", "의", "에", "와", "과", "로", "야", "네", "냐", "다",
 ].sort((left, right) => right.length - left.length);
 
 function hasLiteralBoundary(text: string, start: number, end: number) {
@@ -792,107 +927,94 @@ function compilePattern(pattern: string) {
   }
 }
 
-function normalizedPatternVariants(
-  skill: RiskSkill,
-  role: "trigger" | "context",
-) {
-  const additions: string[] = [];
-  const type = skill.patternType;
+export const COMPATIBILITY_MATCHER_POLICY_VERSION = "1.0.0" as const;
 
-  if (type === "health_safety + absolute_absence") {
-    if (role === "trigger") {
-      additions.push("re:안전(?:성|한|하다|합니다|하다고)?");
-    } else {
-      additions.push(
+export const COMPATIBILITY_MATCHER_REGISTRY: Readonly<Record<string, {
+  trigger?: readonly string[];
+  context?: readonly string[];
+}>> = {
+  "health_safety + absolute_absence": {
+    trigger: ["re:안전(?:성|한|하다|합니다|하다고)?"],
+    context: [
         "re:(?:하나도|전혀|절대|조금도)?\\s*없(?:습니다|어요|다|음|고|는|다고)",
         "re:(?:완전(?:히)?|100\\s*%)",
         "re:보장(?:합니다|한다|해|됨|된다)?",
-      );
-    }
-  }
-
-  if (type === "body_or_weight_result + certainty_or_period") {
-    if (role === "trigger") {
-      additions.push("re:(?:키|신장|성장|체형|몸매)");
-    } else {
-      additions.push(
+    ],
+  },
+  "body_or_weight_result + certainty_or_period": {
+    trigger: ["re:(?:키|신장|성장|체형|몸매)"],
+    context: [
         "re:\\d+(?:[.]\\d+)?\\s*cm\\s*(?:까지|씩|이상|더)?[^.!?\\n]{0,16}(?:자라|자랍|커지|커집|큽|큰다|늘|성장)",
         "re:\\d+(?:[.]\\d+)?\\s*(?:~|-|∼)\\s*\\d+(?:[.]\\d+)?\\s*cm[^.!?\\n]{0,16}(?:키|신장|자라|커지|늘|성장)",
         "re:(?:자라|커지|큰다|늘|성장)[^.!?\\n]{0,16}\\d+(?:[.]\\d+)?\\s*cm",
-      );
-    }
-  }
-
-  if (type === "education_outcome + universal_promise" || type === "education_outcome + guarantee") {
-    if (role === "trigger") {
-      additions.push("re:(?:특채|채용|입사)");
-    } else {
-      additions.push(
+    ],
+  },
+  "education_outcome + universal_promise": {
+    trigger: ["re:(?:특채|채용|입사)"],
+    context: [
         "re:시켜\\s*(?:드립|드립니다|드려|드리|줍|준다|드립니다)",
         "re:(?:전원|모두|누구나)",
         "re:확정(?:됩니다|된다|함|이다|입니다)?",
-      );
-    }
-  }
-
-  if (type === "education_superlative_or_metric + service_subject") {
-    if (role === "trigger") additions.push("re:(?:합격률|진학률|취업률)");
-    else additions.push("re:(?:재원생|수강생|대학|진학|합격자)");
-  }
-
-  if (type === "legal_outcome + certainty_or_promise") {
-    if (role === "trigger") additions.push("re:승소");
-    else additions.push(
+    ],
+  },
+  "education_outcome + guarantee": {
+    trigger: ["re:(?:특채|채용|입사)"],
+    context: ["re:시켜\\s*(?:드립|드립니다|드려|드리|줍|준다|드립니다)", "re:(?:전원|모두|누구나)", "re:확정(?:됩니다|된다|함|이다|입니다)?"],
+  },
+  "education_superlative_or_metric + service_subject": {
+    trigger: ["re:(?:합격률|진학률|취업률)"],
+    context: ["re:(?:재원생|수강생|대학|진학|합격자)"],
+  },
+  "legal_outcome + certainty_or_promise": {
+    trigger: ["re:승소"],
+    context: [
       "re:(?:결과(?:를|은|까지)?[^.!?\\n]{0,18})?(?:책임지|책임집|책임질|약속하)",
-    );
-  }
-
-  if (type === "financial_return_or_loss + guarantee_or_recovery" && role === "context") {
-    additions.push("re:전액[^.!?\\n]{0,12}돌려\\s*드(?:립|립니다|려요|림)");
-  }
-
-  if (type === "legal_superlative_or_authority + substantiation_signal") {
-    if (role === "trigger") additions.push("re:(?:승소|전관예우|전관)");
-    else additions.push(
+    ],
+  },
+  "financial_return_or_loss + guarantee_or_recovery": {
+    context: ["re:전액[^.!?\\n]{0,12}돌려\\s*드(?:립|립니다|려요|림)"],
+  },
+  "legal_superlative_or_authority + substantiation_signal": {
+    trigger: ["re:(?:승소|전관예우|전관)"],
+    context: [
       "re:(?:승소\\s*)?(?:가능성|예상|확률)",
       "re:(?:판사|검사|전관)[^.!?\\n]{0,18}(?:출신|경력|인맥|영향력|직접|해결)",
       "re:(?:인맥|영향력|출신|변호사|법무법인|로펌)",
-    );
-  }
-
-  if (type === "app_installation + concealment_signal") {
-    if (role === "trigger") additions.push("re:(?:앱|애플리케이션|프로그램|설치)");
-    else additions.push(
+    ],
+  },
+  "app_installation + concealment_signal": {
+    trigger: ["re:(?:앱|애플리케이션|프로그램|설치)"],
+    context: [
       "re:(?:숨겨진|은밀한|비밀)\\s*모드",
       "re:아이콘(?:을|이|은|는)?[^.!?\\n]{0,18}(?:숨기|숨겨|숨김|표시되지|보이지)",
       "re:(?:실행\\s*중인\\s*)?앱\\s*목록(?:에|에서)?[^.!?\\n]{0,24}(?:표시되지|보이지|나타나지)",
-    );
-  }
-
-  if (type === "personal_data_asset + covert_surveillance") {
-    if (role === "trigger") additions.push("re:(?:메신저|채팅|채팅방|알림|추적|감시)");
-    else additions.push(
+    ],
+  },
+  "personal_data_asset + covert_surveillance": {
+    trigger: ["re:(?:메신저|채팅|채팅방|알림|추적|감시)"],
+    context: [
       "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:모르게|알지\\s*못하게|눈치채지\\s*못하게)",
       "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:절대\\s*)?알\\s*수\\s*없",
       "re:(?:들키지|발각되지|눈치채지)\\s*않게",
       "re:몰래[^.!?\\n]{0,24}(?:보는|읽는|확인하는)\\s*방법",
       "re:(?:알림|통보|표시)[^.!?\\n]{0,20}(?:삭제|숨기|남지|표시되지)",
-    );
-  }
-
-  if (type === "privacy_tracking + lack_of_consent") {
-    if (role === "trigger") additions.push(
+    ],
+  },
+  "privacy_tracking + lack_of_consent": {
+    trigger: [
       "re:(?:상대방|당사자|본인)(?:이|은|는|에게)?[^.!?\\n]{0,24}(?:모르게|알지\\s*못하게)",
       "re:(?:들키지|발각되지)\\s*않게",
-    );
-  }
+    ],
+  },
+  "data_asset + access_or_export": {
+    trigger: ["re:(?:대화|채팅|채팅방|메신저)"],
+    context: ["re:(?:보는|읽는|열어보는)\\s*방법"],
+  },
+};
 
-  if (type === "data_asset + access_or_export") {
-    if (role === "trigger") additions.push("re:(?:대화|채팅|채팅방|메신저)");
-    else additions.push("re:(?:보는|읽는|열어보는)\\s*방법");
-  }
-
+function normalizedPatternVariants(skill: RiskSkill, role: "trigger" | "context") {
   const base = role === "trigger" ? skill.triggerPatterns : skill.contextPatterns;
+  const additions = COMPATIBILITY_MATCHER_REGISTRY[skill.patternType]?.[role] ?? [];
   return [...new Set([...base, ...additions])];
 }
 
@@ -1093,7 +1215,7 @@ function supportsAdjacentSentenceMatching(skill: RiskSkill) {
 }
 
 function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
-  if (!skill.triggerPatterns.length || !skill.contextPatterns.length) return null;
+  if (!skill.triggerPatterns.length) return null;
   const normalized = normalizeWithMap(input);
   const ranges = supportsAdjacentSentenceMatching(skill)
     ? adjacentSentenceRanges(normalized.text)
@@ -1101,6 +1223,37 @@ function bestSkillMatch(input: string, skill: RiskSkill): SkillMatch | null {
   const maxDistance = clamp(Math.round(skill.maxDistance), 0, 2_000);
   const triggerPatterns = normalizedPatternVariants(skill, "trigger");
   const contextPatterns = normalizedPatternVariants(skill, "context");
+
+  if (skill.matchMode === "atomic_lexeme") {
+    for (const range of ranges) {
+      const triggerHits = findPatternHits(input, normalized, range, triggerPatterns, "trigger");
+      const exclusionHits = findPatternHits(input, normalized, range, skill.exclusionPatterns ?? [], "context");
+      const scopedText = normalized.text.slice(range.start, range.end);
+      for (const trigger of triggerHits) {
+        const clause = candidateClauseRange(
+          scopedText,
+          trigger.normalizedStart - range.start,
+          trigger.normalizedEnd - range.start,
+        );
+        const clauseStart = range.start + clause.start;
+        const clauseEnd = range.start + clause.end;
+        if (exclusionHits.some((hit) => hit.normalizedStart >= clauseStart && hit.normalizedEnd <= clauseEnd)) continue;
+        const hit: PatternHit = {
+          pattern: trigger.pattern,
+          role: trigger.role,
+          start: trigger.start,
+          end: trigger.end,
+          text: trigger.text,
+          sentenceIndex: trigger.sentenceIndex,
+        };
+        if (isPostMatchContextGuarded(input, skill, [hit])) continue;
+        return { skill, hits: [hit], score: clamp(Math.round(skill.severityFloor), 0, 100) };
+      }
+    }
+    return null;
+  }
+
+  if (!skill.contextPatterns.length) return null;
 
   type Candidate = {
     trigger: InternalHit;
@@ -1394,6 +1547,12 @@ export function buildHighlightSegments(
 
 export function validateSkill(skill: RiskSkill) {
   const errors: string[] = [];
+  const allPatterns = [
+    ...skill.triggerPatterns,
+    ...skill.contextPatterns,
+    ...skill.anyOfPatterns,
+    ...(skill.exclusionPatterns ?? []),
+  ];
   if (skill.schemaVersion !== RISK_SKILL_SCHEMA_VERSION) {
     errors.push(`스키마 버전은 ${RISK_SKILL_SCHEMA_VERSION}이어야 합니다.`);
   }
@@ -1404,10 +1563,13 @@ export function validateSkill(skill: RiskSkill) {
   if (!skill.category.trim()) errors.push("카테고리가 필요합니다.");
   if (!skill.subcategory.trim()) errors.push("세부 유형이 필요합니다.");
   if (!skill.patternType.trim()) errors.push("조합 패턴 유형이 필요합니다.");
+  if (skill.matchMode && !["atomic_lexeme", "trigger_and_context"].includes(skill.matchMode)) {
+    errors.push("matchMode는 atomic_lexeme 또는 trigger_and_context여야 합니다.");
+  }
   if (!skill.triggerPatterns.length || skill.triggerPatterns.some((pattern) => !pattern.trim())) {
     errors.push("유효한 트리거 패턴이 한 개 이상 필요합니다.");
   }
-  if (!skill.contextPatterns.length || skill.contextPatterns.some((pattern) => !pattern.trim())) {
+  if ((skill.matchMode !== "atomic_lexeme" && !skill.contextPatterns.length) || skill.contextPatterns.some((pattern) => !pattern.trim())) {
     errors.push("유효한 맥락 패턴이 한 개 이상 필요합니다.");
   }
   if (skill.exclusionPatterns?.some((pattern) => !pattern.trim())) {
@@ -1416,6 +1578,36 @@ export function validateSkill(skill: RiskSkill) {
   if (skill.anyOfPatterns.some((pattern) => !pattern.trim())) {
     errors.push("any_of 패턴은 빈 문자열일 수 없습니다.");
   }
+  if (allPatterns.length > MAX_PATTERNS_PER_SKILL) {
+    errors.push(`스킬 하나에는 최대 ${MAX_PATTERNS_PER_SKILL}개 패턴만 사용할 수 있습니다.`);
+  }
+  for (const pattern of allPatterns) {
+    const issue = patternIssue(pattern);
+    if (issue) errors.push(`${pattern.slice(0, 48)}: ${issue}`);
+  }
+  const regressionTests = skill.regressionTests ?? [];
+  if (regressionTests.length > 40) {
+    errors.push("회귀 테스트는 스킬당 최대 40개까지 등록할 수 있습니다.");
+  }
+  const regressionIds = new Set<string>();
+  regressionTests.forEach((regressionCase, index) => {
+    if (!regressionCase.id.trim() || regressionCase.id.length > 200) {
+      errors.push(`회귀 테스트 ${index + 1}의 ID가 유효하지 않습니다.`);
+    } else if (regressionIds.has(regressionCase.id)) {
+      errors.push(`중복된 회귀 테스트 ID입니다: ${regressionCase.id}`);
+    } else {
+      regressionIds.add(regressionCase.id);
+    }
+    if (!regressionCase.input.trim() || regressionCase.input.length > 2_000) {
+      errors.push(`회귀 테스트 ${index + 1}의 입력은 1~2,000자여야 합니다.`);
+    }
+    if (regressionCase.expected !== "match" && regressionCase.expected !== "no_match") {
+      errors.push(`회귀 테스트 ${index + 1}의 expected 값이 유효하지 않습니다.`);
+    }
+    if ((regressionCase.contextSlice?.length ?? 0) > 240) {
+      errors.push(`회귀 테스트 ${index + 1}의 문맥 설명은 240자 이하여야 합니다.`);
+    }
+  });
   if (skill.conditionScope !== "sentence" && skill.conditionScope !== "paragraph") {
     errors.push("적용 범위는 sentence 또는 paragraph여야 합니다.");
   }
@@ -1452,6 +1644,26 @@ export function validateSkill(skill: RiskSkill) {
     if (skill.source.provenanceStatus === "synthetic_unverified") {
       errors.push("검증되지 않은 합성 출처는 검토 완료 상태로 내보낼 수 없습니다.");
     }
+  }
+  return errors;
+}
+
+/**
+ * Managed and model-generated skills use the portable matcher DSL only.
+ * Raw JavaScript regular expressions remain confined to the versioned,
+ * code-reviewed compatibility kernel so a D1 write cannot introduce ReDoS.
+ */
+export function validateManagedSkill(skill: RiskSkill) {
+  const errors = [...validateSkill(skill)];
+  if (!skill.riskFamily) errors.push("관리 스킬에는 안정된 riskFamily 식별자가 필요합니다.");
+  const rawPattern = [
+    ...skill.triggerPatterns,
+    ...skill.contextPatterns,
+    ...skill.anyOfPatterns,
+    ...(skill.exclusionPatterns ?? []),
+  ].find((pattern) => pattern.startsWith("re:"));
+  if (rawPattern) {
+    errors.push(`관리 스킬은 raw regex를 사용할 수 없습니다: ${rawPattern.slice(0, 48)}`);
   }
   return errors;
 }
@@ -1525,6 +1737,7 @@ export function createMockSkillDraft(
     severityFloor: 55,
     dominantRisk: false,
     confidence: 0.45,
+    riskFamily: "general_substantiation",
     riskDomain: input.domain || fallbackDomain,
     recentContextTags: ["검토 필요"],
     safeRewrite: ["구체적인 근거와 적용 조건을 함께 안내합니다."],
@@ -1715,6 +1928,13 @@ export function migrateRiskSkill(
     provenanceValue === "verified" || provenanceValue === "synthetic_unverified"
       ? provenanceValue
       : "provided";
+  const patternType = readString(value, ["pattern_type", "patternType"]);
+  const declaredMatchMode = readString(value, ["match_mode", "matchMode"]);
+  const declaredRiskFamily = readString(value, ["risk_family", "riskFamily"]);
+  const riskFamily = declaredRiskFamily && RISK_FAMILIES.includes(declaredRiskFamily as typeof RISK_FAMILIES[number])
+    && declaredRiskFamily !== "none"
+    ? declaredRiskFamily as ScorableRiskFamily
+    : riskFamilyForPatternType(patternType);
 
   const skill: RiskSkill = {
     schemaVersion: RISK_SKILL_SCHEMA_VERSION,
@@ -1722,7 +1942,8 @@ export function migrateRiskSkill(
     id,
     category: readString(value, ["category"]),
     subcategory: readString(value, ["subcategory"]),
-    patternType: readString(value, ["pattern_type", "patternType"]),
+    patternType,
+    matchMode: declaredMatchMode === "atomic_lexeme" ? "atomic_lexeme" : "trigger_and_context",
     triggerPatterns: conditionTrigger.length
       ? conditionTrigger
       : readStrings(value, ["trigger_patterns", "triggerPatterns"]),
@@ -1748,6 +1969,7 @@ export function migrateRiskSkill(
     severityFloor: readNumber(value, ["severity_floor", "severityFloor"], 0),
     dominantRisk: readBoolean(value, ["dominant_risk", "dominantRisk"], false),
     confidence: readNumber(value, ["confidence"], 0),
+    riskFamily,
     riskDomain: readString(value, ["risk_domain", "riskDomain"]),
     recentContextTags: readStrings(value, ["recent_context_tags", "recentContextTags"]),
     safeRewrite: readStrings(value, ["safe_rewrite", "safeRewrite"]),
@@ -1765,7 +1987,10 @@ export function migrateRiskSkill(
     reviewStatus,
   };
 
-  const issues = validateSkill(skill);
+  const issues = [
+    ...(declaredRiskFamily && declaredRiskFamily !== riskFamily ? [`지원하지 않는 riskFamily ${declaredRiskFamily}입니다.`] : []),
+    ...validateSkill(skill),
+  ];
   return issues.length ? { issues } : { skill, issues: [] };
 }
 
@@ -1979,6 +2204,7 @@ export function buildExportBundle(
     category: skill.category,
     subcategory: skill.subcategory,
     pattern_type: skill.patternType,
+    match_mode: skill.matchMode ?? "trigger_and_context",
     trigger_patterns: skill.triggerPatterns,
     context_patterns: skill.contextPatterns,
     exclusion_patterns: skill.exclusionPatterns ?? [],
@@ -2000,6 +2226,7 @@ export function buildExportBundle(
     severity_floor: skill.severityFloor,
     dominant_risk: skill.dominantRisk,
     confidence: skill.confidence,
+    risk_family: skill.riskFamily ?? riskFamilyForPatternType(skill.patternType),
     risk_domain: skill.riskDomain,
     recent_context_tags: [...skill.recentContextTags].sort(compareText),
     safe_rewrite: skill.safeRewrite,

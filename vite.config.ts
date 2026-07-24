@@ -1,5 +1,6 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
+import { execFileSync } from "node:child_process";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -8,12 +9,30 @@ const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
 
 const { d1, r2 } = hostingConfig;
 
+function sourceCommit() {
+  const environmentRevision = process.env.GITHUB_SHA ?? process.env.COMMIT_SHA;
+  if (environmentRevision) return environmentRevision.slice(0, 8);
+  try {
+    return execFileSync("git", ["rev-parse", "--short=8", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "development";
+  }
+}
+
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+const localRuntimeVars: Record<string, string> = {
+  RISKSHIELD_ACCESS_CODE: process.env.RISKSHIELD_ACCESS_CODE ?? "",
+  RISKSHIELD_SESSION_SIGNING_KEY: process.env.RISKSHIELD_SESSION_SIGNING_KEY ?? "",
+  ...(process.env.RISKSHIELD_ENABLE_DEV_PRINCIPAL === "1"
+    ? { RISKSHIELD_ENABLE_DEV_PRINCIPAL: "1" }
+    : {}),
+};
 
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
+  vars: localRuntimeVars,
   d1_databases: d1
     ? [
         {
@@ -31,6 +50,7 @@ const localBindingConfig = {
         },
       ]
     : [],
+  triggers: { crons: ["*/15 * * * *"] },
 };
 
 export default defineConfig(async () => {
@@ -44,6 +64,9 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    define: {
+      __RISKSHIELD_COMMIT__: JSON.stringify(sourceCommit()),
+    },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,

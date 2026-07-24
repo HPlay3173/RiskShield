@@ -1,0 +1,56 @@
+import {
+  OIDC_STATE_COOKIE,
+  SESSION_COOKIE,
+  clearCookie,
+  secureCookie,
+} from "../../../../../lib/auth/cookies";
+import { exchangeAndVerifyCode } from "../../../../../lib/auth/google-oidc";
+import { authorizedUserForGoogleIdentity } from "../../../../../lib/auth/identity-adapter";
+import {
+  createSessionToken,
+  readOidcState,
+  sessionTtlSeconds,
+} from "../../../../../lib/auth/session";
+
+function failure(status: number, code: string) {
+  const headers = new Headers({ "content-type": "application/json", "cache-control": "private, no-store" });
+  headers.append("set-cookie", clearCookie(OIDC_STATE_COOKIE, "Lax"));
+  return new Response(JSON.stringify({ error: code }), { status, headers });
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const state = await readOidcState(request);
+  const code = url.searchParams.get("code");
+  if (!state || !code || url.searchParams.get("state") !== state.state) {
+    return failure(401, "invalid_oauth_state");
+  }
+  try {
+    const identity = await exchangeAndVerifyCode(request, {
+      code,
+      codeVerifier: state.codeVerifier,
+      nonce: state.nonce,
+    });
+    const user = await authorizedUserForGoogleIdentity(identity);
+    if (!user) return failure(403, "account_not_authorized");
+    const sessionToken = await createSessionToken({
+      userId: user.userId,
+      sessionId: crypto.randomUUID(),
+      roleVersion: user.roleVersion,
+      csrfToken: crypto.randomUUID(),
+      googleIdentity: user.googleIdentity,
+    });
+    const headers = new Headers({ location: state.returnTo, "cache-control": "private, no-store" });
+    headers.append("set-cookie", clearCookie(OIDC_STATE_COOKIE, "Lax"));
+    headers.append("set-cookie", secureCookie(SESSION_COOKIE, sessionToken, {
+      maxAge: sessionTtlSeconds,
+      // OAuth returns from a cross-site Google navigation. Lax sends the new
+      // session on the immediate top-level redirect while mutation APIs remain
+      // protected by CSRF, Origin, and Fetch Metadata checks.
+      sameSite: "Lax",
+    }));
+    return new Response(null, { status: 303, headers });
+  } catch {
+    return failure(401, "authentication_failed");
+  }
+}

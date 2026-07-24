@@ -1,5 +1,5 @@
-import { RiskShieldWorkbench } from "./RiskShieldWorkbench";
+import { PublicAnalyzer } from "./PublicAnalyzer";
 
 export default function Home() {
-  return <RiskShieldWorkbench />;
+  return <PublicAnalyzer />;
 }

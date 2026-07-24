@@ -1,90 +1,132 @@
-# RiskShield Skill Builder v0.1
+# RiskShield Studio v0.5 Alpha
 
-광고 문구의 사회적·윤리적·법적 PR 위험을 사람이 검토할 수 있도록 조합형 패턴 스킬을 만들고, Analyzer v4가 읽을 다섯 파일을 생성하는 한국어 관리자 웹앱입니다.
+RiskShield는 한국어 문장과 글에서 과장·기만, 혐오·차별, 욕설·공격, 숨은 커뮤니티 은어, 폭력·위협, 개인정보 침해 등 검토가 필요한 표현을 맥락과 함께 찾는 위험 분석 도구입니다.
 
-RiskShield는 문구를 자동 승인하거나 금지하지 않습니다. 최종 판단은 담당자에게 있으며, 앱의 `MockInterpreter`는 외부 AI가 아닌 교체 가능한 규칙 기반 후보 생성기입니다.
+현재 버전은 **검증 중인 알파 제품**입니다. 출력 점수는 법률 판단이나 위법성 확정이 아니며, 규칙 결과와 AI 문맥 해석을 사람이 검토하기 위한 보조 신호입니다. `no_match` 역시 안전을 보장하지 않습니다.
 
-## 제공 기능
+- 라이브 사이트: https://riskshield-studio.horari.chatgpt.site
+- 제품 브랜치: `riskshield/v0.5-product`
+- 상태: `v0.5.0-alpha.1`
 
-- 사례 문구, 설명, 분야, 시기, 출처, 메모 입력
-- MockInterpreter 기반 패턴 후보 생성 후 사람의 전체 필드 편집
-- `all_of`, `any_of`, `none_of`, 문장·문단 범위, 최대 거리 조건
-- 카테고리, 적용 분야, `severity_floor`, `dominant_risk`, 판단 근거, 오탐 설명, 대체 문구, 출처 검증 상태 편집
-- `draft`, `reviewed`, `rejected` 검토 상태
-- 기존 legacy `sample_risk_skills.jsonl`을 `risk_skill_schema/2.0.0`으로 변환
-- 다섯 파일 가져오기와 재출력
-  - `risk_skills.jsonl`
-  - `trend_context.json`
-  - `severity_rules.json`
-  - `rewrite_templates.json`
-  - `source_index.json`
-- 검토 완료 번들만 읽는 Analyzer v4 최소 어댑터
-- 관리자 선택 CSV를 최대 50건의 검토 후보로 만들어 D1 검토 큐에 저장
+## 제품 구조
 
-10,000행 원본 CSV는 저장소나 공개 웹 번들에 포함하지 않습니다. 관리자가 직접 선택한 파일은 브라우저에서만 후보 자료로 처리하며 자동 승인되지 않습니다.
+### 공개 Analyzer
 
-## 데이터와 점수 계약
+`/`와 `POST /api/analyze`는 로그인 없이 사용할 수 있습니다.
 
-스킬 레코드는 `schema_version: 2.0.0`과 `revision`을 가집니다. 조건은 다음 의미를 사용합니다.
+- D1의 `reviewed` 스킬만 사용하는 규칙 분석
+- 문장·문단 범위, 거리, 제외 조건과 문맥 억제
+- 선택적 Google Gemma 문맥 해석
+- 규칙·AI 충돌 또는 AI 단독 고위험 결과의 사람 검토 전환
+- 최대 20개 문장·주장 구간의 전체 규칙 분석과 위험도가 높은 최대 6개 구간의 AI 문맥 분석
+- AI 선택 구간 수와 실제 성공 수를 분리하고 일부 실패는 `partial`로 표시
+- 가장 위험한 독립 주장 하나를 최종 점수로 사용하고 나머지 위험 주장은 별도 목록으로 표시
+- 정확한 evidence 구간, 대체 문구, 불확실성 및 fallback 표시
+- 탐지 누락·새 표현 신고는 별도 접수함에서 문맥별 의미 분류와 Google Search 검증을 거치며, 근거가 충분한 경우에만 후보함으로 승격
+- 검증 오류·근거 부족 신고는 예약 실행에서 소량 재검증하고, 직접 사용 문맥만 양성 테스트로 사용
+- 오탐 신고는 새 위험 후보가 아니라 탐지한 기존 규칙의 음성 회귀 사례로 분리하며, 관리자가 승인한 뒤에만 규칙 평가에 포함
+- 요청 취소·재시도, 키보드와 모바일 접근성
+- 내부 스킬 전체, matcher 패턴, prompt와 provider 원문은 공개 응답에서 제외
 
-- `conditions.all_of`: 모든 의미 그룹에서 한 패턴 이상 일치
-- `conditions.any_of`: 값이 있으면 그중 한 패턴 이상 추가 일치
-- `conditions.none_of`: 같은 적용 범위에 있으면 제외
-- `conditions.scope`: `sentence` 또는 `paragraph`
-- `conditions.max_distance`: 서로 다른 증거 구간 사이의 최대 문자 거리
+호환 API인 `/api/skills`는 모든 메서드에서 `410 Gone`을 반환합니다.
 
-점수 정책의 소유 표면은 `severity_rules.json`입니다. 최종 점수는 카테고리 평균이 아니라 가장 높은 카테고리와 dominant 하한을 중심으로 계산하며, 적용 가능한 dominant 스킬이 있으면 해당 `severity_floor` 아래로 내려가지 않습니다.
+### 통합 관리 콘솔
 
-## 로컬 실행과 검증
+`/manage/*`는 Google OIDC로 보호됩니다. 현재 운영은 서버 환경에 등록된 단일 관리자 이메일만 허용합니다.
 
-Node.js 22.13 이상이 필요합니다.
+기본 메뉴는 학교 프로젝트의 핵심 흐름 다섯 개만 제공합니다.
+
+- `/manage`: 현재 상태와 다음 작업
+- `/manage/review`: 검증된 후보 검토
+- `/manage/skills`: 활성 위험 규칙과 초안
+- `/manage/materials`: CSV·공개 글 자료 등록과 후보 생성 연결
+- `/manage/test`: 규칙 엔진 탐지·오탐 테스트
+
+자동 커뮤니티 관찰·모델·추세는 `/manage/labs`, 팀원·권한과 변경 기록은 `/manage/settings`로 분리합니다. 공개 글 직접 등록은 `/manage/materials/public`, 자동 관찰 설정은 `/manage/labs/collect`에서 서로 섞이지 않게 제공합니다.
+
+기존 `/admin/*`, `/dev/*`, `/owner/*` 경로는 호환 경로이며 제품의 기준 namespace는 `/manage/*`입니다.
+
+## 분석 흐름
+
+```text
+입력 문구
+  ├─ reviewed 규칙 엔진
+  └─ 선택적 Gemma Interpreter
+          ↓
+claim·문맥·evidence 계약 검증
+          ↓
+모든 구간 규칙 분석 + 상위 6개 구간 AI 분석
+          ↓
+최고 위험 주장 점수 + 다른 위험 주장 목록
+```
+
+현재 0–100 계산은 서버에서 결정론적으로 수행되지만, AI가 평가한 축은 모델 판단입니다. 공개 Analyzer는 규칙 전용 평가에서 만든 calibration을 적용하지 않습니다. 따라서 숫자를 경험적으로 보정된 확률이나 법률적 위험도로 해석하면 안 됩니다.
+
+## 로컬 실행
+
+요구 환경:
+
+- Node.js 22.13 이상
+- npm
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-## 영구 저장과 배포
+기본 주소는 실행 로그를 따릅니다. 로컬 관리 fixture는 개발 환경·loopback host·명시적 환경 설정이 모두 충족될 때만 활성화됩니다.
 
-RiskShield는 `.openai/hosting.json`의 Cloudflare D1 바인딩 `DB`를 유일한 스킬 저장소로 사용합니다. 브라우저 `localStorage`, 메모리 폴백, 세션 전용 성공 처리는 사용하지 않습니다. 초기 샘플은 D1의 `risk_skills` 테이블이 비어 있을 때만 한 번 삽입됩니다.
+주요 운영 환경 변수:
 
-- `GET /api/skills`: 저장된 스킬과 공통 점수 정책을 불러옵니다.
-- `POST /api/skills`: 단일 스킬을 검증해 upsert합니다. UI는 D1 성공 응답 후에만 저장 완료 상태를 반영합니다.
-- `PUT /api/skills`: CSV·번들 가져오기를 원자적으로 적용합니다. 기본값은 병합/upsert이며 전체 교체는 명시적 확인이 필요합니다.
-- 상태, 출처, schema v2 조건, 점수, Dominant Risk, ID, revision, 한국어 원문을 왕복 보존합니다.
-- 선언된 미지원 스키마와 HTTP(S)가 아닌 출처 URL은 데이터 변경 전에 거부합니다.
+- `RISKSHIELD_INTERPRETER_API_KEY`: 선택적 Gemma Interpreter
+- `GOOGLE_OIDC_CLIENT_ID`, `GOOGLE_OIDC_CLIENT_SECRET`: Google 로그인
+- `RISKSHIELD_SESSION_SIGNING_KEY`: 관리 세션 서명
+- `RISKSHIELD_CANONICAL_ORIGIN`: OAuth 기준 origin
+- `RISKSHIELD_MANAGER_EMAILS`: 쉼표로 구분한 관리자 이메일 허용목록
 
-로컬에서도 기존 vinext 개발/preview 명령으로 실행해 `DB` 바인딩이 있는 환경에서 저장을 검증해야 합니다. D1 연결 실패를 브라우저 저장으로 대체하지 않습니다. 운영 환경은 기존 Sites 프로젝트와 바인딩을 유지하며 `drizzle/0001_persistent_import.sql`을 적용합니다. API 시작 시에도 이전 review-status 제약을 방어적으로 승격합니다.
+비밀값은 저장소나 `.openai/hosting.json`에 기록하지 않습니다.
 
-이 저장소는 자동 배포하지 않습니다. 아래 검증을 마친 뒤, 별도로 승인된 비공개 배포 절차에서만 게시합니다.
+## 데이터와 저장소
 
-검증 명령:
+- D1: 운영 스킬, 설정, 후보, 공개 신고 접수, 음성 회귀 사례, 수집 관찰, 검색 검증 쿨다운 및 관리 데이터
+- CSV: 브라우저에서 byte 단위 검사와 staging preview
+- R2: Dataset Version 원본을 SHA-256 content-addressed object로 불변 저장
+- Vector/embedding: 아직 연결되지 않음
+
+원본 10,000행 CSV는 공개 번들이나 저장소에 포함하지 않습니다. Dataset Version은 서버 계산 SHA-256과 R2 object key를 저장하며, 선택한 과거 버전도 동일 원본으로 재현 학습할 수 있습니다.
+
+## 검증
 
 ```bash
 npm run typecheck
 npm run lint
-npm test
 npm run build
+npm test
+git diff --check
 ```
 
-`npm test`는 production build 뒤 다음 계약을 함께 검사합니다.
+GitHub Actions는 pull request에서 위 검사와 production dependency audit를 실행합니다.
 
-- 전달 자료의 8개 필수 사례와 최소 점수
-- 단일 일반 단어, 명시적 부정, 제외 문맥 등 negative cases
-- 문장·문단 범위, 거리, all/any/none 조건
-- legacy sample 변환과 다섯 파일 round-trip
-- `severity_rules.json` 정책 적용
-- Builder export → Analyzer v4 adapter import → 분석 경로
-- 실제 서버 렌더링 표면
+## 현재 제한 사항
 
-## 주요 코드
+- 점수 가중치와 임계값은 외부 held-out 데이터로 보정되지 않았습니다.
+- 현재 공개 점수 정책 `4.1.0`은 최고 위험 주장 하나만 사용하며 다른 주장 가산은 적용하지 않습니다.
+- 일부 위험 패턴은 코드의 compatibility matcher에 남아 있어 스킬 payload만으로 완전히 재현되지 않습니다.
+- Dataset 원본은 immutable R2 저장과 서버 기준 SHA 계보를 사용합니다. 운영 R2 binding과 migration이 필수입니다.
+- 학습 파이프라인의 일부 단계는 휴리스틱 또는 `not_configured` 상태입니다.
+- 후보의 `approve_with_edits`와 merge revision 제안은 구현됐지만, release candidate와 active의 최종 배포 단계는 아직 분리 작업이 남아 있습니다.
+- Analyzer와 공개 신고 제한 및 provider budget은 D1 원자적 카운터를 사용합니다. 공개 신고는 즉시 후보가 되지 않으며 검증 실패·근거 부족 상태도 별도 보존하고 예약 재검증합니다. 30일 기한이 지난 접수는 다음 제출 시 삭제됩니다.
+- 단일 관리자 허용목록 세션은 운영 D1 기반 다중 사용자 RBAC의 임시 단계입니다.
+- 테스트 화면은 규칙 엔진만 평가합니다. AI를 포함한 전체 시스템의 품질·latency·비용과 calibration 결과는 아직 없습니다.
 
-- `lib/riskshield.ts`: 스키마, migration codec, 공통 분석 엔진, scoring, bundle import/export, MockInterpreter
-- `lib/analyzer-v4-adapter.ts`: Analyzer v4 최소 번들 어댑터
-- `app/RiskShieldWorkbench.tsx`: Skill Builder와 Analyzer 검증 UI
-- `tests/`: 필수 사례, negative, round-trip, adapter와 렌더링 검증
-- `PLAN.md`: 구현 결정, 편집 경계와 완료 증거
+## 릴리스 원칙
 
-## 현재 범위
+- 운영 Analyzer는 `reviewed` 스킬만 사용합니다.
+- 후보는 자동으로 active 정책에 편입하지 않습니다.
+- AI-only high는 사람 검토 없이 확정하지 않습니다.
+- 기능이 연결되지 않은 경우 가짜 성공이나 가짜 지표 대신 `unavailable` 또는 `configuration_required`를 표시합니다.
+- production D1 migration, 모델 배포와 접근 정책 변경은 별도 검증 후 수행합니다.
 
-v0.2는 외부 AI API, API 키, 로그인, 공동 편집 또는 유료 API를 요구하지 않습니다. 저장 API가 연결되지 않으면 읽기·저장·가져오기 성공을 표시하지 않습니다. 법률 판단이나 출처 사실을 앱이 임의로 생성하지 않으며, 외부 배포는 별도 승인 범위입니다.
+## 라이선스
+
+현재 저장소에 별도 오픈소스 라이선스가 선언되어 있지 않습니다. 외부 사용·배포 조건은 저장소 소유자와 확인해야 합니다.

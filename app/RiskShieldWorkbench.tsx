@@ -66,6 +66,81 @@ const BUILDER_STEPS = [
   },
 ] as const;
 
+const ONBOARDING_SESSION_KEY = "riskshield:onboarding-session:v0.4.2";
+const LIBRARY_PAGE_SIZE = 20;
+
+type OnboardingTarget = "navigation" | "new-skill" | "copy-input" | "next-action" | "analyzer-nav";
+type OnboardingPlacement = "above" | "below" | "left" | "right";
+
+type OnboardingDialogPosition = {
+  top: number;
+  left: number;
+  maxHeight: number;
+  placement: OnboardingPlacement;
+};
+
+const ONBOARDING_STEPS: Array<{
+  eyebrow: string;
+  title: string;
+  description: string;
+  target?: OnboardingTarget;
+  details: string[];
+}> = [
+  {
+    eyebrow: "처음 오셨나요?",
+    title: "RiskShield 사용 흐름을 1분 안에 살펴볼게요",
+    description: "화면을 둘러보기만 하며 스킬이나 분석 결과는 저장하지 않습니다.",
+    details: ["문구 입력", "위험 맥락 검토", "사람의 최종 판단"],
+  },
+  {
+    eyebrow: "전체 메뉴",
+    title: "위쪽 메뉴로 작업 화면을 옮겨요",
+    description: "필요한 작업만 골라 순서대로 진행할 수 있습니다.",
+    target: "navigation",
+    details: [
+      "스킬 만들기 · 위험 패턴을 단계별로 작성",
+      "CSV 가져오기 · 외부 자료를 검토용으로 불러오기",
+      "스킬 라이브러리 · 저장된 스킬 검색과 상태 확인",
+      "Analyzer 테스트 · 광고 문구를 빠르게 분석",
+      "내보내기 · 검토 완료 자료를 파일로 받기",
+    ],
+  },
+  {
+    eyebrow: "새 작업",
+    title: "새로운 위험 패턴은 여기서 시작해요",
+    description: "‘새 스킬’을 누르면 빈 초안이 열립니다. 작성 중인 내용이 있다면 먼저 저장하세요.",
+    target: "new-skill",
+    details: ["새 스킬 버튼은 저장을 실행하지 않습니다.", "초안·검토 완료·반려 상태는 마지막 검토 단계에서 선택합니다."],
+  },
+  {
+    eyebrow: "1단계 · 자료 입력",
+    title: "먼저 검토할 문구를 입력하세요",
+    description: "논란 문구는 필수이고, 분야·출처·메모는 판단에 필요한 만큼만 추가하면 됩니다.",
+    target: "copy-input",
+    details: ["원문 그대로 입력해야 근거 위치를 정확히 확인할 수 있습니다.", "개인정보가 포함된 문구는 입력하지 않는 것을 권장합니다."],
+  },
+  {
+    eyebrow: "다음 단계",
+    title: "주요 버튼이 다음 할 일을 안내해요",
+    description: "‘해석하고 다음’을 누르면 맥락 해석으로 이동하고, 이후에는 이전·다음 버튼으로 검토 단계를 오갑니다.",
+    target: "next-action",
+    details: ["5단계에서 사람이 근거와 출처를 최종 확인합니다.", "6단계에서는 만든 스킬을 실제 문구로 시험합니다."],
+  },
+  {
+    eyebrow: "빠른 분석",
+    title: "스킬을 만들지 않고 문구만 확인할 수도 있어요",
+    description: "‘Analyzer 테스트’에서 광고 문구를 입력하면 규칙 결과와 AI 문맥 보조 결과를 다음 화면에서 확인합니다.",
+    target: "analyzer-nav",
+    details: ["결과는 자동 승인이나 자동 차단이 아닙니다.", "high·review·no_match와 근거를 보고 담당자가 최종 판단합니다."],
+  },
+  {
+    eyebrow: "안내 완료",
+    title: "이제 필요한 작업부터 시작해 보세요",
+    description: "안내를 닫아도 헤더의 ‘사용 안내’ 버튼으로 언제든 다시 볼 수 있습니다.",
+    details: ["새 패턴 작성 · 스킬 만들기", "기존 패턴 확인 · 스킬 라이브러리", "문구 즉시 분석 · Analyzer 테스트"],
+  },
+];
+
 const QUICK_TESTS = [
   "15초만에 형량 분석",
   "기각 시 100% 환불",
@@ -101,7 +176,7 @@ type BetaAnalysis = {
   ai: {
     state: "ready" | "fallback";
     confidence: number | null;
-    riskIntent: "direct_promotional" | "contextual_only" | "uncertain" | null;
+    riskIntent: "direct_promotional" | "direct_harmful" | "contextual_only" | "uncertain" | null;
     speechAct: "claim" | "quote" | "warning" | "criticism" | "report" | "definition" | "condition" | null;
     contextRelation: string | null;
     claimStrength: string | null;
@@ -124,7 +199,7 @@ type BetaAnalysis = {
   };
   hybrid: {
     status: BetaHybridStatus;
-    score: number;
+    score: number | null;
     conflict: boolean;
     conflictReasons: string[];
     recoveredByInterpreter: boolean;
@@ -251,6 +326,7 @@ function speechActLabel(value: BetaAnalysis["ai"]["speechAct"]) {
 
 function riskIntentLabel(value: BetaAnalysis["ai"]["riskIntent"]) {
   if (value === "direct_promotional") return "직접 광고·홍보 주장";
+  if (value === "direct_harmful") return "직접 유해 발화";
   if (value === "contextual_only") return "문맥상 직접 주장 아님";
   if (value === "uncertain") return "의도 불확실";
   return "분석 실패";
@@ -651,11 +727,200 @@ export function RiskShieldWorkbench() {
   const [libraryQuery, setLibraryQuery] = useState("");
   const [libraryStatus, setLibraryStatus] = useState<"all" | RiskSkill["reviewStatus"]>("all");
   const [libraryCategory, setLibraryCategory] = useState("all");
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const [onboardingRect, setOnboardingRect] = useState<{
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [onboardingDialogPosition, setOnboardingDialogPosition] = useState<OnboardingDialogPosition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bundleInputRef = useRef<HTMLInputElement>(null);
   const builderStageRef = useRef<HTMLDivElement>(null);
+  const onboardingDialogRef = useRef<HTMLDivElement>(null);
+  const onboardingOriginRef = useRef<{ activeView: ViewId; builderStep: number; analyzerStep: 1 | 2 } | null>(null);
+  const onboardingReturnFocusRef = useRef<HTMLElement | null>(null);
   const hasMountedRef = useRef(false);
   const analysisRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      let completed = false;
+      try {
+        completed = window.sessionStorage.getItem(ONBOARDING_SESSION_KEY) === "complete";
+      } catch {
+        completed = false;
+      }
+      if (completed) return;
+      onboardingOriginRef.current = { activeView: "builder", builderStep: 1, analyzerStep: 1 };
+      setOnboardingStep(0);
+      setOnboardingOpen(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!onboardingOpen) return;
+
+    const target = ONBOARDING_STEPS[onboardingStep]?.target;
+    if (!target) {
+      const timer = window.setTimeout(() => {
+        setOnboardingRect(null);
+        setOnboardingDialogPosition(null);
+        onboardingDialogRef.current?.focus({ preventScroll: true });
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    const selector = target === "navigation"
+      ? window.matchMedia("(max-width: 767px)").matches ? '[data-tour="mobile-navigation"]' : '[data-tour="main-navigation"]'
+      : target === "analyzer-nav" && window.matchMedia("(max-width: 767px)").matches
+        ? '[data-tour="mobile-navigation"]'
+        : target === "analyzer-nav"
+          ? '[data-view="analyzer"]'
+          : `[data-tour="${target}"]`;
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) {
+      const timer = window.setTimeout(() => {
+        setOnboardingRect(null);
+        setOnboardingDialogPosition(null);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    const placeDialog = () => {
+      const rect = element.getBoundingClientRect();
+      const dialogRect = onboardingDialogRef.current?.getBoundingClientRect();
+      if (!dialogRect) return;
+
+      const viewportWidth = document.documentElement.clientWidth;
+      const viewportHeight = window.innerHeight;
+      const padding = 8;
+      const spotlight = {
+        top: Math.max(8, rect.top - padding),
+        right: Math.min(viewportWidth - 8, rect.right + padding),
+        bottom: Math.min(viewportHeight - 8, rect.bottom + padding),
+        left: Math.max(8, rect.left - padding),
+        width: Math.min(viewportWidth - 16, rect.width + (padding * 2)),
+        height: Math.min(viewportHeight - 16, rect.height + (padding * 2)),
+      };
+      setOnboardingRect(spotlight);
+
+      const margin = 12;
+      const gap = 16;
+      const dialogWidth = Math.min(dialogRect.width, viewportWidth - (margin * 2));
+      const dialogHeight = dialogRect.height;
+      const minimumUsableHeight = Math.min(280, dialogHeight);
+      const clamp = (value: number, minimum: number, maximum: number) => Math.max(minimum, Math.min(value, maximum));
+      const centeredLeft = clamp(
+        spotlight.left + (spotlight.width / 2) - (dialogWidth / 2),
+        margin,
+        viewportWidth - dialogWidth - margin,
+      );
+      const fullHeight = viewportHeight - (margin * 2);
+      const centeredTop = clamp(
+        spotlight.top + (spotlight.height / 2) - (Math.min(dialogHeight, fullHeight) / 2),
+        margin,
+        viewportHeight - Math.min(dialogHeight, fullHeight) - margin,
+      );
+      const belowHeight = viewportHeight - margin - spotlight.bottom - gap;
+      const aboveHeight = spotlight.top - gap - margin;
+      const rightWidth = viewportWidth - margin - spotlight.right - gap;
+      const leftWidth = spotlight.left - gap - margin;
+
+      const candidates: Record<OnboardingPlacement, OnboardingDialogPosition | null> = {
+        below: belowHeight >= minimumUsableHeight ? {
+          top: spotlight.bottom + gap,
+          left: centeredLeft,
+          maxHeight: belowHeight,
+          placement: "below",
+        } : null,
+        above: aboveHeight >= minimumUsableHeight ? {
+          top: spotlight.top - gap - Math.min(dialogHeight, aboveHeight),
+          left: centeredLeft,
+          maxHeight: aboveHeight,
+          placement: "above",
+        } : null,
+        right: rightWidth >= dialogWidth ? {
+          top: centeredTop,
+          left: spotlight.right + gap,
+          maxHeight: fullHeight,
+          placement: "right",
+        } : null,
+        left: leftWidth >= dialogWidth ? {
+          top: centeredTop,
+          left: spotlight.left - gap - dialogWidth,
+          maxHeight: fullHeight,
+          placement: "left",
+        } : null,
+      };
+      const isCompact = viewportWidth <= 767;
+      const preferences: OnboardingPlacement[] = target === "navigation" || target === "new-skill" || target === "analyzer-nav"
+        ? ["below", "left", "right", "above"]
+        : target === "next-action"
+          ? isCompact ? ["above", "below"] : ["left", "right", "above", "below"]
+          : isCompact ? ["below", "above"] : ["right", "left", "below", "above"];
+      const selected = preferences.map((placement) => candidates[placement]).find(Boolean);
+
+      if (selected) {
+        setOnboardingDialogPosition(selected);
+        return;
+      }
+
+      const fallbackPlacement: OnboardingPlacement = aboveHeight > belowHeight ? "above" : "below";
+      const fallbackHeight = Math.max(180, fallbackPlacement === "above" ? aboveHeight : belowHeight);
+      setOnboardingDialogPosition({
+        top: fallbackPlacement === "above"
+          ? Math.max(margin, spotlight.top - gap - fallbackHeight)
+          : spotlight.bottom + gap,
+        left: centeredLeft,
+        maxHeight: fallbackHeight,
+        placement: fallbackPlacement,
+      });
+    };
+
+    const prepareTarget = () => {
+      const viewportWidth = document.documentElement.clientWidth;
+      const rect = element.getBoundingClientRect();
+      const targetIsFullyVisible = rect.top >= 8
+        && rect.bottom <= window.innerHeight - 8
+        && rect.left >= 8
+        && rect.right <= viewportWidth - 8;
+      if (target === "copy-input") {
+        element.scrollIntoView({ block: "start", inline: "nearest", behavior: "auto" });
+        const headerHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-height")) || 0;
+        window.scrollBy({ top: -(headerHeight + 16), left: 0, behavior: "auto" });
+      } else if (target === "next-action") {
+        element.scrollIntoView({ block: "end", inline: "nearest", behavior: "auto" });
+        window.scrollBy({ top: 24, left: 0, behavior: "auto" });
+      } else if (!targetIsFullyVisible) {
+        element.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+      }
+    };
+
+    const resetTimer = window.setTimeout(() => {
+      setOnboardingRect(null);
+      setOnboardingDialogPosition(null);
+      prepareTarget();
+    }, 0);
+    const timer = window.setTimeout(() => {
+      placeDialog();
+      onboardingDialogRef.current?.focus({ preventScroll: true });
+    }, 120);
+    window.addEventListener("resize", placeDialog);
+    window.addEventListener("scroll", placeDialog, true);
+    return () => {
+      window.clearTimeout(resetTimer);
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", placeDialog);
+      window.removeEventListener("scroll", placeDialog, true);
+    };
+  }, [onboardingOpen, onboardingStep]);
 
   useEffect(() => {
     const host = window.location.hostname;
@@ -742,6 +1007,16 @@ export function RiskShieldWorkbench() {
       return matchesStatus && matchesCategory && (!query || haystack.includes(query));
     });
   }, [libraryCategory, libraryQuery, libraryStatus, skills]);
+  const libraryPageCount = Math.max(1, Math.ceil(filteredSkills.length / LIBRARY_PAGE_SIZE));
+  const currentLibraryPage = Math.min(libraryPage, libraryPageCount);
+  const visibleLibrarySkills = filteredSkills.slice(
+    (currentLibraryPage - 1) * LIBRARY_PAGE_SIZE,
+    currentLibraryPage * LIBRARY_PAGE_SIZE,
+  );
+  const libraryRangeStart = filteredSkills.length
+    ? ((currentLibraryPage - 1) * LIBRARY_PAGE_SIZE) + 1
+    : 0;
+  const libraryRangeEnd = Math.min(currentLibraryPage * LIBRARY_PAGE_SIZE, filteredSkills.length);
 
   const reviewedSkills = useMemo(
     () => skills.filter((skill) => skill.reviewStatus === "reviewed"),
@@ -889,7 +1164,7 @@ export function RiskShieldWorkbench() {
         },
         hybrid: {
           status: "review",
-          score: Math.max(55, Math.min(69, localRules.finalScore || 55)),
+          score: localRules.finalScore > 0 ? localRules.finalScore : null,
           conflict: true,
           conflictReasons: ["interpreter_provider_failed"],
           recoveredByInterpreter: false,
@@ -913,6 +1188,43 @@ export function RiskShieldWorkbench() {
       setBetaAnalysisLoading(false);
       setAnalysisError("");
     }
+  }
+
+  function startOnboarding() {
+    onboardingOriginRef.current = { activeView, builderStep, analyzerStep };
+    onboardingReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setActiveView("builder");
+    setBuilderStep(1);
+    setOnboardingStep(0);
+    setOnboardingOpen(true);
+  }
+
+  function closeOnboarding() {
+    try {
+      window.sessionStorage.setItem(ONBOARDING_SESSION_KEY, "complete");
+    } catch {
+      // 브라우저 저장소를 사용할 수 없어도 안내 종료는 계속합니다.
+    }
+    const origin = onboardingOriginRef.current;
+    setOnboardingOpen(false);
+    setOnboardingRect(null);
+    setOnboardingDialogPosition(null);
+    if (origin) {
+      setActiveView(origin.activeView);
+      setBuilderStep(origin.builderStep);
+      setAnalyzerStep(origin.analyzerStep);
+    }
+    window.setTimeout(() => onboardingReturnFocusRef.current?.focus({ preventScroll: true }), 0);
+  }
+
+  function moveOnboarding(direction: -1 | 1) {
+    const nextStep = onboardingStep + direction;
+    if (nextStep < 0) return;
+    if (nextStep >= ONBOARDING_STEPS.length) {
+      closeOnboarding();
+      return;
+    }
+    setOnboardingStep(nextStep);
   }
 
   async function saveSkill(status: RiskSkill["reviewStatus"]) {
@@ -1164,6 +1476,7 @@ export function RiskShieldWorkbench() {
     },
   ];
 
+  const currentOnboardingStep = ONBOARDING_STEPS[onboardingStep];
   return (
     <div className="appShell appleShell">
       <a className="skipLink" href="#main-content">본문으로 건너뛰기</a>
@@ -1174,7 +1487,7 @@ export function RiskShieldWorkbench() {
             <strong>RiskShield Studio</strong>
           </button>
 
-          <nav className="appNav" aria-label="RiskShield Studio 작업 메뉴">
+          <nav className="appNav" aria-label="RiskShield Studio 작업 메뉴" data-tour="main-navigation">
             {NAV_ITEMS.map((item) => (
               <button
                 type="button"
@@ -1188,7 +1501,7 @@ export function RiskShieldWorkbench() {
               </button>
             ))}
           </nav>
-          <label className="mobileNavSelect">
+          <label className="mobileNavSelect" data-tour="mobile-navigation">
             <span>화면 선택</span>
             <select
               value={activeView}
@@ -1201,8 +1514,11 @@ export function RiskShieldWorkbench() {
 
           <div className="appHeaderActions">
             <span className="visuallyHidden" aria-live="polite">{storageLabel}</span>
+            <button type="button" className="secondaryButton compactButton guideButton" onClick={startOnboarding}>
+              사용 안내
+            </button>
             {(activeView === "builder" || activeView === "library") && (
-              <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button">
+              <button type="button" className="primaryButton compactButton" onClick={beginNewSkill} data-testid="builder-new-button" data-tour="new-skill">
                 {activeView === "library" ? "새 스킬 만들기" : "새 스킬"}
               </button>
             )}
@@ -1253,6 +1569,7 @@ export function RiskShieldWorkbench() {
                   </div>
                   <textarea
                     id="case-text"
+                    data-tour="copy-input"
                     value={caseInput.text}
                     maxLength={500}
                     rows={3}
@@ -1324,6 +1641,7 @@ export function RiskShieldWorkbench() {
                     className="primaryButton"
                     onClick={interpretCase}
                     data-testid="builder-interpret-button"
+                    data-tour="next-action"
                   >
                     해석하고 다음
                   </button>
@@ -1890,11 +2208,24 @@ export function RiskShieldWorkbench() {
                 <label className="searchField">
                   <span className="visuallyHidden">스킬 검색</span>
                   <span aria-hidden="true">⌕</span>
-                  <input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="스킬 ID, 패턴, 카테고리 검색" />
+                  <input
+                    value={libraryQuery}
+                    onChange={(event) => {
+                      setLibraryQuery(event.target.value);
+                      setLibraryPage(1);
+                    }}
+                    placeholder="스킬 ID, 패턴, 카테고리 검색"
+                  />
                 </label>
                 <label>
                   <span className="visuallyHidden">검토 상태</span>
-                  <select value={libraryStatus} onChange={(event) => setLibraryStatus(event.target.value as typeof libraryStatus)}>
+                  <select
+                    value={libraryStatus}
+                    onChange={(event) => {
+                      setLibraryStatus(event.target.value as typeof libraryStatus);
+                      setLibraryPage(1);
+                    }}
+                  >
                     <option value="all">모든 상태</option>
                     <option value="reviewed">검토 완료</option>
                     <option value="draft">초안</option>
@@ -1903,55 +2234,86 @@ export function RiskShieldWorkbench() {
                 </label>
                 <label>
                   <span className="visuallyHidden">카테고리</span>
-                  <select value={libraryCategory} onChange={(event) => setLibraryCategory(event.target.value)}>
+                  <select
+                    value={libraryCategory}
+                    onChange={(event) => {
+                      setLibraryCategory(event.target.value);
+                      setLibraryPage(1);
+                    }}
+                  >
                     <option value="all">모든 카테고리</option>
                     {categories.map((category) => <option key={category}>{category}</option>)}
                   </select>
                 </label>
               </div>
               {filteredSkills.length ? (
-                <div className="tableScroll">
-                  <table className="skillTable">
-                    <caption className="visuallyHidden">RiskShield 스킬 목록</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">상태</th>
-                        <th scope="col">스킬 / 조합 패턴</th>
-                        <th scope="col">카테고리</th>
-                        <th scope="col">최소 점수</th>
-                        <th scope="col">Dominant</th>
-                        <th scope="col">신뢰도</th>
-                        <th scope="col"><span className="visuallyHidden">작업</span></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSkills.map((skill) => (
-                        <tr key={skill.id}>
-                          <td>
-                            <span className={cx(
-                              "tableStatus",
-                              skill.reviewStatus === "reviewed" && "tableStatusReviewed",
-                              skill.reviewStatus === "rejected" && "tableStatusRejected",
-                            )}>
-                              {reviewStatusLabel(skill.reviewStatus)}
-                            </span>
-                          </td>
-                          <td><strong title={skill.id}>{skill.id}</strong><code title={skill.patternType}>{skill.patternType}</code></td>
-                          <td>{skill.category}</td>
-                          <td><b className="scoreCell">{skill.severityFloor}</b></td>
-                          <td>{skill.dominantRisk ? <span className="dominantDot">적용</span> : <span className="mutedText">미적용</span>}</td>
-                          <td>{Math.round(skill.confidence * 100)}%</td>
-                          <td><button type="button" className="rowButton" onClick={() => openSkill(skill)} aria-label={skill.id + " 열기"}>열기</button></td>
+                <>
+                  <div className="libraryResultMeta" aria-live="polite">
+                    <span>검색 결과 <strong>{filteredSkills.length.toLocaleString("ko-KR")}</strong>개</span>
+                    <span>{libraryRangeStart.toLocaleString("ko-KR")}–{libraryRangeEnd.toLocaleString("ko-KR")} 표시</span>
+                  </div>
+                  <div className="tableScroll">
+                    <table className="skillTable">
+                      <caption className="visuallyHidden">RiskShield 스킬 목록</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">상태</th>
+                          <th scope="col">스킬 / 조합 패턴</th>
+                          <th scope="col">카테고리</th>
+                          <th scope="col">최소 점수</th>
+                          <th scope="col">Dominant</th>
+                          <th scope="col">신뢰도</th>
+                          <th scope="col"><span className="visuallyHidden">작업</span></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {visibleLibrarySkills.map((skill) => (
+                          <tr key={skill.id}>
+                            <td>
+                              <span className={cx(
+                                "tableStatus",
+                                skill.reviewStatus === "reviewed" && "tableStatusReviewed",
+                                skill.reviewStatus === "rejected" && "tableStatusRejected",
+                              )}>
+                                {reviewStatusLabel(skill.reviewStatus)}
+                              </span>
+                            </td>
+                            <td><strong title={skill.id}>{skill.id}</strong><code title={skill.patternType}>{skill.patternType}</code></td>
+                            <td>{skill.category}</td>
+                            <td><b className="scoreCell">{skill.severityFloor}</b></td>
+                            <td>{skill.dominantRisk ? <span className="dominantDot">적용</span> : <span className="mutedText">미적용</span>}</td>
+                            <td>{Math.round(skill.confidence * 100)}%</td>
+                            <td><button type="button" className="rowButton" onClick={() => openSkill(skill)} aria-label={skill.id + " 열기"}>열기</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <nav className="libraryPagination" aria-label="스킬 목록 페이지">
+                    <button
+                      type="button"
+                      className="secondaryButton"
+                      disabled={currentLibraryPage === 1}
+                      onClick={() => setLibraryPage((page) => Math.max(1, page - 1))}
+                    >
+                      이전
+                    </button>
+                    <span><strong>{currentLibraryPage}</strong> / {libraryPageCount} 페이지</span>
+                    <button
+                      type="button"
+                      className="secondaryButton"
+                      disabled={currentLibraryPage === libraryPageCount}
+                      onClick={() => setLibraryPage((page) => Math.min(libraryPageCount, page + 1))}
+                    >
+                      다음
+                    </button>
+                  </nav>
+                </>
               ) : (
                 <div className="libraryEmpty">
                   <span aria-hidden="true">⌕</span>
                   <h2>조건과 일치하는 스킬이 없습니다.</h2>
-                  <button type="button" className="secondaryButton" onClick={() => { setLibraryQuery(""); setLibraryStatus("all"); setLibraryCategory("all"); }}>필터 초기화</button>
+                  <button type="button" className="secondaryButton" onClick={() => { setLibraryQuery(""); setLibraryStatus("all"); setLibraryCategory("all"); setLibraryPage(1); }}>필터 초기화</button>
                 </div>
               )}
             </section>
@@ -2091,6 +2453,76 @@ export function RiskShieldWorkbench() {
           </section>
         )}
       </main>
+
+      {onboardingOpen && currentOnboardingStep && (
+        <div
+          className="onboardingLayer"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") closeOnboarding();
+            if (event.key === "ArrowRight") moveOnboarding(1);
+            if (event.key === "ArrowLeft") moveOnboarding(-1);
+          }}
+        >
+          <div className={cx("onboardingShield", !onboardingRect && "onboardingShieldSolid")} aria-hidden="true" />
+          {onboardingRect && (
+            <div
+              className="onboardingSpotlight"
+              aria-hidden="true"
+              style={{
+                top: onboardingRect.top,
+                left: onboardingRect.left,
+                width: onboardingRect.width,
+                height: onboardingRect.height,
+              }}
+            />
+          )}
+          <div
+            ref={onboardingDialogRef}
+            className={cx("onboardingDialog", onboardingDialogPosition && "onboardingDialogPlaced")}
+            style={onboardingDialogPosition ? {
+              top: onboardingDialogPosition.top,
+              left: onboardingDialogPosition.left,
+              maxHeight: onboardingDialogPosition.maxHeight,
+            } : undefined}
+            data-placement={onboardingDialogPosition?.placement}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="onboarding-title"
+            aria-describedby="onboarding-description"
+            tabIndex={-1}
+          >
+            <div className="onboardingTopRow">
+              <span>{currentOnboardingStep.eyebrow}</span>
+              <button type="button" onClick={closeOnboarding} aria-label="사용 안내 닫기">×</button>
+            </div>
+            <p className="onboardingProgress" aria-label={`사용 안내 ${onboardingStep + 1}/${ONBOARDING_STEPS.length}단계`}>
+              {ONBOARDING_STEPS.map((step, index) => (
+                <span key={step.title} className={index === onboardingStep ? "onboardingProgressActive" : ""} />
+              ))}
+            </p>
+            <h2 id="onboarding-title">{currentOnboardingStep.title}</h2>
+            <p id="onboarding-description" className="onboardingDescription">{currentOnboardingStep.description}</p>
+            <ul className="onboardingDetails">
+              {currentOnboardingStep.details.map((detail) => <li key={detail}>{detail}</li>)}
+            </ul>
+            <div className="onboardingActions">
+              {onboardingStep === 0 ? (
+                <button type="button" className="textButton" onClick={closeOnboarding}>건너뛰기</button>
+              ) : (
+                <button type="button" className="secondaryButton" onClick={() => moveOnboarding(-1)}>이전</button>
+              )}
+              <button type="button" className="primaryButton" onClick={() => moveOnboarding(1)}>
+                {onboardingStep === 0
+                  ? "안내 시작"
+                  : onboardingStep === ONBOARDING_STEPS.length - 1
+                    ? "안내 끝내기"
+                    : "다음"}
+              </button>
+            </div>
+            <span className="onboardingKeyboardHint">Esc로 닫기 · ← →로 이동</span>
+          </div>
+        </div>
+      )}
 
       <footer className="siteFooter compactFooter">
         <div className="siteFooterInner">

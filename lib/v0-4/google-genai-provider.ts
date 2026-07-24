@@ -5,6 +5,7 @@ export const GOOGLE_GENAI_ENDPOINT = "https://generativelanguage.googleapis.com/
 const FUNCTION_NAME = "submit_riskshield_interpretation";
 const INPUT_START_MARKER = "\n입력 시작\n";
 const INPUT_END_MARKER = "\n입력 끝";
+let preferredRequestMode: "strict" | "openapi" | "gemma_official" = "strict";
 
 interface ProviderEnvironment {
   RISKSHIELD_INTERPRETER_API_KEY?: string;
@@ -68,6 +69,38 @@ function asFunctionParametersJsonSchema(schema: Record<string, unknown>): Record
   return convert(schema) as Record<string, unknown>;
 }
 
+function asOpenApiParameters(schema: Record<string, unknown>): Record<string, unknown> {
+  const int64SchemaKeys = new Set([
+    "maxItems",
+    "minItems",
+    "maxLength",
+    "minLength",
+    "maxProperties",
+    "minProperties",
+  ]);
+  function convert(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(convert);
+    if (!value || typeof value !== "object") return value;
+    const source = value as Record<string, unknown>;
+    const target: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(source)) {
+      if (key === "additionalProperties") continue;
+      if (key === "const") {
+        target.enum = [child];
+        if (typeof child === "string") target.type = "STRING";
+      } else if (int64SchemaKeys.has(key) && typeof child === "number") {
+        target[key] = String(child);
+      } else if (key === "type" && typeof child === "string") {
+        target.type = child.toUpperCase();
+      } else {
+        target[key] = convert(child);
+      }
+    }
+    return target;
+  }
+  return convert(schema) as Record<string, unknown>;
+}
+
 function gemmaFunctionInstruction(userPrompt: string) {
   const start = userPrompt.indexOf(INPUT_START_MARKER);
   const end = userPrompt.lastIndexOf(INPUT_END_MARKER);
@@ -83,7 +116,13 @@ Gemma function calling 추가 규칙:
 - 분석 대상 UTF-16 길이는 ${input.length}입니다.
 - speech_act가 warning, criticism, report, quote, definition 중 하나이면 risk_intent는 반드시 contextual_only이고 evidence_quotes는 반드시 빈 배열입니다.
 - direct_promotional은 광고주가 직접 광고·홍보하는 claim에만 사용하며 speech_act=claim, context_relation=supports여야 합니다.
+- direct_harmful은 화자가 혐오·차별, 직접 모욕, 숨은 은어 공격, 폭력 위협을 직접 사용하는 경우에만 사용하며 speech_act=claim, context_relation=supports여야 합니다.
+- 스포츠·게임·연예 팬의 응원, 승부 예측, 감상이나 개인적 확신은 광고·판매·도박·금융 이해관계가 없는 한 policy_relevance=none, risk_family=none입니다. 100%, 무조건, 반드시 같은 표현만으로 substantiation을 만들지 마세요.
+- 섹스 같은 성적 단어의 단순 언급이나 비공격적 감탄은 abusive_language가 아닙니다. 특정 대상에 대한 성적 비하·모욕·괴롭힘·강요가 문장에 직접 나타날 때만 abusive_language로 분류하세요.
+- 직접 유해 발화의 대상은 individual, protected_group, regional_group, community 중 가장 구체적인 값을 우선 사용하세요.
+- 느개미·느금마처럼 의미를 숨긴 비하 은어도 직접 사용되면 coded_expression으로 분석하세요.
 - 위험 주장을 경고·비판·인용·보도·정의하거나 조건부로 설명하는 문장은 표현 안에 위험 단어가 있어도 절대 direct_promotional이 아닙니다.
+- 위험 표현을 설명하거나 “쓰지 마세요”라고 경고하는 문장은 direct_harmful이 아니며 evidence_quotes=[]로 반환하세요.
 - 광고성 문장이라는 이유만으로 정책 위험으로 분류하지 마세요. 직접 광고와 위험 광고는 다른 개념입니다.
 - CTA, 상품 소개, 기능 안내, 사용 절차, 과거 사건 제목은 구체적인 위험 요소가 없으면 policy_relevance=none, risk_family=none입니다.
 - 메뉴 검색·선택·클릭 같은 사용 절차는 risk_intent=contextual_only, speech_act=condition, context_relation=conditions, evidence_quotes=[]로 반환하세요.
@@ -117,36 +156,45 @@ export class GoogleGenAiProvider implements LiveProvider {
 
   async complete(request: Parameters<LiveProvider["complete"]>[0]): Promise<LiveProviderResult> {
     const endpoint = `${GOOGLE_GENAI_ENDPOINT}/models/${this.model}:generateContent`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": this.apiKey,
-      },
-      body: JSON.stringify({
+    const requestBody = (mode: typeof preferredRequestMode) => ({
         contents: [{ role: "user", parts: [{ text: request.userPrompt }] }],
         systemInstruction: { parts: [{ text: `${request.systemPrompt}\n${gemmaFunctionInstruction(request.userPrompt)}` }] },
         tools: [{
           functionDeclarations: [{
             name: FUNCTION_NAME,
-            description: "입력 문구의 광고 문맥 분석 결과를 RiskShield Interpreter 형식으로 제출한다.",
-            parametersJsonSchema: asFunctionParametersJsonSchema(request.schema),
+            description: "입력 텍스트의 위험 문맥 분석 결과를 RiskShield Interpreter 형식으로 제출한다.",
+            ...(mode !== "strict"
+              ? { parameters: asOpenApiParameters(request.schema) }
+              : { parametersJsonSchema: asFunctionParametersJsonSchema(request.schema) }),
           }],
         }],
-        toolConfig: {
+        ...(mode === "gemma_official" ? {} : { toolConfig: {
           functionCallingConfig: {
             mode: "ANY",
             allowedFunctionNames: [FUNCTION_NAME],
           },
-        },
+        }}),
         generationConfig: {
           temperature: 0,
           thinkingConfig: { thinkingLevel: "minimal" },
         },
-        store: false,
-      }),
+        ...(mode === "gemma_official" ? {} : { store: false }),
+      });
+    const send = (mode: typeof preferredRequestMode) => fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": this.apiKey },
+      body: JSON.stringify(requestBody(mode)),
       signal: request.signal,
     });
+    let response = await send(preferredRequestMode);
+    if (response.status === 400 && preferredRequestMode === "strict") {
+      preferredRequestMode = "openapi";
+      response = await send(preferredRequestMode);
+    }
+    if (response.status === 400 && preferredRequestMode === "openapi") {
+      preferredRequestMode = "gemma_official";
+      response = await send(preferredRequestMode);
+    }
 
     if (!response.ok) {
       throw new GoogleGenAiHttpError(

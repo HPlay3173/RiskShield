@@ -1,0 +1,63 @@
+import { requireApiCapability } from "../auth/authorize";
+import { requireMutationIntegrity } from "../auth/request-integrity";
+import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject } from "../http/control-response";
+import type { CollectorProvider } from "./runner";
+import { parseYouTubeVideoInput } from "./youtube";
+import { collectorSourceFingerprint } from "./identity";
+
+const PROVIDERS = new Set<CollectorProvider>(["youtube", "bluesky", "mastodon", "x", "threads", "dcinside"]);
+
+export async function handleCollectorMutation(request: Request) {
+  const denied = await requireApiCapability(request, "dataset:manage");
+  if (denied) return denied;
+  const invalid = await requireMutationIntegrity(request);
+  if (invalid) return invalid;
+  const body = await readJsonObject(request);
+  if (body === JSON_BODY_TOO_LARGE) return controlJson({ error: "request_payload_too_large" }, 413);
+  const provider = typeof body?.provider === "string" ? body.provider as CollectorProvider : "";
+  const label = typeof body?.label === "string" ? body.label.trim().slice(0, 80) : "";
+  let query = typeof body?.query === "string" ? body.query.trim().slice(0, 1_000) : "";
+  const endpoint = typeof body?.endpoint === "string" ? body.endpoint.trim().slice(0, 500) : null;
+  const intervalMinutes = Math.max(15, Math.min(10_080, Math.floor(Number(body?.intervalMinutes ?? 60))));
+  const enabled = body?.enabled === true;
+  if (!PROVIDERS.has(provider as CollectorProvider) || !label || !query) return controlJson({ error: "invalid_collector_source", message: "수집처, 이름, 검색어가 필요합니다." }, 400);
+  if (provider === "dcinside") {
+    try { const url = new URL(endpoint ?? ""); if (url.protocol !== "https:" || !/(^|\.)dcinside\.com$/iu.test(url.hostname)) throw new Error("invalid"); }
+    catch { return controlJson({ error: "invalid_dcinside_endpoint", message: "디시인사이드 공개 피드 또는 검색 주소가 필요합니다." }, 400); }
+  }
+  if (provider === "mastodon") {
+    try {
+      const url = new URL(endpoint ?? "");
+      const host = url.hostname.toLocaleLowerCase("en-US");
+      if (url.protocol !== "https:" || !host.includes(".") || host === "localhost" || host.endsWith(".local") || host.endsWith(".internal") || /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(host) || host.includes(":")) throw new Error("invalid");
+      if (!/^[\p{L}\p{N}_-]{2,80}$/u.test(query.replace(/^#/u, ""))) throw new Error("invalid");
+    } catch { return controlJson({ error: "invalid_mastodon_endpoint", message: "공개 HTTPS Mastodon 인스턴스 주소와 해시태그 하나가 필요합니다." }, 400); }
+  }
+  if (provider === "youtube") {
+    const parsed = parseYouTubeVideoInput(query);
+    if (!parsed.ids.length || parsed.invalid.length) {
+      return controlJson({ error: "invalid_youtube_video_ids", message: "YouTube 영상 주소 또는 11자리 ID를 최대 5개 입력해 주세요." }, 400);
+    }
+    query = parsed.ids.join(",");
+  }
+  const { env } = await import("cloudflare:workers");
+  const db = env.DB;
+  if (!db) return controlJson({ error: "collector_storage_unavailable" }, 503);
+  const id = typeof body?.id === "string" && body.id.trim() ? body.id.trim().slice(0, 160) : `collector_${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  const sourceFingerprint = await collectorSourceFingerprint(provider as CollectorProvider, query, endpoint);
+  const duplicate = await db.prepare(`SELECT id, enabled FROM riskshield_collector_sources_v3
+    WHERE archived_at IS NULL AND (source_fingerprint = ? OR (source_fingerprint IS NULL AND provider = ? AND query = ? AND COALESCE(endpoint, '') = ?)) LIMIT 1`)
+    .bind(sourceFingerprint, provider, query, endpoint ?? "").first<{ id: string; enabled: number }>();
+  if (duplicate && duplicate.id !== id) {
+    return controlJson({ acknowledged: true, id: duplicate.id, enabled: Boolean(duplicate.enabled), duplicate: true, message: "같은 수집 설정이 이미 등록되어 있습니다." });
+  }
+  await db.prepare(`
+    INSERT INTO riskshield_collector_sources_v3 (id, provider, label, query, endpoint, enabled, interval_minutes, source_fingerprint, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET provider = excluded.provider, label = excluded.label, query = excluded.query,
+      endpoint = excluded.endpoint, enabled = excluded.enabled, interval_minutes = excluded.interval_minutes,
+      source_fingerprint = excluded.source_fingerprint, updated_at = excluded.updated_at
+  `).bind(id, provider, label, query, endpoint, enabled ? 1 : 0, intervalMinutes, sourceFingerprint, now, now).run();
+  return controlJson({ acknowledged: true, id, enabled, message: enabled ? "예약 수집을 켰습니다." : "수집 설정을 저장했습니다." });
+}

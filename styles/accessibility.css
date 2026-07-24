@@ -1,0 +1,36 @@
+.skipLink {
+  position: fixed;
+  z-index: 1000;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: #fff;
+  background: var(--ink-950);
+  border-radius: var(--radius-sm);
+  transform: translateY(-180%);
+}
+.skipLink:focus { transform: translateY(0); }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+@media (prefers-contrast: more) {
+  :root { --line: #7a8494; --line-strong: #4c5668; }
+  .muted, .emptyCopy { color: var(--ink-800); }
+  .floatingMaterial {
+    background: var(--surface);
+    border-color: var(--line-strong);
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (forced-colors: active) {
+  * { box-shadow: none !important; }
+  .pressable, .solidSurface, .resultCard { border: 1px solid CanvasText; }
+  .publicAnalyzerScores i { background: Highlight; }
+  .statusPill, .analysisBanner { forced-color-adjust: none; }
+}

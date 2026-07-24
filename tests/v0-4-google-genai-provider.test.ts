@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   INTERPRETER_JSON_SCHEMA,
   INTERPRETER_PROVIDER_JSON_SCHEMA,
+  INTERPRETER_SCHEMA_VERSION,
   prepareInterpreterInput,
   validateInterpreterPayload,
   validateProviderInterpreterPayload,
@@ -17,7 +18,7 @@ import {
 } from "../lib/v0-4/google-genai-provider.ts";
 
 const validArgs = {
-  schema_version: "1.1.0",
+  schema_version: INTERPRETER_SCHEMA_VERSION,
   risk_intent: "contextual_only",
   speech_act: "warning",
   claim_target: "finance",
@@ -38,7 +39,7 @@ test("Google GenAI provider requires only the dedicated API-key environment vari
   }));
 });
 
-test("Schema 1.1.0 Google GenAI native REST uses forced function arguments without responseSchema", async () => {
+test("Schema 1.2.0 Google GenAI native REST uses forced function arguments without responseSchema", async () => {
   const originalFetch = globalThis.fetch;
   let capturedUrl = "";
   let capturedHeaders = new Headers();
@@ -93,7 +94,7 @@ test("Schema 1.1.0 Google GenAI native REST uses forced function arguments witho
   }
 });
 
-test("Schema 1.1.0 provider evidence quotes become exact UTF-16 spans without fuzzy correction", () => {
+test("Schema 1.2.0 provider evidence quotes become exact UTF-16 spans without fuzzy correction", () => {
   const text = "😀근거입니다";
   const prepared = prepareInterpreterInput(text);
   const direct = {
@@ -120,7 +121,7 @@ test("Schema 1.1.0 provider evidence quotes become exact UTF-16 spans without fu
   if (!changedWhitespace.success) assert.match(changedWhitespace.errors.join(" "), /정확한 substring/u);
 });
 
-test("Schema 1.1.0 duplicate quote positions use a unique closest evidence combination or fail review-safe", () => {
+test("Schema 1.2.0 duplicate quote positions use a unique closest evidence combination or fail review-safe", () => {
   const anchoredText = "위험 문구가 멀리 있습니다. 위험 문구와 광고 근거";
   const anchored = validateProviderInterpreterPayload({
     ...validArgs,
@@ -146,11 +147,11 @@ test("Schema 1.1.0 duplicate quote positions use a unique closest evidence combi
   if (!unanchored.success) assert.match(unanchored.errors.join(" "), /확정할 수 없습니다/u);
 });
 
-test("Schema 1.1.0 semantic contradictions are rejected before they can become high", () => {
+test("Schema 1.2.0 semantic contradictions are rejected before they can become high", () => {
   const text = "광고 정의";
   const prepared = prepareInterpreterInput(text);
   const base = {
-    schema_version: "1.1.0",
+    schema_version: INTERPRETER_SCHEMA_VERSION,
     risk_intent: "direct_promotional",
     speech_act: "definition",
     claim_target: "general",
@@ -180,6 +181,46 @@ test("Schema 1.1.0 semantic contradictions are rejected before they can become h
   }, prepared);
   assert.equal(warningSupports.success, false);
   if (!warningSupports.success) assert.match(warningSupports.errors.join(" "), /supports일 수 없습니다/u);
+});
+
+test("Google GenAI retries 400 schema incompatibilities through OpenAPI and Gemma official modes", async () => {
+  const originalFetch = globalThis.fetch;
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = async (_input, init) => {
+    bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    if (bodies.length < 3) return new Response("unsupported declaration", { status: 400 });
+    return new Response(JSON.stringify({
+      modelVersion: GEMMA_LIVE_PILOT_MODEL,
+      candidates: [{ content: { parts: [{
+        functionCall: { name: "submit_riskshield_interpretation", args: validArgs },
+      }] } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const provider = new GoogleGenAiProvider("test-only-secret");
+    await provider.complete({
+      systemPrompt: "system",
+      userPrompt: "user",
+      schema: INTERPRETER_PROVIDER_JSON_SCHEMA,
+      signal: new AbortController().signal,
+    });
+    assert.equal(bodies.length, 3);
+
+    const openApiDeclaration = (bodies[1].tools as Array<{
+      functionDeclarations: Array<{ parameters: Record<string, unknown> }>;
+    }>)[0].functionDeclarations[0];
+    const openApiProperties = openApiDeclaration.parameters.properties as Record<string, Record<string, unknown>>;
+    assert.equal(openApiProperties.evidence_quotes.maxItems, "5");
+
+    assert.equal("toolConfig" in bodies[2], false);
+    assert.equal("store" in bodies[2], false);
+    const officialDeclaration = (bodies[2].tools as Array<{
+      functionDeclarations: Array<{ parameters: Record<string, unknown> }>;
+    }>)[0].functionDeclarations[0];
+    assert.ok(officialDeclaration.parameters);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("Google GenAI HTTP errors expose only status, Retry-After, and the 429 stop signal", async () => {

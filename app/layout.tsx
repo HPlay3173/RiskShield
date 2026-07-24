@@ -2,10 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "RiskShield Studio | 조합형 위험 패턴 워크벤치";
-const betaTitle = "RiskShield v0.4 | AI-assisted private beta";
-const description =
-  "규칙 분석과 Gemma 문맥 분석을 결합해 담당자의 최종 검토를 돕는 RiskShield 비공개 AI 보조 베타";
+const title = "RiskShield | 글 속에 숨은 위험까지, 맥락으로 읽습니다";
+const betaTitle = "RiskShield Context Risk Analyzer";
+const description = "과장·기만, 혐오·차별, 욕설·공격, 숨은 은어와 폭력·위협을 글 전체의 맥락과 근거 구간으로 분석합니다.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -14,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const forwardedProtocol = requestHeaders.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const protocol = forwardedProtocol || (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const socialImage = new URL("/og-v04.png", origin).toString();
+  const socialImage = new URL("/og-v05.png", origin).toString();
 
   return {
     metadataBase: new URL(origin),
@@ -25,7 +24,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       type: "website",
       locale: "ko_KR",
-      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield v0.4 AI-assisted private beta" }],
+      images: [{ url: socialImage, width: 1536, height: 1024, alt: "RiskShield 맥락 기반 텍스트 위험 분석기" }],
     },
     twitter: {
       card: "summary_large_image",
