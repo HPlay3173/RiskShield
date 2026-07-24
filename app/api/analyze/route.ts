@@ -32,6 +32,7 @@ import {
   type ClaimScore,
 } from "../../../lib/v0-5/document-scoring";
 import { summarizeAiCoverage } from "../../../lib/v0-5/ai-coverage";
+import { buildPublicAnalysisPresentation } from "../../../lib/v0-5/public-analysis-presentation";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
 const MAX_INPUT_CHARS = 2_000;
@@ -518,6 +519,29 @@ export async function POST(request: Request) {
               candidateRegistration: run.masked ? "disabled" as const : "available" as const,
             };
       const aiFallback = publicAiFallback(aiStatusRun);
+      const presentation = buildPublicAnalysisPresentation({
+        status: scoring.status,
+        primaryCategory: scoring.primaryCategory,
+        primarySkill: primaryClaim?.rules.primaryMatch?.skill ?? null,
+        ruleReason: primaryClaim?.rules.reason ?? null,
+        payload,
+        aiState: aiCoverage.state,
+        uncertainty,
+      });
+      const primaryEvidence = [
+        ...(primaryClaim?.rules.primaryMatch?.hits ?? []).map((hit) => ({
+          start: (primaryClaim?.start ?? 0) + hit.start,
+          end: (primaryClaim?.start ?? 0) + hit.end,
+          text: hit.text,
+          source: "rule" as const,
+        })),
+        ...(payload?.evidence_spans ?? []).map((span) => ({
+          start: (primaryClaim?.start ?? 0) + span.start,
+          end: (primaryClaim?.start ?? 0) + span.end,
+          text: span.text,
+          source: "ai" as const,
+        })),
+      ];
       if (aiCoverage.state !== "ready") console.warn("RiskShield interpreter fallback", { reasonCode: aiFallback.reasonCode, timedOut: aiStatusRun.timedOut, state: aiCoverage.state });
       return json({
         beta: "RiskShield v0.5 alpha",
@@ -598,6 +622,11 @@ export async function POST(request: Request) {
           conflict: scoring.conflict,
           reason: documentDecisionReason(scoring),
         },
+        primaryRisk: presentation.primaryRisk
+          ? { ...presentation.primaryRisk, evidence: primaryEvidence }
+          : null,
+        contextInterpretation: presentation.contextInterpretation,
+        rewriteSuggestions: presentation.rewriteSuggestions,
         uncertainty,
         novelty,
         notice: scoring.status === "no_match"

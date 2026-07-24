@@ -100,10 +100,6 @@
 .profilePickerDetails[open] > summary { border-bottom: 1px solid var(--line); }
 .profilePickerDetails .profilePicker { margin: 0; padding: 0.75rem; }
 
-.publicAnalyzerExampleGroup { margin-top: 1.15rem; }
-.publicAnalyzerExampleGroup > span { color: var(--ink-600); font-size: 0.82rem; font-weight: 680; }
-.publicAnalyzerExamples { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
-.publicAnalyzerExamples button { min-height: 2.75rem; max-width: 100%; padding: 0.55rem 0.75rem; text-align: left; font-size: 0.85rem; }
 .publicAnalyzerActions { display: flex; gap: 0.65rem; margin-top: 1.25rem; }
 .publicAnalyzerActions .primaryButton { min-width: 10rem; }
 .publicAnalyzerStatus { min-height: 1.7rem; margin-top: 0.8rem; color: var(--ink-600); }
@@ -179,6 +175,31 @@
 .analysisCard h3 { margin: 0.35rem 0 0.65rem; font-size: 1.15rem; }
 .analysisCard p:last-child { margin-bottom: 0; }
 .analysisCardEyebrow { color: var(--blue-700); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.analysisCardHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.analysisCardHeading h3 { margin-bottom: 0; }
+.riskPill { flex: none; padding: 0.45rem 0.65rem; color: var(--blue-800); background: var(--blue-100); border-radius: 999px; font-size: 0.78rem; }
+.primaryRiskCard { border-top: 0.25rem solid var(--blue-600); }
+.primaryRiskDetails { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; margin-top: 1rem; }
+.primaryRiskDetails > div { padding: 0.9rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
+.primaryRiskDetails strong { font-size: 0.84rem; }
+.primaryRiskDetails p { margin: 0.35rem 0 0; color: var(--ink-700); }
+.primaryRiskLead { grid-column: 1 / -1; margin: 0; font-size: 1.05rem; line-height: 1.65; }
+.contextInterpretationCard h3 { max-width: 52rem; line-height: 1.55; }
+.contextDetailList { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; margin: 1rem 0 0; }
+.contextDetailList div { display: flex; align-items: baseline; justify-content: space-between; gap: 0.8rem; padding: 0.75rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
+.contextDetailList dt { color: var(--ink-600); font-size: 0.82rem; }
+.contextDetailList dd { margin: 0; font-size: 0.88rem; font-weight: 750; text-align: right; }
+.rewriteSuggestionList { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin-top: 1rem; }
+.rewriteSuggestionList section { min-width: 0; padding: 1rem; background: var(--surface-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.rewriteSuggestionList section > div { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.rewriteSuggestionList section span { color: var(--blue-800); font-size: 0.82rem; font-weight: 800; }
+.rewriteSuggestionList section small { color: var(--ink-500); font-size: 0.72rem; }
+.rewriteSuggestionList blockquote { margin: 0.9rem 0; font-size: 1rem; font-weight: 720; line-height: 1.55; }
+.rewriteSuggestionList p { color: var(--ink-600); font-size: 0.82rem; }
+.noRewriteNote { margin: 0; padding: 0.9rem 1rem; color: var(--ink-600); background: var(--surface-soft); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.secondaryFindings > summary { cursor: pointer; font-weight: 780; }
+.secondaryFindings[open] > summary { margin-bottom: 1rem; }
+.uncertaintyCard { background: var(--surface-soft); box-shadow: none; }
 .categoryScoreList { display: grid; gap: 0.55rem; margin-top: 1rem; }
 .categoryScoreList > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.15rem 0.75rem; padding: 0.75rem; background: var(--surface-soft); border-radius: var(--radius-sm); }
 .categoryScoreList strong { font-size: 1.15rem; }
@@ -226,7 +247,8 @@
   .publicAnalyzerHeader { width: 100%; border-radius: 0; }
   .publicAnalyzerHeader > p { display: none; }
   .publicAnalyzerMain { width: min(100% - 1.25rem, 42rem); padding-top: 3.5rem; }
-  .profilePicker > div, .resultSignalStrip, .publicAnalyzerResultGrid { grid-template-columns: 1fr; }
+  .profilePicker > div, .resultSignalStrip, .publicAnalyzerResultGrid, .rewriteSuggestionList { grid-template-columns: 1fr; }
+  .primaryRiskDetails, .contextDetailList { grid-template-columns: 1fr; }
   .publicAnalyzerFormMeta, .publicAnalyzerResultActions { align-items: flex-start; flex-direction: column; }
   .publicAnalyzerFooter { align-items: flex-end; flex-direction: column; gap: 0; }
   .resultSignalStrip > div { border-right: 0; border-bottom: 1px solid var(--line); }

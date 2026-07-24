@@ -4,12 +4,6 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { PRODUCT_VERSION, SITES_VERSION, SOURCE_COMMIT } from "../lib/release";
 
 const MAX_INPUT_CHARS = 2_000;
-const EXAMPLES = [
-  "여자는 원래 다 운전을 못해.",
-  "너 같은 멍청이는 그냥 꺼져.",
-  "‘여자는 원래 다 문제다’라는 표현은 성차별이므로 사용하지 마세요.",
-  "원금 손실 없이 매달 20% 수익을 보장합니다.",
-];
 
 type Status = "no_match" | "review" | "attention" | "high";
 type ProfileId = "balanced" | "advertising" | "context";
@@ -80,6 +74,34 @@ type PublicAnalysis = {
     riskFamily: string | null;
     evidenceSpans: Array<{ start: number; end: number; text: string }>;
   };
+  primaryRisk: {
+    family: string;
+    label: string;
+    score: number;
+    source: "rule" | "ai" | "hybrid";
+    sourceLabel: string;
+    explanation: string;
+    potentialImpact: string;
+    reviewGuidance: string;
+    evidence: Array<{ start: number; end: number; text: string; source: "rule" | "ai" }>;
+  } | null;
+  contextInterpretation: {
+    speechAct: string;
+    relation: string;
+    intent: string;
+    target: string;
+    summary: string;
+    aiState: "ready" | "partial" | "fallback";
+    uncertaintyLevel: "low" | "medium" | "high";
+    uncertaintyReason: string;
+  };
+  rewriteSuggestions: Array<{
+    style: "neutral" | "formal" | "concise";
+    label: string;
+    text: string;
+    rationale: string;
+    source: "reviewed_rule" | "family_template";
+  }>;
   hybrid: { status: Status; score: number | null; conflict: boolean; reason: string };
   uncertainty: { level: "low" | "medium" | "high"; reason: string };
   novelty: { state: "known_pattern" | "possible_new_expression" | "insufficient_evidence"; label: string; reason: string; candidateRegistration: "disabled" | "available" };
@@ -100,8 +122,12 @@ function mergeEvidence(result: PublicAnalysis): EvidenceItem[] {
     }
     merged.set(key, { ...item, sources: [source] });
   };
-  result.rules.evidence.forEach((item) => add(item, "검토된 규칙"));
-  result.ai.evidenceSpans.forEach((item) => add(item, "AI 문맥"));
+  if (result.primaryRisk) {
+    result.primaryRisk.evidence.forEach((item) => add(item, item.source === "rule" ? "검토된 규칙" : "AI 문맥"));
+  } else {
+    result.rules.evidence.forEach((item) => add(item, "검토된 규칙"));
+    result.ai.evidenceSpans.forEach((item) => add(item, "AI 문맥"));
+  }
   return [...merged.values()].sort((left, right) => left.start - right.start || left.end - right.end);
 }
 
@@ -110,11 +136,6 @@ const statusLabels: Record<Status, string> = {
   review: "사람 검토 필요",
   attention: "주의 필요",
   high: "높은 위험",
-};
-
-const contextLabels: Record<string, string> = {
-  claim: "직접 주장", quote: "인용", criticism: "비판", warning: "경고", report: "보도·설명", definition: "정의", condition: "조건부 표현",
-  supports: "위험 의미를 뒷받침", negates: "위험 의미를 부정", warns_about: "위험을 경고", reports: "사례를 전달", defines: "의미를 설명", conditions: "조건을 명시",
 };
 
 export function PublicAnalyzer() {
@@ -207,7 +228,6 @@ export function PublicAnalyzer() {
           <textarea ref={inputRef} id="public-analysis-input" value={text} onChange={(event) => { setText(event.target.value); setError(""); }} maxLength={MAX_INPUT_CHARS} rows={8} placeholder="SNS 글, 댓글, 광고 문구, 커뮤니티 게시글 등을 붙여 넣으세요." disabled={loading} />
           <div className="publicAnalyzerFormMeta"><span>이름·연락처·주소 등 개인정보는 입력하지 마세요.</span><span>단어 하나보다 앞뒤 문맥이 포함된 문장이 더 정확합니다.</span></div>
           <details className="profilePickerDetails"><summary>결과 보기 설정 <small>선택 사항</small></summary><fieldset className="profilePicker"><legend className="visuallyHidden">결과 보기 방식</legend><div>{PROFILES.map((item) => <label className={profile === item.id ? "isSelected" : ""} key={item.id}><input type="radio" name="profile" value={item.id} checked={profile === item.id} onChange={() => setProfile(item.id)} disabled={loading} /><span><strong>{item.label}</strong><small>{item.description}</small></span></label>)}</div><p>보기 방식만 바뀌며 같은 글의 위험 점수는 바뀌지 않습니다.</p></fieldset></details>
-          <div className="publicAnalyzerExampleGroup"><span>예시로 확인하기</span><div className="publicAnalyzerExamples" aria-label="분석 예시">{EXAMPLES.map((example) => <button className="pressable quietButton" key={example} type="button" onClick={() => setText(example)} disabled={loading}>{example}</button>)}</div></div>
           <div className="publicAnalyzerActions">
             <button className="pressable primaryButton" type="submit" disabled={loading || !text.trim()}>{loading ? "맥락 분석 중…" : "글 전체 위험 신호 분석"}</button>
             {loading ? <button className="pressable secondaryButton" type="button" onClick={() => controllerRef.current?.abort()}>분석 중단</button> : null}
@@ -226,19 +246,26 @@ export function PublicAnalyzer() {
               <div><span>현재 판정</span><h2 id="result-title" ref={resultHeadingRef} tabIndex={-1}>{statusLabels[result.hybrid.status]}</h2><p>{result.hybrid.reason}</p></div>
             </div>
 
-            <div className="publicAnalyzerResultGrid">
-              <article className="analysisCard"><span className="analysisCardEyebrow">주요 위험</span><h3>{result.scoring.primaryCategory?.label ?? "직접 위험 근거 없음"}</h3><p>{result.scoring.primaryCategory ? `규칙 ${result.scoring.primaryCategory.ruleScore} · AI ${result.scoring.primaryCategory.aiScore}` : "현재 지식과 문맥 분석에서 직접 위험을 확인하지 못했습니다."}</p></article>
-              <article className="analysisCard"><span className="analysisCardEyebrow">문맥 해석</span><h3>{result.ai.speechAct ? contextLabels[result.ai.speechAct] ?? result.ai.speechAct : "확인 필요"}</h3><p>{result.ai.contextRelation ? contextLabels[result.ai.contextRelation] ?? result.ai.contextRelation : result.uncertainty.reason}</p></article>
-              <article className="analysisCard"><span className="analysisCardEyebrow">불확실성</span><h3>{result.uncertainty.level === "high" ? "높음" : result.uncertainty.level === "medium" ? "보통" : "낮음"}</h3><p>{result.uncertainty.reason}</p></article>
-            </div>
+            <article className="analysisCard primaryRiskCard">
+              <div className="analysisCardHeading">
+                <div><span className="analysisCardEyebrow">주요 위험</span><h3>{result.primaryRisk?.label ?? "직접 위험 근거 없음"}</h3></div>
+                {result.primaryRisk ? <strong className="riskPill">{result.primaryRisk.score}점 · {result.primaryRisk.sourceLabel}</strong> : null}
+              </div>
+              {result.primaryRisk ? <div className="primaryRiskDetails"><p className="primaryRiskLead">{result.primaryRisk.explanation}</p><div><strong>예상되는 영향</strong><p>{result.primaryRisk.potentialImpact}</p></div><div><strong>추가로 확인할 점</strong><p>{result.primaryRisk.reviewGuidance}</p></div></div> : <p>현재 규칙과 문맥 분석에서 직접 위험을 확인하지 못했습니다. 탐지되지 않았다는 이유만으로 안전하다고 단정하지 마세요.</p>}
+            </article>
 
-            {result.scoring.categoryScores.length ? <article className="analysisCard"><span className="analysisCardEyebrow">발견된 위험 범주</span><div className="categoryScoreList">{result.scoring.categoryScores.map((item) => <div key={item.id}><span>{item.label}</span><strong>{item.score}</strong><small>{item.source === "hybrid" ? "규칙 + AI" : item.source === "rule" ? "검토된 규칙" : "AI 문맥"}</small></div>)}</div></article> : null}
+            <article className="analysisCard evidenceCard"><span className="analysisCardEyebrow">위험 근거 구간</span><h3>판단에 사용한 원문</h3>{evidence.length ? <ul className="evidenceList">{evidence.map((item) => <li key={`${item.start}-${item.end}-${item.text}`}><mark>{item.text}</mark><span>{item.sources.join(" + ")} 근거</span></li>)}</ul> : <p>직접 연결되는 근거 구간이 없습니다. 결과를 안전 판정으로 사용하지 마세요.</p>}</article>
 
-            {result.claims.length > 1 ? <article className="analysisCard claimBreakdownCard"><span className="analysisCardEyebrow">독립 주장별 분석</span><div className="claimBreakdownSummary"><strong>{result.scoring.riskyClaimCount}개 위험 주장</strong><span>다른 주장은 최종 점수에 가산하지 않음</span></div><ol className="claimBreakdownList">{result.claims.map((claim) => <li key={claim.id} data-status={claim.status}><div><span>주장 {claim.index}</span><strong>{claim.score}점 · {statusLabels[claim.status]}</strong></div><p>{claim.text}</p><small>{claim.primaryCategory?.label ?? "직접 위험 근거 없음"} · AI {claim.aiState === "ready" ? "사용" : "미사용"}</small></li>)}</ol><p className="analysisMethodNote">최종 점수는 가장 위험한 주장 하나로 계산하고, 나머지 위험 주장은 놓치지 않도록 목록으로 보여줍니다.</p></article> : null}
+            <article className="analysisCard contextInterpretationCard">
+              <span className="analysisCardEyebrow">문맥 해석</span><h3>{result.contextInterpretation.summary}</h3>
+              <dl className="contextDetailList"><div><dt>발화 방식</dt><dd>{result.contextInterpretation.speechAct}</dd></div><div><dt>위험 의미와의 관계</dt><dd>{result.contextInterpretation.relation}</dd></div><div><dt>화자의 의도</dt><dd>{result.contextInterpretation.intent}</dd></div><div><dt>발화 대상</dt><dd>{result.contextInterpretation.target}</dd></div><div><dt>AI 분석</dt><dd>{result.contextInterpretation.aiState === "ready" ? "전체 사용" : result.contextInterpretation.aiState === "partial" ? "일부 사용" : "사용하지 못함"}</dd></div></dl>
+            </article>
 
-            <article className="analysisCard"><span className="analysisCardEyebrow">판단 근거</span><h3>문제가 될 수 있는 정확한 구간</h3>{evidence.length ? <ul className="evidenceList">{evidence.map((item) => <li key={`${item.start}-${item.end}-${item.text}`}><mark>{item.text}</mark><span>{item.sources.join(" + ")} 근거</span></li>)}</ul> : <p>직접 연결되는 근거 구간이 없습니다. 결과를 안전 판정으로 사용하지 마세요.</p>}</article>
+            {result.rewriteSuggestions.length ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 대체 표현</span><h3>뜻은 남기고 위험한 부분을 줄여 보세요</h3><div className="rewriteSuggestionList">{result.rewriteSuggestions.map((item) => <section key={`${item.style}-${item.text}`}><div><span>{item.label}</span><small>{item.source === "reviewed_rule" ? "검토된 규칙" : "위험 분야 템플릿"}</small></div><blockquote>{item.text}</blockquote><p>{item.rationale}</p></section>)}</div></article> : result.hybrid.status === "no_match" ? <p className="noRewriteNote">직접 위험 근거가 없어 대체 표현이 필요하지 않습니다.</p> : null}
 
-            {result.rules.suggestedRewrite ? <article className="analysisCard rewriteCard"><span className="analysisCardEyebrow">더 안전한 표현</span><h3>{result.rules.suggestedRewrite}</h3><p>집단 일반화와 공격 표현을 줄이고, 구체적인 행동과 사실을 중심으로 다시 작성해 보세요.</p></article> : null}
+            {(result.scoring.categoryScores.length || result.claims.length > 1) ? <details className="analysisCard secondaryFindings"><summary>다른 위험 주장과 범주 보기</summary>{result.scoring.categoryScores.length ? <div className="categoryScoreList">{result.scoring.categoryScores.map((item) => <div key={item.id}><span>{item.label}</span><strong>{item.score}</strong><small>{item.source === "hybrid" ? "규칙 + AI" : item.source === "rule" ? "검토된 규칙" : "AI 문맥"}</small></div>)}</div> : null}{result.claims.length > 1 ? <div className="claimBreakdownCard"><div className="claimBreakdownSummary"><strong>{result.scoring.riskyClaimCount}개 위험 주장</strong><span>다른 주장은 최종 점수에 가산하지 않음</span></div><ol className="claimBreakdownList">{result.claims.map((claim) => <li key={claim.id} data-status={claim.status}><div><span>주장 {claim.index}</span><strong>{claim.score}점 · {statusLabels[claim.status]}</strong></div><p>{claim.text}</p><small>{claim.primaryCategory?.label ?? "직접 위험 근거 없음"} · AI {claim.aiState === "ready" ? "사용" : "미사용"}</small></li>)}</ol><p className="analysisMethodNote">최종 점수는 가장 위험한 주장 하나로 계산하고, 나머지는 목록으로만 보여줍니다.</p></div> : null}</details> : null}
+
+            <article className="analysisCard uncertaintyCard"><span className="analysisCardEyebrow">불확실성</span><h3>{result.uncertainty.level === "high" ? "사람 확인이 중요합니다" : result.uncertainty.level === "medium" ? "결과를 한 번 더 확인하세요" : "근거 신호가 비교적 일치합니다"}</h3><p>{result.uncertainty.reason}</p></article>
 
             <article className="analysisCard noveltyCard"><span className="analysisCardEyebrow">결과 개선 참여</span><h3>{result.novelty.label}</h3><p>{result.novelty.reason}</p>{result.novelty.candidateRegistration === "available" || result.feedback.falsePositiveAvailable ? <div className="publicAnalyzerActions">{result.novelty.candidateRegistration === "available" && (result.feedback.missedDetectionAvailable || (!result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable)) ? <label className="feedbackExpressionField"><span>놓친 위험 표현</span><input value={feedbackExpression} onChange={(event) => setFeedbackExpression(event.target.value)} maxLength={80} placeholder="예: 느개미" disabled={candidateState === "submitting" || candidateState === "submitted"} /></label> : null}{result.feedback.missedDetectionAvailable && result.novelty.candidateRegistration === "available" ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("missed_detection")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "신고 접수됨" : candidateState === "submitting" ? "자동 검증 중…" : "위험한 표현인데 놓쳤어요"}</button> : null}{result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("false_positive")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "신고 접수됨" : candidateState === "submitting" ? "접수 중…" : "위험하지 않은데 잘못 잡았어요"}</button> : null}{result.novelty.candidateRegistration === "available" && !result.feedback.missedDetectionAvailable && !result.feedback.falsePositiveAvailable ? <button className="pressable secondaryButton" type="button" onClick={() => submitCandidate("new_expression")} disabled={candidateState === "submitting" || candidateState === "submitted"}>{candidateState === "submitted" ? "신고 접수됨" : candidateState === "submitting" ? "자동 검증 중…" : "새 표현 후보로 제공"}</button> : null}</div> : null}{feedbackMessage ? <p role="status">{feedbackMessage}</p> : null}{candidateState === "failed" ? <p role="alert">신고를 전달하지 못했습니다. 잠시 후 다시 시도해 주세요.</p> : null}</article>
             <div className="publicAnalyzerResultActions"><button className="pressable primaryButton" type="button" onClick={reset}>다른 글 분석</button><span>Source {result.release.sourceCommit} · Sites v{result.release.sitesVersion} · Interpreter {result.release.interpreterSchema} · Scoring {result.release.scoringPolicy}</span></div>
