@@ -37,7 +37,7 @@ test("server-renders the public Analyzer boundary", async () => {
 
   const html = await response.text();
   assert.match(html, /<html[^>]*\blang="ko"/i);
-  assert.match(html, /<title>RiskShield \| 말하기 전에, 위험을 읽습니다<\/title>/i);
+  assert.match(html, /<title>RiskShield \| 글 속에 숨은 위험까지, 맥락으로 읽습니다<\/title>/i);
   assert.match(html, /<textarea[^>]*id="public-analysis-input"/i);
   assert.ok(html.includes("위험 신호 분석"));
   assert.ok(html.includes("사람의 최종 판단"));

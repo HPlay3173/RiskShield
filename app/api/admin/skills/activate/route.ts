@@ -1,5 +1,6 @@
 import { principalFromRequest, requireApiCapability } from "../../../../../lib/auth/authorize";
 import { requireMutationIntegrity } from "../../../../../lib/auth/request-integrity";
+import { chainedAuditStatements } from "../../../../../lib/audit-chain";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject } from "../../../../../lib/http/control-response";
 import { D1SkillRepository } from "../../../../../lib/repositories/d1";
 import { validateManagedSkill, type RiskSkill } from "../../../../../lib/riskshield";
@@ -68,15 +69,24 @@ export async function POST(request: Request) {
         "human_reviewed",
       ])],
     };
-    const result = await db.prepare(`UPDATE risk_skills SET payload = ?, updated_at = ?
-      WHERE id = ? AND review_status = 'reviewed'`)
-      .bind(JSON.stringify(confirmed), now, skillId).run();
+    const auditStatements = await chainedAuditStatements(db, {
+      occurredAt: now,
+      actorId: principal.userId,
+      action: "skill.auto_review_confirm",
+      resourceType: "skill",
+      resourceId: skillId,
+      result: "succeeded",
+      beforeJson: JSON.stringify(draft),
+      afterJson: JSON.stringify(confirmed),
+      reason: `회귀 테스트 ${regression.passedCount}/${regression.totalCount} 재확인 후 사람 검토 완료`,
+    });
+    const [result] = await db.batch([
+      db.prepare(`UPDATE risk_skills SET payload = ?, updated_at = ?
+        WHERE id = ? AND review_status = 'reviewed'`)
+        .bind(JSON.stringify(confirmed), now, skillId),
+      ...auditStatements,
+    ]) as unknown as Array<{ meta: { changes?: number } }>;
     if (!result.meta.changes) return controlJson({ error: "skill_review_conflict", message: "다른 변경과 충돌해 사람 검토를 완료하지 못했습니다." }, 409);
-
-    await db.prepare(`INSERT INTO riskshield_audit_logs
-      (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
-      VALUES (?, ?, ?, 'skill.auto_review_confirm', 'skill', ?, 'succeeded', ?, ?, ?)`)
-      .bind(crypto.randomUUID(), now, principal.userId, skillId, JSON.stringify(draft), JSON.stringify(confirmed), `회귀 테스트 ${regression.passedCount}/${regression.totalCount} 재확인 후 사람 검토 완료`).run();
 
     return controlJson({
       acknowledged: true,
@@ -110,18 +120,25 @@ export async function POST(request: Request) {
     }, 409);
   }
 
-  const result = await db.prepare(`
-    UPDATE risk_skills
-    SET review_status = 'reviewed', category = ?, severity_floor = ?, dominant_risk = ?, payload = ?, updated_at = ?
-    WHERE id = ? AND review_status = 'draft'
-  `).bind(reviewed.category, reviewed.severityFloor, reviewed.dominantRisk ? 1 : 0, JSON.stringify(reviewed), now, skillId).run();
+  const auditStatements = await chainedAuditStatements(db, {
+    occurredAt: now,
+    actorId: principal.userId,
+    action: "skill.activate",
+    resourceType: "skill",
+    resourceId: skillId,
+    result: "succeeded",
+    beforeJson: JSON.stringify(draft),
+    afterJson: JSON.stringify(reviewed),
+    reason: `회귀 테스트 ${regression.passedCount}/${regression.totalCount} 통과`,
+  });
+  const [result] = await db.batch([
+    db.prepare(`UPDATE risk_skills
+      SET review_status = 'reviewed', category = ?, severity_floor = ?, dominant_risk = ?, payload = ?, updated_at = ?
+      WHERE id = ? AND review_status = 'draft'`)
+      .bind(reviewed.category, reviewed.severityFloor, reviewed.dominantRisk ? 1 : 0, JSON.stringify(reviewed), now, skillId),
+    ...auditStatements,
+  ]) as unknown as Array<{ meta: { changes?: number } }>;
   if (!result.meta.changes) return controlJson({ error: "skill_activation_conflict", message: "다른 변경과 충돌해 활성화하지 못했습니다." }, 409);
-
-  await db.prepare(`
-    INSERT INTO riskshield_audit_logs
-      (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
-    VALUES (?, ?, ?, 'skill.activate', 'skill', ?, 'succeeded', ?, ?, ?)
-  `).bind(crypto.randomUUID(), now, principal.userId, skillId, JSON.stringify(draft), JSON.stringify(reviewed), `회귀 테스트 ${regression.passedCount}/${regression.totalCount} 통과`).run();
 
   return controlJson({
     acknowledged: true,

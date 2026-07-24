@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "RiskShield | 말하기 전에, 위험을 읽습니다";
+const title = "RiskShield | 글 속에 숨은 위험까지, 맥락으로 읽습니다";
 const betaTitle = "RiskShield Context Risk Analyzer";
 const description = "과장·기만, 혐오·차별, 욕설·공격, 숨은 은어와 폭력·위협을 글 전체의 맥락과 근거 구간으로 분석합니다.";
 

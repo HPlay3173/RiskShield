@@ -1,6 +1,7 @@
 import { principalFromRequest, requireApiCapability } from "../../../../../lib/auth/authorize";
 import { requireMutationIntegrity } from "../../../../../lib/auth/request-integrity";
 import { controlJson, JSON_BODY_TOO_LARGE, readJsonObject } from "../../../../../lib/http/control-response";
+import { deactivateAutomaticRule } from "../../../../../lib/public-feedback/automatic-rule-lifecycle";
 import type { RiskSkill } from "../../../../../lib/riskshield";
 
 export async function POST(request: Request) {
@@ -42,28 +43,18 @@ export async function POST(request: Request) {
   }
 
   const now = new Date().toISOString();
-  const rejected: RiskSkill = {
-    ...active,
-    reviewStatus: "rejected",
-    dominantRisk: false,
-    updatedAt: now,
-    recentContextTags: [...new Set([...active.recentContextTags, "auto_deactivated", "human_review_required"])],
-  };
-  const result = await db.prepare(`UPDATE risk_skills
-    SET review_status = 'rejected', dominant_risk = 0, payload = ?, updated_at = ?
-    WHERE id = ? AND review_status = 'reviewed'`)
-    .bind(JSON.stringify(rejected), now, skillId).run();
-  if (!result.meta.changes) return controlJson({ error: "skill_deactivation_conflict", message: "다른 변경과 충돌해 비활성화하지 못했습니다." }, 409);
-
-  await db.prepare(`INSERT INTO riskshield_audit_logs
-    (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
-    VALUES (?, ?, ?, 'skill.auto_deactivate', 'skill', ?, 'succeeded', ?, ?, ?)`)
-    .bind(crypto.randomUUID(), now, principal.userId, skillId, JSON.stringify(active), JSON.stringify(rejected), "관리자가 자동 검증 규칙을 즉시 비활성화했습니다.").run();
+  const result = await deactivateAutomaticRule(db, {
+    skillId,
+    active,
+    actorId: principal.userId,
+    now,
+  });
+  if (!result.changed) return controlJson({ error: "skill_deactivation_conflict", message: "다른 변경과 충돌해 비활성화하지 못했습니다." }, 409);
 
   return controlJson({
     acknowledged: true,
     skillId,
     alreadyInactive: false,
-    message: "자동 검증 규칙을 비활성화했습니다. 공개 분석기에 더 이상 적용되지 않습니다.",
+    message: "자동 검증 규칙을 비활성화하고 사람 검토함으로 되돌렸습니다. 공개 분석기에 더 이상 적용되지 않습니다.",
   });
 }

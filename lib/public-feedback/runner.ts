@@ -20,6 +20,8 @@ import {
   type PublicFeedbackVerificationProviders,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "./intake.ts";
+// @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
+import { automaticRuleActivationStatements, automaticRuleCanBeCreated } from "./automatic-rule-lifecycle.ts";
 import { retryPublicFeedbackRows, type PublicFeedbackRetryResult } from "./retry";
 
 type PublicFeedbackEnvironment = {
@@ -159,37 +161,6 @@ function autoVerifiedSkill(
   };
 }
 
-async function autoActivationStatements(db: D1Database, skill: RiskSkill, now: string) {
-  const previous = await db.prepare(
-    "SELECT entry_hash FROM riskshield_audit_chain ORDER BY sequence DESC LIMIT 1",
-  ).first<{ entry_hash: string }>();
-  const previousHash = previous?.entry_hash ?? "GENESIS";
-  const auditId = crypto.randomUUID();
-  const actorId = "system:public-feedback-auto-verification";
-  const reason = "LLM·검색 고신뢰 검증과 회귀 검사를 통과한 명백한 원자 유해 표현 자동 활성화";
-  const afterJson = JSON.stringify(skill);
-  const canonical = JSON.stringify([
-    previousHash, auditId, now, actorId, "skill.auto_activated", "skill", skill.id,
-    "succeeded", null, afterJson, reason,
-  ]);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
-  const entryHash = Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
-  return [
-    db.prepare(`INSERT INTO risk_skills
-      (id, category, review_status, severity_floor, dominant_risk, payload, created_at, updated_at)
-      VALUES (?, ?, 'reviewed', ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO NOTHING`)
-      .bind(skill.id, skill.category, skill.severityFloor, skill.dominantRisk ? 1 : 0, afterJson, now, now),
-    db.prepare(`INSERT INTO riskshield_audit_logs
-      (id, occurred_at, actor_id, action, resource_type, resource_id, result, before_json, after_json, reason)
-      VALUES (?, ?, ?, 'skill.auto_activated', 'skill', ?, 'succeeded', NULL, ?, ?)`)
-      .bind(auditId, now, actorId, skill.id, afterJson, reason),
-    db.prepare(`INSERT INTO riskshield_audit_chain (audit_id, previous_hash, entry_hash, created_at)
-      VALUES (?, ?, ?, ?)`)
-      .bind(auditId, previousHash, entryHash, now),
-  ];
-}
-
 async function savePromotedCandidate(db: D1Database, row: DueIntake, verification: Extract<Awaited<ReturnType<typeof verifyPublicFeedbackExpression>>, { status: "promoted" }>, now: string) {
   const contexts = jsonStrings(row.contexts_json).filter((context) => expressionAppearsInContext(row.expression, context)).slice(-5);
   const reporters = [...new Set(jsonStrings(row.reporter_fingerprints_json))];
@@ -197,12 +168,16 @@ async function savePromotedCandidate(db: D1Database, row: DueIntake, verificatio
   const family = familyOf(verification.searchVerification.riskFamily);
   const domain = domainOf(verification.searchVerification.riskFamily);
   const candidateId = row.id.replace(/^public_intake_/u, "public_verified_");
+  const autoSkillId = row.id.replace(/^public_intake_/u, "risk_auto_verified_");
+  const existingAutoSkill = await db.prepare("SELECT review_status FROM risk_skills WHERE id = ? LIMIT 1")
+    .bind(autoSkillId).first<{ review_status: string }>();
   const activeSkillsResult = await new D1SkillRepository(db).listReviewed();
   const expressionAlreadyActive = activeSkillsResult.status === "ready"
     && analyzeText(row.expression, [...activeSkillsResult.data]).matches.length > 0;
   const proposedAutoSkill = canAutoActivateRule(verification, tests.positiveTests.length, reporters.length)
     && activeSkillsResult.status === "ready"
     && !expressionAlreadyActive
+    && automaticRuleCanBeCreated(existingAutoSkill)
     ? autoVerifiedSkill(row, verification, tests.positiveTests, tests.negativeTests, now)
     : null;
   const autoSkill = proposedAutoSkill
@@ -254,7 +229,7 @@ async function savePromotedCandidate(db: D1Database, row: DueIntake, verificatio
     retentionDeadline: row.retention_deadline,
     submissionCount: row.submission_count,
   };
-  const automaticStatements = autoSkill ? await autoActivationStatements(db, autoSkill, now) : [];
+  const automaticStatements = autoSkill ? await automaticRuleActivationStatements(db, autoSkill, now) : [];
   await db.batch([
     db.prepare(`INSERT INTO riskshield_candidates (id, status, payload, retention_deadline, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
