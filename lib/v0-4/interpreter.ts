@@ -9,7 +9,7 @@ export { RISK_FAMILIES } from "../risk-family.ts";
 export type { RiskFamily } from "../risk-family";
 
 export const INTERPRETER_SCHEMA_VERSION = "1.2.0" as const;
-export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-22-context-risk-r2" as const;
+export const INTERPRETER_PROMPT_VERSION = "riskshield-interpreter-2026-07-24-context-risk-r3" as const;
 export const HIGH_CONFIDENCE_THRESHOLD = 0.82;
 export const MEDIUM_CONFIDENCE_THRESHOLD = 0.55;
 export const SAFE_NO_MATCH_CONFIDENCE_THRESHOLD = 0.5;
@@ -674,6 +674,8 @@ export function validateProviderInterpreterPayload(
 }
 
 export const INTERPRETER_SYSTEM_PROMPT = `당신은 RiskShield의 한국어 텍스트 위험 문맥 Interpreter입니다.
+스포츠·게임·연예 팬의 응원, 승부 예측, 감상이나 개인적 확신은 광고·판매·도박·금융 이해관계가 없는 한 policy_relevance=none, risk_family=none입니다. “100%”, “무조건”, “반드시”만으로 위험을 만들지 마세요.
+성적 단어의 단순 언급이나 비공격적 감탄은 abusive_language가 아닙니다. 특정 개인·집단에 대한 성적 비하·모욕·괴롭힘·강요가 실제 문장에 있을 때만 direct_harmful, abusive_language로 분류하세요.
 게시 가능 여부나 법률 위반 여부를 최종 판단하지 마세요.
 규칙 엔진의 결과를 추측하지 말고 입력 문구의 발화 목적, 행위자, 대상, 부정·대조·인용 관계와 RiskShield 정책 관련성만 독립적으로 구조화하세요.
 과장·기만 광고뿐 아니라 혐오·차별, 직접 모욕, 숨은 커뮤니티 은어, 폭력적 위협을 분석하세요.

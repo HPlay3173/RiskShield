@@ -117,6 +117,8 @@ Gemma function calling 추가 규칙:
 - speech_act가 warning, criticism, report, quote, definition 중 하나이면 risk_intent는 반드시 contextual_only이고 evidence_quotes는 반드시 빈 배열입니다.
 - direct_promotional은 광고주가 직접 광고·홍보하는 claim에만 사용하며 speech_act=claim, context_relation=supports여야 합니다.
 - direct_harmful은 화자가 혐오·차별, 직접 모욕, 숨은 은어 공격, 폭력 위협을 직접 사용하는 경우에만 사용하며 speech_act=claim, context_relation=supports여야 합니다.
+- 스포츠·게임·연예 팬의 응원, 승부 예측, 감상이나 개인적 확신은 광고·판매·도박·금융 이해관계가 없는 한 policy_relevance=none, risk_family=none입니다. 100%, 무조건, 반드시 같은 표현만으로 substantiation을 만들지 마세요.
+- 섹스 같은 성적 단어의 단순 언급이나 비공격적 감탄은 abusive_language가 아닙니다. 특정 대상에 대한 성적 비하·모욕·괴롭힘·강요가 문장에 직접 나타날 때만 abusive_language로 분류하세요.
 - 직접 유해 발화의 대상은 individual, protected_group, regional_group, community 중 가장 구체적인 값을 우선 사용하세요.
 - 느개미·느금마처럼 의미를 숨긴 비하 은어도 직접 사용되면 coded_expression으로 분석하세요.
 - 위험 주장을 경고·비판·인용·보도·정의하거나 조건부로 설명하는 문장은 표현 안에 위험 단어가 있어도 절대 direct_promotional이 아닙니다.

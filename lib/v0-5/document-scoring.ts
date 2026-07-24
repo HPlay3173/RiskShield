@@ -2,11 +2,12 @@ import type { AnalysisResult } from "../riskshield";
 import type { InterpreterPayload } from "../v0-4/interpreter";
 import {
   calculateDeterministicScore,
+  applyInterpreterPolicyGuardrails,
   type CategoryFormulaScore,
   type DeterministicScoreResult,
 } from "./scoring";
 
-export const DOCUMENT_SCORING_POLICY_VERSION = "4.1.0" as const;
+export const DOCUMENT_SCORING_POLICY_VERSION = "4.2.0" as const;
 export const MAX_DOCUMENT_CLAIMS = 20;
 
 export type ClaimSegment = {
@@ -127,7 +128,8 @@ export function aggregateDocumentScore(claims: readonly ClaimScore[]): DocumentS
 }
 
 export function scoreClaim(segment: ClaimSegment, rules: AnalysisResult, payload: InterpreterPayload | null): ClaimScore {
-  return { ...segment, rules, payload, scoring: calculateDeterministicScore(rules, payload) };
+  const guarded = applyInterpreterPolicyGuardrails(segment.text, rules, payload);
+  return { ...segment, rules, payload: guarded.payload, scoring: calculateDeterministicScore(rules, payload) };
 }
 
 export function documentDecisionReason(result: DocumentScore) {

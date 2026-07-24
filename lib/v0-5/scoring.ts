@@ -3,7 +3,16 @@ import { riskFamilyForPatternType, type ScorableRiskFamily } from "../risk-famil
 import type { AnalysisResult, PatternHit } from "../riskshield.ts";
 import type { EvidenceSpan, InterpreterPayload } from "../v0-4/interpreter.ts";
 
-export const SCORING_POLICY_VERSION = "3.2.0" as const;
+export const SCORING_POLICY_VERSION = "3.3.0" as const;
+
+export type AiPolicyGuardrailReason =
+  | "low_stakes_prediction_suppressed"
+  | "untargeted_explicit_language_suppressed";
+
+export type GuardedInterpreterPayload = {
+  payload: InterpreterPayload | null;
+  reason: AiPolicyGuardrailReason | null;
+};
 
 export const SCORING_AXES = [
   "relevance", "certainty", "harm", "deception", "vulnerability", "privacy_intrusion", "evidence_strength",
@@ -179,6 +188,62 @@ function assessmentsFrom(payload: InterpreterPayload | null) {
   );
 }
 
+const SPORTS_OR_FANDOM_CONTEXT = /(?:월드컵|축구|야구|농구|배구|경기|결승|준결승|우승|승리|패배|선수|감독|대표팀|리그|메시|호날두|아르헨티나|스페인)/u;
+const SPORTS_OUTCOME_PREDICTION = /(?:이기|이길|우승|승리|패배|질\s|진다|꺾|탈락|진출|득점|골을?\s*넣)/u;
+const CONSEQUENTIAL_CLAIM_CONTEXT = /(?:광고|홍보|판매|구매|신청|계약|상품|서비스|투자|수익|원금|대출|보험|도박|베팅|배팅|배당|치료|의약|완치|효능|부작용|합격|취업|자격증|소송|승소|무죄|환불|보장|약속)/u;
+const EXPLICIT_SEXUAL_TERM = /(?:섹스|성관계|성교|야동|포르노)/u;
+const SEXUAL_HARM_OR_TARGETING = /(?:강간|성폭행|성희롱|강제|억지|동의\s*없이|성노리개|창녀|걸레|보댕이|보릉내|피싸개|따먹|박아|몸팔|성매매|협박|모욕|비하)/u;
+
+function hasRuleEvidenceForFamily(rules: AnalysisResult, family: ScorableRiskFamily) {
+  return rules.matches.some((match) =>
+    (match.skill.riskFamily ?? riskFamilyForPatternType(match.skill.patternType)) === family
+  );
+}
+
+function safeNoRiskPayload(payload: InterpreterPayload): InterpreterPayload {
+  return {
+    ...payload,
+    risk_intent: "contextual_only",
+    context_relation: "unclear",
+    actor: "speaker",
+    claim_strength: "none",
+    policy_relevance: "none",
+    risk_family: "none",
+    evidence_spans: [],
+    policy_reason: "NO_RISK_CLAIM",
+    category_assessments: [],
+  };
+}
+
+export function applyInterpreterPolicyGuardrails(
+  input: string,
+  rules: AnalysisResult,
+  payload: InterpreterPayload | null,
+): GuardedInterpreterPayload {
+  if (!payload || payload.policy_relevance === "none" || payload.risk_family === "none") {
+    return { payload, reason: null };
+  }
+  const normalized = input.normalize("NFKC").toLocaleLowerCase("ko-KR");
+  if (
+    payload.risk_family === "general_substantiation"
+    && !hasRuleEvidenceForFamily(rules, "general_substantiation")
+    && SPORTS_OR_FANDOM_CONTEXT.test(normalized)
+    && SPORTS_OUTCOME_PREDICTION.test(normalized)
+    && !CONSEQUENTIAL_CLAIM_CONTEXT.test(normalized)
+  ) {
+    return { payload: safeNoRiskPayload(payload), reason: "low_stakes_prediction_suppressed" };
+  }
+  if (
+    payload.risk_family === "abusive_language"
+    && !hasRuleEvidenceForFamily(rules, "abusive_language")
+    && EXPLICIT_SEXUAL_TERM.test(normalized)
+    && !SEXUAL_HARM_OR_TARGETING.test(normalized)
+  ) {
+    return { payload: safeNoRiskPayload(payload), reason: "untargeted_explicit_language_suppressed" };
+  }
+  return { payload, reason: null };
+}
+
 function statusFor(score: number, hasEvidence: boolean, highRequiresReview: boolean): DeterministicScoreResult["status"] {
   if (!hasEvidence) return "no_match";
   if (score >= 80) return highRequiresReview ? "review" : "high";
@@ -187,6 +252,8 @@ function statusFor(score: number, hasEvidence: boolean, highRequiresReview: bool
 }
 
 export function calculateDeterministicScore(rules: AnalysisResult, payload: InterpreterPayload | null): DeterministicScoreResult {
+  const guarded = applyInterpreterPolicyGuardrails(rules.input, rules, payload);
+  payload = guarded.payload;
   const multiplier = contextMultiplier(payload);
   const byFamily = new Map<ScorableRiskFamily, { ruleScore: number; ruleHits: PatternHit[]; assessment: CategoryAssessment | null }>();
 
@@ -251,6 +318,7 @@ export function calculateDeterministicScore(rules: AnalysisResult, payload: Inte
     ...(familyConflict ? ["risk_family_conflict"] : []),
     ...(highRequiresReview ? ["ai_only_high_requires_review"] : []),
     ...(suppressed ? ["contextual_only_suppressed"] : []),
+    ...(guarded.reason ? [guarded.reason] : []),
   ];
 
   return {

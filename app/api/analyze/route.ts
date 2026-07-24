@@ -473,7 +473,7 @@ export async function POST(request: Request) {
       claim.scoring.finalScore > (claimScores[best]?.scoring.finalScore ?? -1) ? index : best, 0);
     const primaryClaim = claimScores[primaryIndex] ?? null;
     const run = claimRuns[primaryIndex] ?? unavailableRun(hashInterpreterInput(text), text, "server_secret_unavailable");
-    const payload = run.payload;
+    const payload = primaryClaim?.payload ?? null;
       const analyzedAiClaimCount = [...aiClaimIndexes].filter((index) => claimRuns[index]?.ok).length;
       const aiCoverage = summarizeAiCoverage(aiClaimIndexes.size, analyzedAiClaimCount);
       const aiStatusRun = aiCoverage.state === "ready"

@@ -13,6 +13,7 @@ import {
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
 } from "../lib/v0-4/interpreter.ts";
 import {
+  applyInterpreterPolicyGuardrails,
   calculateDeterministicScore,
   SCORING_POLICY_VERSION,
 // @ts-expect-error Node 22 strips TypeScript directly and requires this runtime extension.
@@ -120,4 +121,97 @@ test("contextual-only evidence without a rule is suppressed", () => {
   assert.equal(result.finalScore, 0);
   assert.equal(result.status, "no_match");
   assert.ok(result.decisionReasons.includes("contextual_only_suppressed"));
+});
+
+test("low-stakes sports predictions are suppressed even when AI overweights absolute wording", () => {
+  const inputs = [
+    "아르헨티나는 무조건 우승한다",
+    "아르헨티나는 100% 우승한다",
+    "메시는 결승에서 반드시 이길 거야",
+  ];
+  for (const text of inputs) {
+    const result = calculateDeterministicScore(analyzeText(text, []), payloadFor(text, 0.92, {
+      claim_target: "general",
+      policy_relevance: "substantiation",
+      risk_family: "general_substantiation",
+      category_assessments: [{
+        risk_family: "general_substantiation",
+        relevance: 4,
+        certainty: 4,
+        harm: 2,
+        deception: 3,
+        vulnerability: 1,
+        privacy_intrusion: 0,
+        evidence_strength: 3,
+      }],
+    }));
+    assert.equal(result.finalScore, 0, text);
+    assert.equal(result.status, "no_match", text);
+    assert.ok(result.decisionReasons.includes("low_stakes_prediction_suppressed"), text);
+  }
+});
+
+test("commercial and health guarantees remain risky", () => {
+  const cases = [
+    ["이 투자 상품은 100% 수익을 보장한다", "financial_guarantee"],
+    ["이 약은 100% 완치된다", "health_claim"],
+  ] as const;
+  for (const [text, family] of cases) {
+    const result = calculateDeterministicScore(analyzeText(text, []), payloadFor(text, 0.95, {
+      claim_target: family === "health_claim" ? "health" : "finance",
+      risk_family: family,
+      category_assessments: [{
+        risk_family: family,
+        relevance: 4,
+        certainty: 4,
+        harm: 4,
+        deception: 4,
+        vulnerability: 3,
+        privacy_intrusion: 0,
+        evidence_strength: 4,
+      }],
+    }));
+    assert.ok(result.finalScore >= 80, text);
+  }
+});
+
+test("non-targeted explicit wording is suppressed but targeted sexual degradation remains risky", () => {
+  const casual = "와 섹스 진짜 지렸다 메시";
+  const casualPayload = payloadFor(casual, 0.92, {
+    risk_intent: "direct_harmful",
+    claim_target: "general",
+    actor: "speaker",
+    policy_relevance: "substantiation",
+    risk_family: "abusive_language",
+    category_assessments: [{
+      risk_family: "abusive_language",
+      relevance: 4,
+      certainty: 4,
+      harm: 3,
+      deception: 0,
+      vulnerability: 2,
+      privacy_intrusion: 0,
+      evidence_strength: 3,
+    }],
+  });
+  const casualRules = analyzeText(casual, []);
+  const guarded = applyInterpreterPolicyGuardrails(casual, casualRules, casualPayload);
+  const casualScore = calculateDeterministicScore(casualRules, casualPayload);
+  assert.equal(casualScore.finalScore, 0);
+  assert.equal(guarded.payload?.risk_family, "none");
+  assert.equal(guarded.payload?.evidence_spans.length, 0);
+  assert.ok(casualScore.decisionReasons.includes("untargeted_explicit_language_suppressed"));
+
+  const warning = "섹스라는 단어는 사용하지 마세요";
+  const warningResult = calculateDeterministicScore(analyzeText(warning, []), { ...casualPayload,
+    evidence_spans: [{ start: 0, end: warning.length, text: warning }],
+  });
+  assert.equal(warningResult.finalScore, 0);
+
+  const targeted = "너는 성노리개야";
+  const targetedResult = calculateDeterministicScore(analyzeText(targeted, []), { ...casualPayload,
+    evidence_spans: [{ start: 0, end: targeted.length, text: targeted }],
+  });
+  assert.ok(targetedResult.finalScore > 0);
+  assert.equal(targetedResult.primaryCategory?.id, "abusive_language");
 });
