@@ -1,4 +1,4 @@
-# RiskShield Desktop v0.6 alpha
+# RiskShield Desktop v0.6
 
 Windows desktop client for RiskShield Analyzer v4. It keeps deterministic rules
 available offline and optionally asks the locally installed Codex CLI for a
