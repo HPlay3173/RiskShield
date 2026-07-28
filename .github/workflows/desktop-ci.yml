@@ -46,9 +46,6 @@ jobs:
       - name: Run desktop tests
         working-directory: desktop
         run: npm test
-      - name: Generate platform icons
-        working-directory: desktop
-        run: npm run tauri icon src-tauri/icons/icon.svg
       - name: Build installers
         working-directory: desktop
         run: npm run tauri build

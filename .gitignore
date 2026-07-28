@@ -44,3 +44,6 @@ next-env.d.ts
 /desktop/dist/
 /desktop/src-tauri/target/
 /desktop/*.tsbuildinfo
+/desktop/src-tauri/icons/*
+!/desktop/src-tauri/icons/icon.svg
+!/desktop/src-tauri/icons/icon.ico
