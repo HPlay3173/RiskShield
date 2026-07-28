@@ -5,16 +5,16 @@ use std::{
     env,
     fs,
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::Mutex,
 };
-use tauri::{Manager, State};
+use tauri::{path::BaseDirectory, Manager, State};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum DesktopError {
-    #[error("Codex CLI를 찾지 못했습니다. Windows에 Codex CLI를 설치하거나 RISKSHIELD_CODEX_BIN을 설정하세요.")]
+    #[error("Codex CLI를 찾지 못했습니다. RiskShield를 다시 설치하거나 RISKSHIELD_CODEX_BIN을 확인하세요.")]
     CodexMissing,
     #[error("Codex App Server를 시작하지 못했습니다: {0}")]
     Spawn(String),
@@ -52,12 +52,8 @@ impl Drop for AppServer {
 }
 
 impl AppServer {
-    fn start() -> Result<Self, DesktopError> {
-        let binary = env::var_os("RISKSHIELD_CODEX_BIN")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "codex.exe" } else { "codex" }));
-
-        let mut child = Command::new(&binary)
+    fn start(binary: &Path) -> Result<Self, DesktopError> {
+        let mut child = Command::new(binary)
             .arg("app-server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -156,20 +152,52 @@ impl AppServer {
     }
 }
 
-#[derive(Default)]
-struct CodexState(Mutex<Option<AppServer>>);
+struct CodexState {
+    server: Mutex<Option<AppServer>>,
+    bundled_binary: PathBuf,
+}
 
 impl CodexState {
+    fn new(bundled_binary: PathBuf) -> Self {
+        Self {
+            server: Mutex::new(None),
+            bundled_binary,
+        }
+    }
+
+    fn resolve_binary(&self) -> Result<PathBuf, DesktopError> {
+        if let Some(path) = env::var_os("RISKSHIELD_CODEX_BIN").map(PathBuf::from) {
+            if path.is_file() {
+                return Ok(path);
+            }
+            return Err(DesktopError::CodexMissing);
+        }
+
+        let executable = if cfg!(windows) { "codex.exe" } else { "codex" };
+        if let Some(path) = env::var_os("PATH").and_then(|paths| {
+            env::split_paths(&paths)
+                .map(|directory| directory.join(executable))
+                .find(|candidate| candidate.is_file())
+        }) {
+            return Ok(path);
+        }
+
+        self.bundled_binary
+            .is_file()
+            .then(|| self.bundled_binary.clone())
+            .ok_or(DesktopError::CodexMissing)
+    }
+
     fn with<T>(
         &self,
         action: impl FnOnce(&mut AppServer) -> Result<T, DesktopError>,
     ) -> Result<T, DesktopError> {
         let mut guard = self
-            .0
+            .server
             .lock()
             .map_err(|_| DesktopError::Protocol("Codex 상태 잠금 실패".into()))?;
         if guard.is_none() {
-            *guard = Some(AppServer::start()?);
+            *guard = Some(AppServer::start(&self.resolve_binary()?)?);
         }
         action(guard.as_mut().expect("app server initialized"))
     }
@@ -501,11 +529,14 @@ fn initialize_database(path: &PathBuf) -> Result<(), DesktopError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(CodexState::default())
         .setup(|app| {
             let path = app.path().app_data_dir()?.join("riskshield.sqlite3");
             initialize_database(&path)?;
             app.manage(DatabasePath(path));
+            let bundled_codex = app
+                .path()
+                .resolve("codex/bin/codex.exe", BaseDirectory::Resource)?;
+            app.manage(CodexState::new(bundled_codex));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

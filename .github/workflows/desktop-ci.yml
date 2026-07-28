@@ -46,6 +46,9 @@ jobs:
       - name: Run desktop tests
         working-directory: desktop
         run: npm test
+      - name: Bundle official Codex CLI
+        shell: pwsh
+        run: ./desktop/scripts/prepare-codex-runtime.ps1
       - name: Build installers
         working-directory: desktop
         run: npm run tauri build

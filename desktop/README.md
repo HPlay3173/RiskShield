@@ -1,8 +1,8 @@
 # RiskShield Desktop v0.6
 
 Windows desktop client for RiskShield Analyzer v4. It keeps deterministic rules
-available offline and optionally asks the locally installed Codex CLI for a
-second, context-aware review through the official Codex App Server protocol.
+available offline and optionally asks Codex CLI for a second, context-aware
+review through the official Codex App Server protocol.
 
 ## Why a desktop client
 
@@ -17,9 +17,12 @@ read or stored by RiskShield. The app-server process owns its credential state.
 ## Requirements
 
 - Windows 10/11
-- Codex CLI available as `codex.exe` on `PATH`, or its path set in
-  `RISKSHIELD_CODEX_BIN`
 - Node.js 22.13+ and Rust stable only when building from source
+
+The Windows installers bundle the complete official Codex CLI 0.145.0 Windows
+x64 runtime. At startup RiskShield checks `RISKSHIELD_CODEX_BIN`, then an
+existing `codex.exe` on `PATH`, and finally its bundled runtime. End users do
+not need Node.js, npm, a separate CLI install, or an OpenAI Platform API key.
 
 ## Local checks
 
@@ -30,7 +33,9 @@ npm run build
 npm run tauri build
 ```
 
-The Windows CI workflow publishes MSI and NSIS installers as workflow artifacts.
+`scripts/prepare-codex-runtime.ps1` downloads the pinned official Windows x64
+package from npm before a release build. The Windows CI workflow then publishes
+MSI and NSIS installers containing that runtime as workflow artifacts.
 
 ## Safety behavior
 
