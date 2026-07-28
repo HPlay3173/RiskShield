@@ -14,6 +14,9 @@ export default defineConfig({
     fs: { allow: [path.resolve(desktopDir, "..")] },
   },
   envPrefix: ["VITE_", "TAURI_"],
+  css: {
+    postcss: { plugins: [] },
+  },
   build: {
     target: "chrome105",
     minify: !process.env.TAURI_DEBUG ? "esbuild" : false,

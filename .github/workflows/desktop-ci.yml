@@ -49,9 +49,6 @@ jobs:
       - name: Generate platform icons
         working-directory: desktop
         run: npm run tauri icon src-tauri/icons/icon.svg
-      - name: Check Rust backend
-        working-directory: desktop/src-tauri
-        run: cargo check
       - name: Build installers
         working-directory: desktop
         run: npm run tauri build
