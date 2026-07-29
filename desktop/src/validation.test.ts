@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseAiAnalysis, reconcileSeverity, validateAiAnalysis } from "./validation";
+import {
+  filterValidAiFindings,
+  parseAiAnalysis,
+  statusFromAi,
+  validateAiAnalysis,
+} from "./validation";
 import { analyzeWithReviewedRules } from "./analyzer";
 
 describe("AI output validation", () => {
@@ -51,7 +56,36 @@ describe("AI output validation", () => {
       .toBe("invented_number");
   });
 
-  it("downgrades unsupported AI-only high findings", () => {
+  it("keeps valid findings when another finding fails validation", () => {
+    const analysis = parseAiAnalysis(JSON.stringify({
+      summary: "검토",
+      findings: [
+        {
+          category: "역사적 맥락",
+          severity: "high",
+          evidence: "탱크데이",
+          explanation: "5·18과 결합된 판촉 표현입니다.",
+          rewrite: null,
+          confidence: 0.95,
+        },
+        {
+          category: "과장",
+          severity: "review",
+          evidence: "원문에 없는 문구",
+          explanation: "잘못된 근거입니다.",
+          rewrite: null,
+          confidence: 0.5,
+        },
+      ],
+    }));
+
+    const filtered = filterValidAiFindings("5/18 탱크데이 할인", analysis);
+    expect(filtered.analysis.findings).toHaveLength(1);
+    expect(filtered.analysis.findings[0]?.evidence).toBe("탱크데이");
+    expect(filtered.issues[0]?.code).toBe("missing_evidence");
+  });
+
+  it("uses a valid AI-only high finding as the primary result", () => {
     const rules = analyzeWithReviewedRules("오늘 새로운 상품을 소개합니다.");
     const ai = parseAiAnalysis(JSON.stringify({
       summary: "검토",
@@ -64,6 +98,16 @@ describe("AI output validation", () => {
         confidence: 0.7,
       }],
     }));
-    expect(reconcileSeverity(rules, ai).findings[0]?.severity).toBe("review");
+    expect(rules.status).toBe("no_match");
+    expect(statusFromAi(ai)).toBe("high");
   });
+
+  it("accepts an empty AI result without consulting rules", () => {
+    const ai = parseAiAnalysis(JSON.stringify({
+      summary: "직접 위험은 확인되지 않았습니다.",
+      findings: [],
+    }));
+    expect(statusFromAi(ai)).toBe("no_match");
+  });
+
 });
