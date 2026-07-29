@@ -37,7 +37,7 @@ export function parseAiAnalysis(raw: string): AiAnalysis {
     !Array.isArray(value.findings) ||
     !value.findings.every(isFinding)
   ) {
-    throw new Error("Codex 응답이 RiskShield 분석 스키마와 맞지 않습니다.");
+    throw new Error("AI 응답이 RiskShield 분석 스키마와 맞지 않습니다.");
   }
   return {
     summary: value.summary,
@@ -77,19 +77,38 @@ export function validateAiAnalysis(
   return issues;
 }
 
-export function reconcileSeverity(
-  rules: RulesAnalysis,
-  ai: AiAnalysis,
-): AiAnalysis {
+export function filterValidAiFindings(
+  source: string,
+  analysis: AiAnalysis,
+): { analysis: AiAnalysis; issues: ValidationIssue[] } {
+  const findings: AiFinding[] = [];
+  const issues: ValidationIssue[] = [];
+
+  analysis.findings.forEach((finding, index) => {
+    const findingIssues = validateAiAnalysis(source, {
+      summary: analysis.summary,
+      findings: [finding],
+      model: analysis.model,
+    }).map((issue) => ({
+      ...issue,
+      message: issue.message.replace(/^1번/u, `${index + 1}번`),
+    }));
+
+    if (findingIssues.length === 0) {
+      findings.push(finding);
+    } else {
+      issues.push(...findingIssues);
+    }
+  });
+
   return {
-    ...ai,
-    findings: ai.findings.map((finding) => {
-      const exactRuleSupport = rules.matches.some((match) =>
-        match.hits.some((hit) => normalized(finding.evidence).includes(normalized(hit.text))),
-      );
-      return finding.severity === "high" && !exactRuleSupport
-        ? { ...finding, severity: "review" as const }
-        : finding;
-    }),
+    analysis: { ...analysis, findings },
+    issues,
   };
+}
+
+export function statusFromAi(ai: AiAnalysis): RulesAnalysis["status"] {
+  if (ai.findings.some((finding) => finding.severity === "high")) return "high";
+  if (ai.findings.some((finding) => finding.severity === "review")) return "review";
+  return "no_match";
 }
