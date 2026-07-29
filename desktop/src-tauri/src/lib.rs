@@ -6,8 +6,13 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
-    sync::Mutex,
+    process::{Child, ChildStdin, Command, Stdio},
+    sync::{
+        mpsc::{self, Receiver, RecvTimeoutError},
+        Mutex,
+    },
+    thread,
+    time::Duration,
 };
 use tauri::{path::BaseDirectory, Manager, State};
 use thiserror::Error;
@@ -20,6 +25,8 @@ enum DesktopError {
     Spawn(String),
     #[error("Codex App Server 연결이 종료되었습니다.")]
     Disconnected,
+    #[error("Codex App Server가 제한 시간 안에 응답하지 않았습니다. 다시 시도하세요.")]
+    Timeout,
     #[error("Codex App Server 오류: {0}")]
     Rpc(String),
     #[error("Codex 응답을 읽지 못했습니다: {0}")]
@@ -40,7 +47,7 @@ impl Serialize for DesktopError {
 struct AppServer {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    messages: Receiver<Result<Value, String>>,
     next_id: u64,
 }
 
@@ -75,10 +82,32 @@ impl AppServer {
             .stdout
             .take()
             .ok_or_else(|| DesktopError::Spawn("stdout 연결 실패".into()))?;
+        let (sender, messages) = mpsc::channel();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                match reader.read_line(&mut line) {
+                    Ok(0) => break,
+                    Ok(_) if line.trim().is_empty() => continue,
+                    Ok(_) => {
+                        let parsed = serde_json::from_str(&line)
+                            .map_err(|error| format!("JSON 파싱 실패: {error}"));
+                        if sender.send(parsed).is_err() {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.send(Err(format!("stdout 읽기 실패: {error}")));
+                        break;
+                    }
+                }
+            }
+        });
         let mut server = Self {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            messages,
             next_id: 1,
         };
 
@@ -109,22 +138,17 @@ impl AppServer {
         self.send(&json!({ "method": method, "params": params }))
     }
 
-    fn read_message(&mut self) -> Result<Value, DesktopError> {
-        loop {
-            let mut line = String::new();
-            let count = self
-                .stdout
-                .read_line(&mut line)
-                .map_err(|error| DesktopError::Protocol(error.to_string()))?;
-            if count == 0 {
-                return Err(DesktopError::Disconnected);
-            }
-            if line.trim().is_empty() {
-                continue;
-            }
-            return serde_json::from_str(&line)
-                .map_err(|error| DesktopError::Protocol(error.to_string()));
+    fn read_message_with_timeout(&mut self, timeout: Duration) -> Result<Value, DesktopError> {
+        match self.messages.recv_timeout(timeout) {
+            Ok(Ok(message)) => Ok(message),
+            Ok(Err(error)) => Err(DesktopError::Protocol(error)),
+            Err(RecvTimeoutError::Timeout) => Err(DesktopError::Timeout),
+            Err(RecvTimeoutError::Disconnected) => Err(DesktopError::Disconnected),
         }
+    }
+
+    fn read_message(&mut self) -> Result<Value, DesktopError> {
+        self.read_message_with_timeout(Duration::from_secs(120))
     }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value, DesktopError> {
@@ -133,7 +157,7 @@ impl AppServer {
         self.send(&json!({ "method": method, "id": id, "params": params }))?;
 
         loop {
-            let message = self.read_message()?;
+            let message = self.read_message_with_timeout(Duration::from_secs(30))?;
             if message.get("id").and_then(Value::as_u64) != Some(id) {
                 continue;
             }
@@ -199,7 +223,11 @@ impl CodexState {
         if guard.is_none() {
             *guard = Some(AppServer::start(&self.resolve_binary()?)?);
         }
-        action(guard.as_mut().expect("app server initialized"))
+        let result = action(guard.as_mut().expect("app server initialized"));
+        if result.is_err() {
+            guard.take();
+        }
+        result
     }
 }
 

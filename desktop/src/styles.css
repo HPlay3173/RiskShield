@@ -60,6 +60,14 @@ button:disabled { opacity: .45; cursor: default; }
   margin-bottom: 16px; padding: 18px 22px; border: 1px solid #43bea9;
   border-radius: 14px; background: linear-gradient(90deg, #0a322e, #08231f);
 }
+.auth-error {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px; margin-bottom: 16px; padding: 14px 18px;
+  border: 1px solid #87403d; border-radius: 12px; background: #2b1716;
+}
+.auth-error strong { color: #ff9b92; font-size: 13px; }
+.auth-error p { margin: 4px 0 0; color: #d9aaa6; font-size: 12px; line-height: 1.5; }
+.auth-error button { flex: 0 0 auto; border-color: #a7544e; background: #401d1b; color: #ffd0cc; }
 .login-banner div { display: grid; grid-template-columns: auto auto; gap: 4px 18px; align-items: center; }
 .login-banner strong { grid-row: span 2; font-size: 28px; letter-spacing: .16em; color: #67eed6; }
 .login-banner p { margin: 0; color: #8faaa6; font-size: 13px; }

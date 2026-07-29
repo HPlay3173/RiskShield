@@ -46,18 +46,23 @@ export default function App() {
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [busy, setBusy] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [message, setMessage] = useState("기존 Analyzer v4 규칙은 로그인 없이 사용할 수 있습니다.");
 
   const refreshAccount = useCallback(async () => {
     try {
       const next = await accountRead();
       setAccount(next);
+      setAuthError(null);
       if (next.connected) {
         setChallenge(null);
         setLimits(await rateLimitsRead().catch(() => null));
       }
     } catch (error) {
-      setMessage(String(error));
+      const detail = String(error);
+      setAuthError(detail);
+      setMessage(detail);
     }
   }, []);
 
@@ -81,30 +86,41 @@ export default function App() {
   }, [ai, rules]);
 
   async function connect() {
-    setBusy(true);
+    setAuthBusy(true);
+    setAuthError(null);
+    setMessage("Codex CLI를 시작하고 로그인 코드를 요청하는 중입니다.");
     try {
       const next = await loginStart();
       setChallenge(next);
       setMessage("브라우저에서 코드를 입력한 뒤 이 화면으로 돌아오세요.");
-      await openExternal(next.verificationUrl);
+      try {
+        await openExternal(next.verificationUrl);
+      } catch {
+        setAuthError("로그인 페이지를 자동으로 열지 못했습니다. 아래 ‘로그인 페이지 열기’를 누르세요.");
+      }
     } catch (error) {
-      setMessage(String(error));
+      const detail = String(error);
+      setAuthError(detail);
+      setMessage(detail);
     } finally {
-      setBusy(false);
+      setAuthBusy(false);
     }
   }
 
   async function disconnect() {
-    setBusy(true);
+    setAuthBusy(true);
+    setAuthError(null);
     try {
       await logout();
       setAccount(EMPTY_ACCOUNT);
       setLimits(null);
       setMessage("Codex 계정 연결을 해제했습니다.");
     } catch (error) {
-      setMessage(String(error));
+      const detail = String(error);
+      setAuthError(detail);
+      setMessage(detail);
     } finally {
-      setBusy(false);
+      setAuthBusy(false);
     }
   }
 
@@ -174,7 +190,7 @@ export default function App() {
           <span className="brand-mark">R</span>
           <div>
             <strong>RiskShield</strong>
-            <span>Desktop · v0.6 alpha</span>
+            <span>Desktop · v0.6.1 alpha</span>
           </div>
         </div>
         <div className="account">
@@ -183,11 +199,27 @@ export default function App() {
             <strong>{account.connected ? account.email ?? "ChatGPT 연결됨" : "Codex 미연결"}</strong>
             <span>{account.connected ? `${account.planType ?? "ChatGPT"} 플랜` : "규칙 분석만 사용 가능"}</span>
           </div>
-          <button className="ghost" disabled={busy} onClick={account.connected ? disconnect : connect}>
-            {account.connected ? "연결 해제" : "Codex 로그인"}
+          <button
+            className="ghost"
+            disabled={busy || authBusy}
+            onClick={account.connected ? disconnect : connect}
+          >
+            {authBusy ? "Codex 준비 중…" : account.connected ? "연결 해제" : "Codex 로그인"}
           </button>
         </div>
       </header>
+
+      {authError && (
+        <section className="auth-error" role="alert">
+          <div>
+            <strong>Codex 연결 실패</strong>
+            <p>{authError}</p>
+          </div>
+          {!account.connected && !authBusy && (
+            <button onClick={connect}>다시 시도</button>
+          )}
+        </section>
+      )}
 
       {challenge && !account.connected && (
         <section className="login-banner">

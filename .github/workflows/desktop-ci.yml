@@ -49,6 +49,8 @@ jobs:
       - name: Bundle official Codex CLI
         shell: pwsh
         run: ./desktop/scripts/prepare-codex-runtime.ps1
+      - name: Smoke test Codex login flow
+        run: node desktop/scripts/smoke-codex-login.mjs
       - name: Build installers
         working-directory: desktop
         run: npm run tauri build
