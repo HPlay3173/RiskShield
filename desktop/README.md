@@ -1,4 +1,4 @@
-# RiskShield Desktop v0.6.3
+# RiskShield Desktop v0.6.4
 
 Windows desktop client for RiskShield. Codex CLI is the primary analysis
 engine, Gemma 4 through the user's free Google AI Studio API key is the network fallback, and
