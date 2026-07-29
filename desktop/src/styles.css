@@ -141,6 +141,26 @@ textarea:focus { border-color: #35a895; box-shadow: 0 0 0 3px rgba(53, 168, 149,
 .history-list small { color: #56827a; font-size: 9px; }
 footer { padding: 13px 4px 0; color: #65847f; font-size: 11px; }
 
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+  padding: 24px; background: rgba(0, 8, 8, .76); backdrop-filter: blur(8px);
+}
+.key-dialog {
+  width: min(480px, 100%); padding: 26px; border: 1px solid #3fae9d;
+  border-radius: 16px; background: linear-gradient(145deg, #0b302d, #061b1a);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .55);
+}
+.key-dialog h2 { margin: 7px 0 10px; }
+.key-dialog > p { color: #91aca7; font-size: 13px; line-height: 1.6; }
+.key-dialog label { display: block; margin: 20px 0 7px; color: #b8d8d2; font-size: 12px; }
+.key-dialog input {
+  width: 100%; outline: none; border: 1px solid #28534e; border-radius: 9px;
+  padding: 12px 13px; background: #031312; color: #e7fbf7;
+}
+.key-dialog input:focus { border-color: #4dd6bf; box-shadow: 0 0 0 3px rgba(77, 214, 191, .12); }
+.key-dialog .key-error { margin: 9px 0 0; color: #ff9b92; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: 1fr; }
   .editor-panel, .result-panel { min-height: auto; }
