@@ -1,8 +1,9 @@
-# RiskShield Desktop v0.6.1
+# RiskShield Desktop v0.6.3
 
-Windows desktop client for RiskShield Analyzer v4. It keeps deterministic rules
-available offline and optionally asks Codex CLI for a second, context-aware
-review through the official Codex App Server protocol.
+Windows desktop client for RiskShield. Codex CLI is the primary analysis
+engine, Gemma 4 through the user's free Google AI Studio API key is the network fallback, and
+deterministic Analyzer v4 rules are used only when both AI engines are
+unavailable.
 
 ## Why a desktop client
 
@@ -39,13 +40,17 @@ MSI and NSIS installers containing that runtime as workflow artifacts.
 
 ## Safety behavior
 
-- Analyzer v4 runs first and remains available if Codex is signed out, limited,
-  unavailable, or returns invalid data.
-- Codex receives the source text and local rules result through a read-only,
+- Codex runs first and receives only the source text through a read-only,
   no-approval turn with a strict JSON output schema.
+- If Codex is signed out, limited, unavailable, or invalid, the desktop calls
+  Gemma 4 directly through the Google Generative Language API.
+- The Gemma key prompt appears only after an actual Codex failure. Saving it
+  writes it directly to Windows Credential Manager and resumes the interrupted
+  analysis; the key is never added to RiskShield history or configuration files.
+- Choosing `이번에는 규칙만` skips key setup for that analysis.
+- Analyzer v4 runs only when both Codex and Gemma 4 are unavailable or invalid.
 - Every evidence quote must be an exact substring of the source.
 - Rewrites containing a number absent from the source are rejected.
-- An AI-only `high` finding is downgraded to `review` unless an exact local rule
-  hit supports it.
+- A valid Codex or Gemma result is never capped or overridden by local rules.
 - Analysis history is stored locally in SQLite under the operating system's
   application-data directory.
