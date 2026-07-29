@@ -69,7 +69,7 @@ try {
     clientInfo: {
       name: "riskshield_ci",
       title: "RiskShield CI",
-      version: "0.6.1",
+      version: "0.6.3",
     },
   });
   send({ method: "initialized", params: {} });
