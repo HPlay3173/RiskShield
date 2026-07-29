@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   AccountInfo,
   AiAnalysis,
+  AnalysisEngine,
   AnalysisRecord,
   LoginChallenge,
   RateLimits,
@@ -26,15 +27,24 @@ export function rateLimitsRead(): Promise<RateLimits> {
   return invoke("rate_limits_read");
 }
 
-export function codexAnalyze(input: string, rules: RulesAnalysis): Promise<AiAnalysis> {
-  return invoke("codex_analyze", { input, rules });
+export function codexAnalyze(input: string): Promise<AiAnalysis> {
+  return invoke("codex_analyze", { input });
+}
+
+export function gemmaAnalyze(input: string): Promise<unknown> {
+  return invoke("gemma_analyze", { input });
+}
+
+export function gemmaKeySaveAndAnalyze(apiKey: string, input: string): Promise<unknown> {
+  return invoke("gemma_key_save_and_analyze", { apiKey, input });
 }
 
 export function saveAnalysis(payload: {
   input: string;
-  rules: RulesAnalysis;
+  rules: RulesAnalysis | null;
   ai: AiAnalysis | null;
   mode: "hybrid" | "rules-only";
+  engine: AnalysisEngine;
   validationIssues: ValidationIssue[];
 }): Promise<number> {
   return invoke("save_analysis", { payload });
