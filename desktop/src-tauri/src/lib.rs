@@ -33,6 +33,14 @@ enum DesktopError {
     Protocol(String),
     #[error("로컬 기록 저장소 오류: {0}")]
     Database(String),
+    #[error("Gemma 4 대체 분석 오류: {0}")]
+    Gemma(String),
+    #[error("GEMMA_KEY_MISSING: Gemma API 키가 저장되어 있지 않습니다.")]
+    GemmaKeyMissing,
+    #[error("GEMMA_AUTH_INVALID: 저장한 Gemma API 키가 유효하지 않습니다.")]
+    GemmaAuthInvalid,
+    #[error("Windows 자격 증명 관리자 오류: {0}")]
+    Credential(String),
 }
 
 impl Serialize for DesktopError {
@@ -271,9 +279,10 @@ struct RateLimits {
 #[serde(rename_all = "camelCase")]
 struct SaveInput {
     input: String,
-    rules: Value,
+    rules: Option<Value>,
     ai: Option<Value>,
     mode: String,
+    engine: String,
     validation_issues: Vec<Value>,
 }
 
@@ -387,10 +396,34 @@ fn analysis_schema() -> Value {
     })
 }
 
+fn gemma_analysis_schema() -> Value {
+    json!({
+        "type": "OBJECT",
+        "properties": {
+            "summary": { "type": "STRING" },
+            "findings": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "category": { "type": "STRING" },
+                        "severity": { "type": "STRING", "enum": ["low", "review", "high"] },
+                        "evidence": { "type": "STRING" },
+                        "explanation": { "type": "STRING" },
+                        "rewrite": { "type": "STRING", "nullable": true },
+                        "confidence": { "type": "NUMBER", "minimum": 0, "maximum": 1 }
+                    },
+                    "required": ["category", "severity", "evidence", "explanation", "rewrite", "confidence"]
+                }
+            }
+        },
+        "required": ["summary", "findings"]
+    })
+}
+
 #[tauri::command]
 fn codex_analyze(
     input: String,
-    rules: Value,
     state: State<'_, CodexState>,
 ) -> Result<Value, DesktopError> {
     state.with(|server| {
@@ -408,14 +441,18 @@ fn codex_analyze(
         let model = string_at(&thread, &["thread", "model"])
             .or_else(|| string_at(&thread, &["model"]));
         let prompt = format!(
-            "당신은 RiskShield의 문맥 검토기입니다. 도구를 사용하지 마세요. \
+            "당신은 RiskShield의 주 판정기입니다. 도구를 사용하지 마세요. \
              원문에 실제로 존재하는 연속 문자열만 evidence로 인용하세요. \
              원문에 없는 수치, 조건, 사실을 rewrite에 추가하지 마세요. \
              비판·경고·인용·보도 문맥은 위험을 직접 지지하는 표현과 구분하세요. \
-             규칙 결과는 참고 신호이지 정답이 아닙니다.\n\n원문:\n{}\n\nAnalyzer v4 규칙 결과:\n{}",
-            input,
-            serde_json::to_string(&rules)
-                .map_err(|error| DesktopError::Protocol(error.to_string()))?
+             규칙 결과는 참고 신호이지 정답이나 등급 상한선이 아닙니다. 규칙에 없는 위험도 독립적으로 판정하세요. \
+             특히 518, 5/18, 5.18, 5·18은 평범한 숫자나 날짜처럼 보이지만 5·18 민주화운동을 가리키는 \
+             은닉 신호일 수 있습니다. 일정·예약·교육·보도처럼 사용 이유가 명확한지는 제외 맥락으로 보고, \
+             광고·행사·할인·슬로건에 이유 없이 튀어나오면 숨겨진 역사 신호 가능성을 검토하세요. \
+             5·18 날짜와 '탱크데이', '탱크 데이', '책상에 탁' 같은 표현이 판촉 문맥에서 결합되면 \
+             계엄군 탱크 진입과 고문치사 사건을 연상시키는 중대한 브랜드·역사 윤리 위험으로 평가하세요. \
+             단, 해당 논란을 비판·보도·교육·사과하는 글 자체를 위험 홍보로 오판하지 마세요.\n\n원문:\n{}",
+            input
         );
         let turn = server.request(
             "turn/start",
@@ -476,6 +513,166 @@ fn codex_analyze(
     })
 }
 
+const GEMMA_CREDENTIAL_SERVICE: &str = "RiskShield Desktop";
+const GEMMA_CREDENTIAL_ACCOUNT: &str = "Google AI Studio Gemma API Key";
+const GEMMA_MODEL: &str = "gemma-4-26b-a4b-it";
+
+#[cfg(windows)]
+fn stored_gemma_key() -> Result<Option<String>, DesktopError> {
+    let entry = keyring::Entry::new(GEMMA_CREDENTIAL_SERVICE, GEMMA_CREDENTIAL_ACCOUNT)
+        .map_err(|error| DesktopError::Credential(error.to_string()))?;
+    match entry.get_password() {
+        Ok(value) if !value.trim().is_empty() => Ok(Some(value)),
+        Ok(_) | Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(DesktopError::Credential(error.to_string())),
+    }
+}
+
+#[cfg(not(windows))]
+fn stored_gemma_key() -> Result<Option<String>, DesktopError> {
+    Ok(env::var("RISKSHIELD_GEMMA_API_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty()))
+}
+
+#[cfg(windows)]
+fn store_gemma_key(api_key: &str) -> Result<(), DesktopError> {
+    let entry = keyring::Entry::new(GEMMA_CREDENTIAL_SERVICE, GEMMA_CREDENTIAL_ACCOUNT)
+        .map_err(|error| DesktopError::Credential(error.to_string()))?;
+    entry
+        .set_password(api_key)
+        .map_err(|error| DesktopError::Credential(error.to_string()))
+}
+
+#[cfg(not(windows))]
+fn store_gemma_key(_api_key: &str) -> Result<(), DesktopError> {
+    Err(DesktopError::Credential(
+        "API 키 영구 저장은 Windows 앱에서만 지원됩니다.".into(),
+    ))
+}
+
+#[cfg(windows)]
+fn remove_gemma_key() -> Result<(), DesktopError> {
+    let entry = keyring::Entry::new(GEMMA_CREDENTIAL_SERVICE, GEMMA_CREDENTIAL_ACCOUNT)
+        .map_err(|error| DesktopError::Credential(error.to_string()))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(DesktopError::Credential(error.to_string())),
+    }
+}
+
+#[cfg(not(windows))]
+fn remove_gemma_key() -> Result<(), DesktopError> {
+    Ok(())
+}
+
+fn gemma_analyze_with_key(input: String, api_key: String) -> Result<Value, DesktopError> {
+    let endpoint = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{GEMMA_MODEL}:generateContent"
+    );
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .build()
+        .map_err(|error| DesktopError::Gemma(error.to_string()))?;
+    let response = client
+        .post(endpoint)
+        .header("x-goog-api-key", api_key)
+        .json(&json!({
+            "systemInstruction": {
+                "parts": [{
+                    "text": "당신은 RiskShield의 보조 판정기입니다. 반드시 submit_riskshield_analysis 함수를 정확히 한 번 호출하세요. 원문에 실제로 존재하는 연속 문자열만 evidence로 인용하고, 원문에 없는 수치·조건·사실을 rewrite에 추가하지 마세요. 비판·경고·인용·보도 문맥은 위험을 직접 지지하는 표현과 구분하세요. 518, 5/18, 5.18, 5·18은 5·18 민주화운동을 가리키는 은닉 신호일 수 있습니다. 일정·예약·교육·보도처럼 사용 이유가 명확하면 안전 맥락으로 보고, 광고·행사·할인·슬로건에 이유 없이 등장하면 숨겨진 역사 신호 가능성을 검토하세요. 5·18 날짜와 탱크데이·탱크 데이·책상에 탁 같은 표현이 판촉 문맥에서 결합되면 중대한 브랜드·역사 윤리 위험으로 평가하되, 해당 논란을 비판·보도·교육·사과하는 글 자체는 위험 홍보로 오판하지 마세요."
+                }]
+            },
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": input }]
+            }],
+            "tools": [{
+                "functionDeclarations": [{
+                    "name": "submit_riskshield_analysis",
+                    "description": "RiskShield 분석 결과를 제출합니다.",
+                    "parameters": gemma_analysis_schema()
+                }]
+            }],
+            "toolConfig": {
+                "functionCallingConfig": {
+                    "mode": "ANY",
+                    "allowedFunctionNames": ["submit_riskshield_analysis"]
+                }
+            },
+            "generationConfig": {
+                "temperature": 0,
+                "thinkingConfig": { "thinkingLevel": "minimal" }
+            }
+        }))
+        .send()
+        .map_err(|error| DesktopError::Gemma(error.to_string()))?;
+    let status = response.status();
+    if !status.is_success() {
+        let status_code = status.as_u16();
+        let detail = response.text().unwrap_or_default();
+        if status_code == 401
+            || status_code == 403
+            || detail.contains("API_KEY_INVALID")
+            || detail.contains("API key not valid")
+        {
+            let _ = remove_gemma_key();
+            return Err(DesktopError::GemmaAuthInvalid);
+        }
+        return Err(DesktopError::Gemma(format!(
+            "Google API가 HTTP {} 상태를 반환했습니다.",
+            status_code
+        )));
+    }
+    let response = response
+        .json::<Value>()
+        .map_err(|error| DesktopError::Gemma(format!("응답 파싱 실패: {error}")))?;
+    let mut arguments = response
+        .get("candidates")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|candidate| candidate.get("content"))
+        .filter_map(|content| content.get("parts"))
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|part| part.get("functionCall"))
+        .find(|call| call.get("name").and_then(Value::as_str) == Some("submit_riskshield_analysis"))
+        .and_then(|call| call.get("args"))
+        .cloned()
+        .ok_or_else(|| DesktopError::Gemma("구조화된 함수 호출 응답이 없습니다.".into()))?;
+    let object = arguments
+        .as_object_mut()
+        .ok_or_else(|| DesktopError::Gemma("함수 호출 인자가 객체가 아닙니다.".into()))?;
+    object.insert(
+        "model".into(),
+        Value::String(
+            response
+                .get("modelVersion")
+                .and_then(Value::as_str)
+                .unwrap_or(GEMMA_MODEL)
+                .to_owned(),
+        ),
+    );
+    Ok(arguments)
+}
+
+#[tauri::command]
+fn gemma_key_save_and_analyze(api_key: String, input: String) -> Result<Value, DesktopError> {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return Err(DesktopError::Credential("빈 API 키는 저장할 수 없습니다.".into()));
+    }
+    store_gemma_key(api_key)?;
+    gemma_analyze_with_key(input, api_key.to_owned())
+}
+
+#[tauri::command]
+fn gemma_analyze(input: String) -> Result<Value, DesktopError> {
+    let api_key = stored_gemma_key()?.ok_or(DesktopError::GemmaKeyMissing)?;
+    gemma_analyze_with_key(input, api_key)
+}
+
 fn connection(path: &DatabasePath) -> Result<Connection, DesktopError> {
     Connection::open(&path.0).map_err(|error| DesktopError::Database(error.to_string()))
 }
@@ -485,14 +682,15 @@ fn save_analysis(payload: SaveInput, db: State<'_, DatabasePath>) -> Result<i64,
     let connection = connection(&db)?;
     connection
         .execute(
-            "INSERT INTO analyses (created_at, input, rules_json, ai_json, mode, validation_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO analyses (created_at, input, rules_json, ai_json, mode, engine, validation_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 chrono::Utc::now().to_rfc3339(),
                 payload.input,
-                payload.rules.to_string(),
+                payload.rules.unwrap_or(Value::Null).to_string(),
                 payload.ai.map(|value| value.to_string()),
                 payload.mode,
+                payload.engine,
                 Value::Array(payload.validation_issues).to_string(),
             ],
         )
@@ -505,7 +703,7 @@ fn list_history(db: State<'_, DatabasePath>) -> Result<Vec<Value>, DesktopError>
     let connection = connection(&db)?;
     let mut statement = connection
         .prepare(
-            "SELECT id, created_at, input, rules_json, ai_json, mode, validation_json
+            "SELECT id, created_at, input, rules_json, ai_json, mode, engine, validation_json
              FROM analyses ORDER BY id DESC LIMIT 50",
         )
         .map_err(|error| DesktopError::Database(error.to_string()))?;
@@ -513,7 +711,7 @@ fn list_history(db: State<'_, DatabasePath>) -> Result<Vec<Value>, DesktopError>
         .query_map([], |row| {
             let rules: String = row.get(3)?;
             let ai: Option<String> = row.get(4)?;
-            let validation: String = row.get(6)?;
+            let validation: String = row.get(7)?;
             Ok(json!({
                 "id": row.get::<_, i64>(0)?,
                 "createdAt": row.get::<_, String>(1)?,
@@ -521,6 +719,7 @@ fn list_history(db: State<'_, DatabasePath>) -> Result<Vec<Value>, DesktopError>
                 "rules": serde_json::from_str::<Value>(&rules).unwrap_or(Value::Null),
                 "ai": ai.and_then(|value| serde_json::from_str::<Value>(&value).ok()),
                 "mode": row.get::<_, String>(5)?,
+                "engine": row.get::<_, String>(6)?,
                 "validationIssues": serde_json::from_str::<Value>(&validation)
                     .unwrap_or_else(|_| Value::Array(vec![]))
             }))
@@ -545,12 +744,35 @@ fn initialize_database(path: &PathBuf) -> Result<(), DesktopError> {
                 rules_json TEXT NOT NULL,
                 ai_json TEXT,
                 mode TEXT NOT NULL CHECK(mode IN ('hybrid', 'rules-only')),
+                engine TEXT NOT NULL DEFAULT 'rules',
                 validation_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE INDEX IF NOT EXISTS analyses_created_at_idx
                 ON analyses(created_at DESC);",
         )
-        .map_err(|error| DesktopError::Database(error.to_string()))
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    let has_engine = {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(analyses)")
+            .map_err(|error| DesktopError::Database(error.to_string()))?;
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|error| DesktopError::Database(error.to_string()))?;
+        columns
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| DesktopError::Database(error.to_string()))?
+            .iter()
+            .any(|column| column == "engine")
+    };
+    if !has_engine {
+        connection
+            .execute(
+                "ALTER TABLE analyses ADD COLUMN engine TEXT NOT NULL DEFAULT 'rules'",
+                [],
+            )
+            .map_err(|error| DesktopError::Database(error.to_string()))?;
+    }
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -573,6 +795,8 @@ pub fn run() {
             logout,
             rate_limits_read,
             codex_analyze,
+            gemma_key_save_and_analyze,
+            gemma_analyze,
             save_analysis,
             list_history
         ])
