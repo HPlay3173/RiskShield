@@ -421,25 +421,87 @@ fn gemma_analysis_schema() -> Value {
     })
 }
 
+const CODEX_SOL_MODEL: &str = "gpt-5.6-sol";
+const CODEX_TERRA_MODEL: &str = "gpt-5.6-terra";
+
+fn codex_model_for_account(account_result: &Value) -> &'static str {
+    let account = account_result.get("account");
+    let account_type = account
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str);
+    let plan_type = account
+        .and_then(|value| value.get("planType"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    if account_type == Some("chatgpt") && matches!(plan_type.as_str(), "free" | "go") {
+        CODEX_TERRA_MODEL
+    } else {
+        CODEX_SOL_MODEL
+    }
+}
+
+fn is_model_availability_error(error: &DesktopError) -> bool {
+    let DesktopError::Rpc(detail) = error else {
+        return false;
+    };
+    let detail = detail.to_ascii_lowercase();
+    detail.contains("model")
+        && [
+            "not available",
+            "unavailable",
+            "not supported",
+            "unsupported",
+            "does not exist",
+            "access",
+            "permission",
+            "current plan",
+        ]
+        .iter()
+        .any(|reason| detail.contains(reason))
+}
+
+fn start_codex_thread(
+    server: &mut AppServer,
+    model: &str,
+) -> Result<Value, DesktopError> {
+    server.request(
+        "thread/start",
+        json!({
+            "model": model,
+            "ephemeral": true,
+            "approvalPolicy": "never",
+            "sandboxPolicy": { "type": "readOnly" },
+            "serviceName": "riskshield-desktop"
+        }),
+    )
+}
+
 #[tauri::command]
 fn codex_analyze(
     input: String,
     state: State<'_, CodexState>,
 ) -> Result<Value, DesktopError> {
     state.with(|server| {
-        let thread = server.request(
-            "thread/start",
-            json!({
-                "ephemeral": true,
-                "approvalPolicy": "never",
-                "sandboxPolicy": { "type": "readOnly" },
-                "serviceName": "riskshield-desktop"
-            }),
-        )?;
+        let account = server.request("account/read", json!({ "refreshToken": false }))?;
+        let mut requested_model = codex_model_for_account(&account);
+        let thread = match start_codex_thread(server, requested_model) {
+            Ok(thread) => thread,
+            Err(error)
+                if requested_model == CODEX_SOL_MODEL
+                    && is_model_availability_error(&error) =>
+            {
+                requested_model = CODEX_TERRA_MODEL;
+                start_codex_thread(server, requested_model)?
+            }
+            Err(error) => return Err(error),
+        };
         let thread_id = string_at(&thread, &["thread", "id"])
             .ok_or_else(|| DesktopError::Protocol("thread id 누락".into()))?;
         let model = string_at(&thread, &["thread", "model"])
-            .or_else(|| string_at(&thread, &["model"]));
+            .or_else(|| string_at(&thread, &["model"]))
+            .unwrap_or_else(|| requested_model.to_owned());
         let prompt = format!(
             "당신은 RiskShield의 주 판정기입니다. 도구를 사용하지 마세요. \
              원문에 실제로 존재하는 연속 문자열만 evidence로 인용하세요. \
@@ -507,7 +569,7 @@ fn codex_analyze(
         let mut parsed: Value = serde_json::from_str(&raw)
             .map_err(|error| DesktopError::Protocol(format!("구조화 응답 파싱 실패: {error}")))?;
         if let Some(object) = parsed.as_object_mut() {
-            object.insert("model".into(), model.map_or(Value::Null, Value::String));
+            object.insert("model".into(), Value::String(model));
         }
         Ok(parsed)
     })
@@ -802,4 +864,46 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("RiskShield desktop runtime failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_and_go_accounts_use_terra() {
+        for plan in ["free", "go"] {
+            let account = json!({
+                "account": {
+                    "type": "chatgpt",
+                    "planType": plan
+                }
+            });
+            assert_eq!(codex_model_for_account(&account), CODEX_TERRA_MODEL);
+        }
+    }
+
+    #[test]
+    fn paid_chatgpt_accounts_use_sol() {
+        for plan in ["plus", "pro", "business", "enterprise", "edu"] {
+            let account = json!({
+                "account": {
+                    "type": "chatgpt",
+                    "planType": plan
+                }
+            });
+            assert_eq!(codex_model_for_account(&account), CODEX_SOL_MODEL);
+        }
+    }
+
+    #[test]
+    fn only_model_access_errors_trigger_terra_retry() {
+        assert!(is_model_availability_error(&DesktopError::Rpc(
+            "Model gpt-5.6-sol is not available for your current plan".into(),
+        )));
+        assert!(!is_model_availability_error(&DesktopError::Rpc(
+            "Rate limit reached".into(),
+        )));
+        assert!(!is_model_availability_error(&DesktopError::Timeout));
+    }
 }
