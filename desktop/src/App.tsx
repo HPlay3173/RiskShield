@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { analyzeWithReviewedRules } from "./analyzer";
 import {
+  analyzeByPriority,
+  GemmaKeyRequiredError,
+  type EngineResult,
+} from "./engine";
+import {
   accountRead,
   codexAnalyze,
+  gemmaAnalyze,
+  gemmaKeySaveAndAnalyze,
   listHistory,
   loginStart,
   logout,
@@ -13,13 +20,14 @@ import {
 import type {
   AccountInfo,
   AiAnalysis,
+  AnalysisEngine,
   AnalysisRecord,
   LoginChallenge,
   RateLimits,
   RulesAnalysis,
   ValidationIssue,
 } from "./types";
-import { reconcileSeverity, validateAiAnalysis } from "./validation";
+import { parseAiAnalysis, statusFromAi } from "./validation";
 
 const EMPTY_ACCOUNT: AccountInfo = {
   connected: false,
@@ -43,12 +51,17 @@ export default function App() {
   const [challenge, setChallenge] = useState<LoginChallenge | null>(null);
   const [rules, setRules] = useState<RulesAnalysis | null>(null);
   const [ai, setAi] = useState<AiAnalysis | null>(null);
+  const [engine, setEngine] = useState<AnalysisEngine | null>(null);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [message, setMessage] = useState("기존 Analyzer v4 규칙은 로그인 없이 사용할 수 있습니다.");
+  const [pendingGemmaInput, setPendingGemmaInput] = useState<string | null>(null);
+  const [gemmaKeyInput, setGemmaKeyInput] = useState("");
+  const [gemmaKeyError, setGemmaKeyError] = useState<string | null>(null);
+  const [gemmaKeyBusy, setGemmaKeyBusy] = useState(false);
+  const [message, setMessage] = useState("판정 순서: Codex → Gemma 4 → 로컬 규칙");
 
   const refreshAccount = useCallback(async () => {
     try {
@@ -78,11 +91,8 @@ export default function App() {
   }, [challenge, refreshAccount]);
 
   const status = useMemo(() => {
-    if (!rules) return null;
-    const aiHigh = ai?.findings.some((finding) => finding.severity === "high");
-    if (aiHigh && rules.status === "high") return "high";
-    if (rules.status === "high" || ai?.findings.length) return "review";
-    return rules.status;
+    if (ai) return statusFromAi(ai);
+    return rules?.status ?? null;
   }, [ai, rules]);
 
   async function connect() {
@@ -124,54 +134,138 @@ export default function App() {
     }
   }
 
-  async function runAnalysis() {
-    const source = input.trim();
-    if (!source) return;
-    setBusy(true);
-    setAi(null);
-    setIssues([]);
-
-    const localRules = analyzeWithReviewedRules(source);
-    setRules(localRules);
-    let nextAi: AiAnalysis | null = null;
-    let nextIssues: ValidationIssue[] = [];
-    let mode: "hybrid" | "rules-only" = "rules-only";
-
-    if (account.connected) {
-      try {
-        const received = await codexAnalyze(source, localRules);
-        const reconciled = reconcileSeverity(localRules, received);
-        nextIssues = validateAiAnalysis(source, reconciled);
-        if (nextIssues.length === 0) {
-          nextAi = reconciled;
-          mode = "hybrid";
-          setMessage("Analyzer v4 규칙과 Codex 문맥 검토를 모두 완료했습니다.");
-        } else {
-          setMessage("Codex 응답 검증에 실패해 안전하게 규칙 결과만 표시합니다.");
-        }
-      } catch (error) {
-        setMessage(`Codex를 사용할 수 없어 규칙 분석으로 완료했습니다: ${String(error)}`);
+  async function callGemma(source: string): Promise<AiAnalysis> {
+    try {
+      return parseAiAnalysis(JSON.stringify(await gemmaAnalyze(source)));
+    } catch (error) {
+      const detail = String(error);
+      if (detail.includes("GEMMA_KEY_MISSING")) {
+        throw new GemmaKeyRequiredError();
       }
+      if (detail.includes("GEMMA_AUTH_INVALID")) {
+        throw new GemmaKeyRequiredError("저장한 키가 유효하지 않습니다. 새 키를 입력하세요.");
+      }
+      throw error;
+    }
+  }
+
+  async function applyResult(source: string, result: EngineResult) {
+    const nextRules = result.rules;
+    const nextAi = result.ai;
+    const nextIssues = result.issues;
+    const nextEngine = result.engine;
+    const mode: "hybrid" | "rules-only" = nextEngine === "rules" ? "rules-only" : "hybrid";
+
+    if (nextEngine === "codex") {
+      setMessage(nextIssues.length
+        ? `Codex로 판정하고 검증에 실패한 판단 ${nextIssues.length}개만 제외했습니다.`
+        : "Codex로 판정을 완료했습니다.");
+    } else if (nextEngine === "gemma") {
+      setMessage(nextIssues.length
+        ? `Codex를 사용할 수 없어 Gemma 4로 판정하고 잘못된 판단 ${nextIssues.length}개를 제외했습니다.`
+        : "Codex를 사용할 수 없어 Gemma 4로 판정을 완료했습니다.");
     } else {
-      setMessage("Codex 미연결 상태라 Analyzer v4 규칙만 사용했습니다.");
+      setMessage("Codex와 Gemma 4를 모두 사용할 수 없어 로컬 규칙 안전 모드로 판정했습니다.");
     }
 
+    setRules(nextRules);
     setAi(nextAi);
+    setEngine(nextEngine);
     setIssues(nextIssues);
     try {
       await saveAnalysis({
         input: source,
-        rules: localRules,
+        rules: nextRules,
         ai: nextAi,
         mode,
+        engine: nextEngine,
         validationIssues: nextIssues,
       });
       setHistory(await listHistory());
     } catch {
       setMessage((current) => `${current} 기록 저장은 실패했습니다.`);
+    }
+  }
+
+  async function runAnalysis() {
+    const source = input.trim();
+    if (!source) return;
+    setBusy(true);
+    setAi(null);
+    setRules(null);
+    setEngine(null);
+    setIssues([]);
+
+    try {
+      const result = await analyzeByPriority(source, {
+        codexEnabled: account.connected,
+        codex: () => codexAnalyze(source),
+        gemma: () => callGemma(source),
+        rules: () => analyzeWithReviewedRules(source),
+      });
+      await applyResult(source, result);
+    } catch (error) {
+      if (error instanceof GemmaKeyRequiredError) {
+        setPendingGemmaInput(source);
+        setGemmaKeyError(error.message === "Gemma API 키가 필요합니다." ? null : error.message);
+        setMessage("Codex를 사용할 수 없어 Gemma 4 무료 API 키가 필요합니다.");
+      } else {
+        setMessage(`분석을 완료하지 못했습니다: ${String(error)}`);
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveGemmaKeyAndContinue() {
+    const apiKey = gemmaKeyInput.trim();
+    const source = pendingGemmaInput;
+    if (!apiKey || !source) return;
+    setGemmaKeyBusy(true);
+    setGemmaKeyError(null);
+    try {
+      const result = await analyzeByPriority(source, {
+        codexEnabled: false,
+        codex: () => codexAnalyze(source),
+        gemma: async () => {
+          try {
+            const raw = await gemmaKeySaveAndAnalyze(apiKey, source);
+            return parseAiAnalysis(JSON.stringify(raw));
+          } catch (error) {
+            if (String(error).includes("GEMMA_AUTH_INVALID")) {
+              throw new GemmaKeyRequiredError("입력한 키가 유효하지 않습니다. 다시 확인하세요.");
+            }
+            throw error;
+          }
+        },
+        rules: () => analyzeWithReviewedRules(source),
+      });
+      setGemmaKeyInput("");
+      setPendingGemmaInput(null);
+      await applyResult(source, result);
+    } catch (error) {
+      if (error instanceof GemmaKeyRequiredError) {
+        setGemmaKeyError(error.message);
+      } else {
+        setGemmaKeyError(`키를 저장하거나 분석을 재개하지 못했습니다: ${String(error)}`);
+      }
+    } finally {
+      setGemmaKeyBusy(false);
+    }
+  }
+
+  async function useRulesForPending() {
+    const source = pendingGemmaInput;
+    if (!source) return;
+    setPendingGemmaInput(null);
+    setGemmaKeyInput("");
+    setGemmaKeyError(null);
+    await applyResult(source, {
+      engine: "rules",
+      ai: null,
+      rules: analyzeWithReviewedRules(source),
+      issues: [],
+    });
   }
 
   function importTextFile(file: File | undefined) {
@@ -190,14 +284,14 @@ export default function App() {
           <span className="brand-mark">R</span>
           <div>
             <strong>RiskShield</strong>
-            <span>Desktop · v0.6.1 alpha</span>
+            <span>Desktop · v0.6.3 alpha</span>
           </div>
         </div>
         <div className="account">
           <span className={`dot ${account.connected ? "online" : ""}`} />
           <div>
             <strong>{account.connected ? account.email ?? "ChatGPT 연결됨" : "Codex 미연결"}</strong>
-            <span>{account.connected ? `${account.planType ?? "ChatGPT"} 플랜` : "규칙 분석만 사용 가능"}</span>
+            <span>{account.connected ? `${account.planType ?? "ChatGPT"} 플랜` : "Gemma 4 대체 엔진 사용"}</span>
           </div>
           <button
             className="ghost"
@@ -274,38 +368,47 @@ export default function App() {
             </span>
           </div>
 
-          {!rules ? (
+          {!rules && !ai ? (
             <div className="empty-state">
               <span>◇</span>
               <p>왼쪽에 문구를 입력하고 분석을 시작하세요.</p>
             </div>
           ) : (
             <div className="result-content">
-              <div className="score-row">
-                <div className="score">{rules.finalScore}</div>
-                <div>
-                  <strong>규칙 위험 점수</strong>
-                  <p>{rules.reason ?? "검토된 위험 규칙과 일치하지 않았습니다."}</p>
+              {rules && (
+                <div className="score-row">
+                  <div className="score">{rules.finalScore}</div>
+                  <div>
+                    <strong>로컬 규칙 위험 점수</strong>
+                    <p>{rules.reason ?? "검토된 위험 규칙과 일치하지 않았습니다."}</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <section className="result-block">
-                <h3>검출 근거</h3>
-                {rules.matches.length === 0
-                  ? <p className="muted">Analyzer v4 규칙 일치 없음</p>
-                  : rules.matches.slice(0, 4).map((match) => (
-                    <article key={match.skill.id} className="finding">
-                      <strong>{match.skill.category}</strong>
-                      <p>{match.skill.riskReason}</p>
-                      <code>{match.hits.map((hit) => hit.text).join(" · ")}</code>
-                    </article>
-                  ))}
-              </section>
+              {rules && (
+                <section className="result-block">
+                  <h3>Analyzer v4 최종 장애조치</h3>
+                  {rules.matches.length === 0
+                    ? <p className="muted">Analyzer v4 규칙 일치 없음</p>
+                    : rules.matches.slice(0, 4).map((match) => (
+                      <article key={match.skill.id} className="finding">
+                        <strong>{match.skill.category}</strong>
+                        <p>{match.skill.riskReason}</p>
+                        <code>{match.hits.map((hit) => hit.text).join(" · ")}</code>
+                      </article>
+                    ))}
+                </section>
+              )}
 
               {ai && (
                 <section className="result-block">
-                  <h3>Codex 문맥 검토</h3>
+                  <h3>{engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}</h3>
                   <p>{ai.summary}</p>
+                  {ai.findings.length === 0 && (
+                    <p className="muted">
+                      {engine === "gemma" ? "Gemma 4가" : "Codex가"} 직접적인 위험 표현을 찾지 않았습니다.
+                    </p>
+                  )}
                   {ai.findings.map((finding, index) => (
                     <article className="finding ai" key={`${finding.category}-${index}`}>
                       <div>
@@ -322,14 +425,18 @@ export default function App() {
 
               {issues.length > 0 && (
                 <section className="validation-warning">
-                  <strong>AI 출력 차단</strong>
+                  <strong>일부 {engine === "gemma" ? "Gemma 4" : "Codex"} 판단 제외</strong>
                   {issues.map((issue) => <p key={issue.message}>{issue.message}</p>)}
                 </section>
               )}
 
               <div className="provenance">
                 <span>판정 엔진</span>
-                <strong>{ai ? "Analyzer v4 + Codex" : "Analyzer v4 규칙 전용"}</strong>
+                <strong>{engine === "codex"
+                  ? "Codex"
+                  : engine === "gemma"
+                    ? "Gemma 4 API"
+                    : "Analyzer v4 로컬 규칙"}</strong>
               </div>
             </div>
           )}
@@ -361,10 +468,15 @@ export default function App() {
                   setInput(record.input);
                   setRules(record.rules);
                   setAi(record.ai);
+                  setEngine(record.engine);
                   setIssues(record.validationIssues);
                 }}>
                   <span>{record.input}</span>
-                  <small>{record.mode === "hybrid" ? "규칙 + Codex" : "규칙 전용"}</small>
+                  <small>{record.engine === "codex"
+                    ? "Codex"
+                    : record.engine === "gemma"
+                      ? "Gemma 4"
+                      : "규칙 안전 모드"}</small>
                 </button>
               ))}
           </div>
@@ -372,6 +484,48 @@ export default function App() {
       </section>
 
       <footer>{message}</footer>
+
+      {pendingGemmaInput && (
+        <div className="dialog-backdrop">
+          <form
+            className="key-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gemma-key-title"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveGemmaKeyAndContinue();
+            }}
+          >
+            <span className="eyebrow">GEMMA 4 FALLBACK</span>
+            <h2 id="gemma-key-title">무료 API 키 한 번만 입력</h2>
+            <p>
+              Codex를 지금 사용할 수 없습니다. 입력한 키는 이 앱의 파일이나 기록이 아닌
+              Windows 자격 증명 관리자에 바로 저장됩니다.
+            </p>
+            <label htmlFor="gemma-api-key">Google AI Studio API 키</label>
+            <input
+              id="gemma-api-key"
+              type="password"
+              value={gemmaKeyInput}
+              onChange={(event) => setGemmaKeyInput(event.target.value)}
+              placeholder="AIza…"
+              autoComplete="off"
+              autoFocus
+              disabled={gemmaKeyBusy}
+            />
+            {gemmaKeyError && <p className="key-error" role="alert">{gemmaKeyError}</p>}
+            <div className="dialog-actions">
+              <button type="button" disabled={gemmaKeyBusy} onClick={() => void useRulesForPending()}>
+                이번에는 규칙만
+              </button>
+              <button className="primary" type="submit" disabled={gemmaKeyBusy || !gemmaKeyInput.trim()}>
+                {gemmaKeyBusy ? "저장·분석 중…" : "저장하고 계속"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
