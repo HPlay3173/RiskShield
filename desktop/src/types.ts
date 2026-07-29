@@ -42,6 +42,8 @@ export type AiAnalysis = {
   model: string | null;
 };
 
+export type AnalysisEngine = "codex" | "gemma" | "rules";
+
 export type ValidationIssue = {
   code: "missing_evidence" | "invented_number" | "invalid_shape";
   message: string;
@@ -51,8 +53,9 @@ export type AnalysisRecord = {
   id: number;
   createdAt: string;
   input: string;
-  rules: RulesAnalysis;
+  rules: RulesAnalysis | null;
   ai: AiAnalysis | null;
   mode: "hybrid" | "rules-only";
+  engine: AnalysisEngine;
   validationIssues: ValidationIssue[];
 };
