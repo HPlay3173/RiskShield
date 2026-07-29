@@ -284,7 +284,7 @@ export default function App() {
           <span className="brand-mark">R</span>
           <div>
             <strong>RiskShield</strong>
-            <span>Desktop · v0.6.3 alpha</span>
+            <span>Desktop · v0.6.4 alpha</span>
           </div>
         </div>
         <div className="account">
