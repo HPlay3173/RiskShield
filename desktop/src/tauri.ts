@@ -4,7 +4,10 @@ import type {
   AccountInfo,
   AiAnalysis,
   AnalysisEngine,
+  AnalysisFocus,
   AnalysisRecord,
+  FallbackRule,
+  FallbackRuleInput,
   LoginChallenge,
   RateLimits,
   RulesAnalysis,
@@ -44,6 +47,7 @@ export function saveAnalysis(payload: {
   rules: RulesAnalysis | null;
   ai: AiAnalysis | null;
   mode: "hybrid" | "rules-only";
+  focus: AnalysisFocus;
   engine: AnalysisEngine;
   validationIssues: ValidationIssue[];
 }): Promise<number> {
@@ -52,6 +56,22 @@ export function saveAnalysis(payload: {
 
 export function listHistory(): Promise<AnalysisRecord[]> {
   return invoke("list_history");
+}
+
+export function listFallbackRules(): Promise<FallbackRule[]> {
+  return invoke("fallback_rules_list");
+}
+
+export function upsertFallbackRule(rule: FallbackRuleInput): Promise<FallbackRule> {
+  return invoke("fallback_rule_upsert", { rule });
+}
+
+export function importFallbackRules(rules: FallbackRuleInput[]): Promise<number> {
+  return invoke("fallback_rules_import", { rules });
+}
+
+export function deleteFallbackRule(id: string): Promise<void> {
+  return invoke("fallback_rule_delete", { id });
 }
 
 export function openExternal(url: string): Promise<void> {
