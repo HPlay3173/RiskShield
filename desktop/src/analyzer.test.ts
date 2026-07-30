@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeWithReviewedRules } from "./analyzer";
+import type { FallbackRule } from "./types";
 
 describe("5·18 hidden-context signals", () => {
   it.each([
@@ -23,5 +24,22 @@ describe("5·18 hidden-context signals", () => {
     "기사는 5·18 탱크데이 논란과 행사 중단을 보도했다.",
   ])("does not flag an explained or critical context: %s", (input) => {
     expect(analyzeWithReviewedRules(input).status).toBe("no_match");
+  });
+
+  it("uses enabled administrator rules only in the local analyzer", () => {
+    const custom: FallbackRule = {
+      id: "fallback-test",
+      expression: "새로운우회표현",
+      category: "관리자 보완 규칙",
+      severity: "high",
+      reason: "Analyzer가 놓친 표현",
+      enabled: true,
+      source: "missed",
+      createdAt: "2026-07-30T00:00:00Z",
+      updatedAt: "2026-07-30T00:00:00Z",
+    };
+    expect(analyzeWithReviewedRules("새로운우회표현 행사", [custom]).status).toBe("high");
+    expect(analyzeWithReviewedRules("새로운우회표현 행사", [{ ...custom, enabled: false }]).status)
+      .toBe("no_match");
   });
 });
