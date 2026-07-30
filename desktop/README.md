@@ -1,4 +1,4 @@
-# RiskShield Desktop v0.6.4
+# RiskShield Desktop v0.7.0
 
 Windows desktop client for RiskShield. Codex CLI is the primary analysis
 engine, Gemma 4 through the user's free Google AI Studio API key is the network fallback, and
@@ -54,3 +54,14 @@ MSI and NSIS installers containing that runtime as workflow artifacts.
 - A valid Codex or Gemma result is never capped or overridden by local rules.
 - Analysis history is stored locally in SQLite under the operating system's
   application-data directory.
+
+## Analysis views and local administration
+
+- `균형 분석`, `광고·주장`, `문맥 우선` change only the order in which an
+  unchanged set of findings is shown. They never change the underlying
+  judgment or re-run a model.
+- The local administrator screen stores only last-resort fallback rules.
+  Administrators can add an Analyzer-missed expression, edit/enable/disable or
+  delete it, and import/export CSV.
+- Administrator rules stay in the local SQLite database and are evaluated only
+  after both Codex and Gemma 4 are unavailable.
