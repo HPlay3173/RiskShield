@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import AdminConsole from "./AdminConsole";
+import {
+  FOCUS_COPY,
+  orderAiFindings,
+  orderRuleMatches,
+} from "./analysis-focus";
 import { analyzeWithReviewedRules } from "./analyzer";
 import {
   analyzeByPriority,
@@ -10,6 +16,7 @@ import {
   codexAnalyze,
   gemmaAnalyze,
   gemmaKeySaveAndAnalyze,
+  listFallbackRules,
   listHistory,
   loginStart,
   logout,
@@ -21,6 +28,7 @@ import type {
   AccountInfo,
   AiAnalysis,
   AnalysisEngine,
+  AnalysisFocus,
   AnalysisRecord,
   LoginChallenge,
   RateLimits,
@@ -45,7 +53,9 @@ function formatReset(timestamp: number) {
 }
 
 export default function App() {
+  const [screen, setScreen] = useState<"analyzer" | "admin">("analyzer");
   const [input, setInput] = useState("");
+  const [focus, setFocus] = useState<AnalysisFocus>("balanced");
   const [account, setAccount] = useState<AccountInfo>(EMPTY_ACCOUNT);
   const [limits, setLimits] = useState<RateLimits | null>(null);
   const [challenge, setChallenge] = useState<LoginChallenge | null>(null);
@@ -94,6 +104,14 @@ export default function App() {
     if (ai) return statusFromAi(ai);
     return rules?.status ?? null;
   }, [ai, rules]);
+  const focusedAiFindings = useMemo(
+    () => orderAiFindings(ai?.findings ?? [], focus),
+    [ai, focus],
+  );
+  const focusedRuleMatches = useMemo(
+    () => orderRuleMatches(rules?.matches ?? [], focus),
+    [focus, rules],
+  );
 
   async function connect() {
     setAuthBusy(true);
@@ -178,6 +196,7 @@ export default function App() {
         rules: nextRules,
         ai: nextAi,
         mode,
+        focus,
         engine: nextEngine,
         validationIssues: nextIssues,
       });
@@ -197,11 +216,12 @@ export default function App() {
     setIssues([]);
 
     try {
+      const fallbackRules = await listFallbackRules().catch(() => []);
       const result = await analyzeByPriority(source, {
         codexEnabled: account.connected,
         codex: () => codexAnalyze(source),
         gemma: () => callGemma(source),
-        rules: () => analyzeWithReviewedRules(source),
+        rules: () => analyzeWithReviewedRules(source, fallbackRules),
       });
       await applyResult(source, result);
     } catch (error) {
@@ -224,6 +244,7 @@ export default function App() {
     setGemmaKeyBusy(true);
     setGemmaKeyError(null);
     try {
+      const fallbackRules = await listFallbackRules().catch(() => []);
       const result = await analyzeByPriority(source, {
         codexEnabled: false,
         codex: () => codexAnalyze(source),
@@ -238,7 +259,7 @@ export default function App() {
             throw error;
           }
         },
-        rules: () => analyzeWithReviewedRules(source),
+        rules: () => analyzeWithReviewedRules(source, fallbackRules),
       });
       setGemmaKeyInput("");
       setPendingGemmaInput(null);
@@ -260,10 +281,11 @@ export default function App() {
     setPendingGemmaInput(null);
     setGemmaKeyInput("");
     setGemmaKeyError(null);
+    const fallbackRules = await listFallbackRules().catch(() => []);
     await applyResult(source, {
       engine: "rules",
       ai: null,
-      rules: analyzeWithReviewedRules(source),
+      rules: analyzeWithReviewedRules(source, fallbackRules),
       issues: [],
     });
   }
@@ -284,9 +306,23 @@ export default function App() {
           <span className="brand-mark">R</span>
           <div>
             <strong>RiskShield</strong>
-            <span>Desktop · v0.6.4 alpha</span>
+            <span>Desktop · v0.7.0 alpha</span>
           </div>
         </div>
+        <nav className="topnav" aria-label="주요 화면">
+          <button
+            className={screen === "analyzer" ? "active" : ""}
+            onClick={() => setScreen("analyzer")}
+          >
+            분석기
+          </button>
+          <button
+            className={screen === "admin" ? "active" : ""}
+            onClick={() => setScreen("admin")}
+          >
+            관리자
+          </button>
+        </nav>
         <div className="account">
           <span className={`dot ${account.connected ? "online" : ""}`} />
           <div>
@@ -326,6 +362,10 @@ export default function App() {
         </section>
       )}
 
+      {screen === "admin" ? (
+        <AdminConsole onMessage={setMessage} />
+      ) : (
+        <>
       <section className="workspace">
         <div className="editor-panel panel">
           <div className="panel-heading">
@@ -341,6 +381,19 @@ export default function App() {
                 onChange={(event) => importTextFile(event.target.files?.[0])}
               />
             </label>
+          </div>
+          <div className="focus-picker" aria-label="분석 결과 보기 방식">
+            {(Object.keys(FOCUS_COPY) as AnalysisFocus[]).map((value) => (
+              <button
+                type="button"
+                className={focus === value ? "active" : ""}
+                key={value}
+                onClick={() => setFocus(value)}
+              >
+                <strong>{FOCUS_COPY[value].label}</strong>
+                <span>{FOCUS_COPY[value].description}</span>
+              </button>
+            ))}
           </div>
           <textarea
             value={input}
@@ -387,10 +440,10 @@ export default function App() {
 
               {rules && (
                 <section className="result-block">
-                  <h3>Analyzer v4 최종 장애조치</h3>
-                  {rules.matches.length === 0
+                  <h3>Analyzer v4 최종 장애조치 · {FOCUS_COPY[focus].label}</h3>
+                  {focusedRuleMatches.length === 0
                     ? <p className="muted">Analyzer v4 규칙 일치 없음</p>
-                    : rules.matches.slice(0, 4).map((match) => (
+                    : focusedRuleMatches.slice(0, 4).map((match) => (
                       <article key={match.skill.id} className="finding">
                         <strong>{match.skill.category}</strong>
                         <p>{match.skill.riskReason}</p>
@@ -402,14 +455,17 @@ export default function App() {
 
               {ai && (
                 <section className="result-block">
-                  <h3>{engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}</h3>
+                  <h3>
+                    {engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}
+                    {" · "}{FOCUS_COPY[focus].label}
+                  </h3>
                   <p>{ai.summary}</p>
                   {ai.findings.length === 0 && (
                     <p className="muted">
                       {engine === "gemma" ? "Gemma 4가" : "Codex가"} 직접적인 위험 표현을 찾지 않았습니다.
                     </p>
                   )}
-                  {ai.findings.map((finding, index) => (
+                  {focusedAiFindings.map((finding, index) => (
                     <article className="finding ai" key={`${finding.category}-${index}`}>
                       <div>
                         <strong>{finding.category}</strong>
@@ -468,6 +524,7 @@ export default function App() {
                   setInput(record.input);
                   setRules(record.rules);
                   setAi(record.ai);
+                  setFocus(record.focus ?? "balanced");
                   setEngine(record.engine);
                   setIssues(record.validationIssues);
                 }}>
@@ -482,6 +539,8 @@ export default function App() {
           </div>
         </div>
       </section>
+        </>
+      )}
 
       <footer>{message}</footer>
 
