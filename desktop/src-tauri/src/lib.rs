@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
+        atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError},
         Mutex,
     },
@@ -16,6 +17,9 @@ use std::{
 };
 use tauri::{path::BaseDirectory, Manager, State};
 use thiserror::Error;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 #[derive(Debug, Error)]
 enum DesktopError {
@@ -68,11 +72,15 @@ impl Drop for AppServer {
 
 impl AppServer {
     fn start(binary: &Path) -> Result<Self, DesktopError> {
-        let mut child = Command::new(binary)
+        let mut command = Command::new(binary);
+        command
             .arg("app-server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        command.creation_flags(0x08000000);
+        let mut child = command
             .spawn()
             .map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -282,9 +290,38 @@ struct SaveInput {
     rules: Option<Value>,
     ai: Option<Value>,
     mode: String,
+    focus: String,
     engine: String,
     validation_issues: Vec<Value>,
 }
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FallbackRuleInput {
+    id: Option<String>,
+    expression: String,
+    category: String,
+    severity: String,
+    reason: String,
+    enabled: bool,
+    source: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FallbackRule {
+    id: String,
+    expression: String,
+    category: String,
+    severity: String,
+    reason: String,
+    enabled: bool,
+    source: String,
+    created_at: String,
+    updated_at: String,
+}
+
+static FALLBACK_RULE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn string_at(value: &Value, path: &[&str]) -> Option<String> {
     let mut cursor = value;
@@ -739,19 +776,194 @@ fn connection(path: &DatabasePath) -> Result<Connection, DesktopError> {
     Connection::open(&path.0).map_err(|error| DesktopError::Database(error.to_string()))
 }
 
+fn validate_fallback_rule(rule: &FallbackRuleInput) -> Result<(), DesktopError> {
+    if rule.expression.trim().is_empty() {
+        return Err(DesktopError::Database("규칙 표현이 비어 있습니다.".into()));
+    }
+    if rule.expression.chars().count() > 240 {
+        return Err(DesktopError::Database(
+            "규칙 표현은 240자 이하여야 합니다.".into(),
+        ));
+    }
+    if !matches!(rule.severity.as_str(), "low" | "review" | "high") {
+        return Err(DesktopError::Database(
+            "규칙 위험도는 low, review, high 중 하나여야 합니다.".into(),
+        ));
+    }
+    if !matches!(rule.source.as_str(), "missed" | "csv") {
+        return Err(DesktopError::Database(
+            "규칙 출처는 missed 또는 csv여야 합니다.".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn read_fallback_rule(connection: &Connection, id: &str) -> Result<FallbackRule, DesktopError> {
+    connection
+        .query_row(
+            "SELECT id, expression, category, severity, reason, enabled, source, created_at, updated_at
+             FROM fallback_rules WHERE id = ?1",
+            [id],
+            |row| {
+                Ok(FallbackRule {
+                    id: row.get(0)?,
+                    expression: row.get(1)?,
+                    category: row.get(2)?,
+                    severity: row.get(3)?,
+                    reason: row.get(4)?,
+                    enabled: row.get::<_, i64>(5)? != 0,
+                    source: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        )
+        .map_err(|error| DesktopError::Database(error.to_string()))
+}
+
+fn upsert_fallback_rule(
+    connection: &Connection,
+    rule: FallbackRuleInput,
+) -> Result<FallbackRule, DesktopError> {
+    validate_fallback_rule(&rule)?;
+    let expression = rule.expression.trim();
+    let category = if rule.category.trim().is_empty() {
+        "관리자 보완 규칙"
+    } else {
+        rule.category.trim()
+    };
+    let reason = if rule.reason.trim().is_empty() {
+        "관리자가 추가한 로컬 보완 규칙"
+    } else {
+        rule.reason.trim()
+    };
+    let existing_id = connection
+        .query_row(
+            "SELECT id FROM fallback_rules WHERE expression = ?1 COLLATE NOCASE LIMIT 1",
+            [expression],
+            |row| row.get::<_, String>(0),
+        )
+        .ok();
+    let id = rule.id.or(existing_id).unwrap_or_else(|| {
+        format!(
+            "fallback-{}-{}",
+            chrono::Utc::now().timestamp_micros(),
+            FALLBACK_RULE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
+    });
+    let now = chrono::Utc::now().to_rfc3339();
+    connection
+        .execute(
+            "INSERT INTO fallback_rules
+             (id, expression, category, severity, reason, enabled, source, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+               expression = excluded.expression,
+               category = excluded.category,
+               severity = excluded.severity,
+               reason = excluded.reason,
+               enabled = excluded.enabled,
+               source = excluded.source,
+               updated_at = excluded.updated_at",
+            params![
+                id,
+                expression,
+                category,
+                rule.severity,
+                reason,
+                if rule.enabled { 1_i64 } else { 0_i64 },
+                rule.source,
+                now,
+            ],
+        )
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    read_fallback_rule(connection, &id)
+}
+
+#[tauri::command]
+fn fallback_rules_list(db: State<'_, DatabasePath>) -> Result<Vec<FallbackRule>, DesktopError> {
+    let connection = connection(&db)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, expression, category, severity, reason, enabled, source, created_at, updated_at
+             FROM fallback_rules ORDER BY updated_at DESC, expression ASC",
+        )
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(FallbackRule {
+                id: row.get(0)?,
+                expression: row.get(1)?,
+                category: row.get(2)?,
+                severity: row.get(3)?,
+                reason: row.get(4)?,
+                enabled: row.get::<_, i64>(5)? != 0,
+                source: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        })
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| DesktopError::Database(error.to_string()))
+}
+
+#[tauri::command]
+fn fallback_rule_upsert(
+    rule: FallbackRuleInput,
+    db: State<'_, DatabasePath>,
+) -> Result<FallbackRule, DesktopError> {
+    let connection = connection(&db)?;
+    upsert_fallback_rule(&connection, rule)
+}
+
+#[tauri::command]
+fn fallback_rules_import(
+    rules: Vec<FallbackRuleInput>,
+    db: State<'_, DatabasePath>,
+) -> Result<usize, DesktopError> {
+    if rules.len() > 5_000 {
+        return Err(DesktopError::Database(
+            "한 번에 가져올 수 있는 규칙은 최대 5,000개입니다.".into(),
+        ));
+    }
+    let mut connection = connection(&db)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    for rule in rules.iter().cloned() {
+        upsert_fallback_rule(&transaction, rule)?;
+    }
+    transaction
+        .commit()
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    Ok(rules.len())
+}
+
+#[tauri::command]
+fn fallback_rule_delete(id: String, db: State<'_, DatabasePath>) -> Result<(), DesktopError> {
+    let connection = connection(&db)?;
+    connection
+        .execute("DELETE FROM fallback_rules WHERE id = ?1", params![id])
+        .map_err(|error| DesktopError::Database(error.to_string()))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn save_analysis(payload: SaveInput, db: State<'_, DatabasePath>) -> Result<i64, DesktopError> {
     let connection = connection(&db)?;
     connection
         .execute(
-            "INSERT INTO analyses (created_at, input, rules_json, ai_json, mode, engine, validation_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO analyses
+             (created_at, input, rules_json, ai_json, mode, focus, engine, validation_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 chrono::Utc::now().to_rfc3339(),
                 payload.input,
                 payload.rules.unwrap_or(Value::Null).to_string(),
                 payload.ai.map(|value| value.to_string()),
                 payload.mode,
+                payload.focus,
                 payload.engine,
                 Value::Array(payload.validation_issues).to_string(),
             ],
@@ -765,7 +977,7 @@ fn list_history(db: State<'_, DatabasePath>) -> Result<Vec<Value>, DesktopError>
     let connection = connection(&db)?;
     let mut statement = connection
         .prepare(
-            "SELECT id, created_at, input, rules_json, ai_json, mode, engine, validation_json
+            "SELECT id, created_at, input, rules_json, ai_json, mode, focus, engine, validation_json
              FROM analyses ORDER BY id DESC LIMIT 50",
         )
         .map_err(|error| DesktopError::Database(error.to_string()))?;
@@ -773,7 +985,7 @@ fn list_history(db: State<'_, DatabasePath>) -> Result<Vec<Value>, DesktopError>
         .query_map([], |row| {
             let rules: String = row.get(3)?;
             let ai: Option<String> = row.get(4)?;
-            let validation: String = row.get(7)?;
+            let validation: String = row.get(8)?;
             Ok(json!({
                 "id": row.get::<_, i64>(0)?,
                 "createdAt": row.get::<_, String>(1)?,
@@ -781,7 +993,8 @@ fn list_history(db: State<'_, DatabasePath>) -> Result<Vec<Value>, DesktopError>
                 "rules": serde_json::from_str::<Value>(&rules).unwrap_or(Value::Null),
                 "ai": ai.and_then(|value| serde_json::from_str::<Value>(&value).ok()),
                 "mode": row.get::<_, String>(5)?,
-                "engine": row.get::<_, String>(6)?,
+                "focus": row.get::<_, String>(6)?,
+                "engine": row.get::<_, String>(7)?,
                 "validationIssues": serde_json::from_str::<Value>(&validation)
                     .unwrap_or_else(|_| Value::Array(vec![]))
             }))
@@ -806,11 +1019,25 @@ fn initialize_database(path: &PathBuf) -> Result<(), DesktopError> {
                 rules_json TEXT NOT NULL,
                 ai_json TEXT,
                 mode TEXT NOT NULL CHECK(mode IN ('hybrid', 'rules-only')),
+                focus TEXT NOT NULL DEFAULT 'balanced',
                 engine TEXT NOT NULL DEFAULT 'rules',
                 validation_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE INDEX IF NOT EXISTS analyses_created_at_idx
-                ON analyses(created_at DESC);",
+                ON analyses(created_at DESC);
+            CREATE TABLE IF NOT EXISTS fallback_rules (
+                id TEXT PRIMARY KEY,
+                expression TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                category TEXT NOT NULL,
+                severity TEXT NOT NULL CHECK(severity IN ('low', 'review', 'high')),
+                reason TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                source TEXT NOT NULL CHECK(source IN ('missed', 'csv')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS fallback_rules_updated_at_idx
+                ON fallback_rules(updated_at DESC);",
         )
         .map_err(|error| DesktopError::Database(error.to_string()))?;
     let has_engine = {
@@ -830,6 +1057,27 @@ fn initialize_database(path: &PathBuf) -> Result<(), DesktopError> {
         connection
             .execute(
                 "ALTER TABLE analyses ADD COLUMN engine TEXT NOT NULL DEFAULT 'rules'",
+                [],
+            )
+            .map_err(|error| DesktopError::Database(error.to_string()))?;
+    }
+    let has_focus = {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(analyses)")
+            .map_err(|error| DesktopError::Database(error.to_string()))?;
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|error| DesktopError::Database(error.to_string()))?;
+        columns
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| DesktopError::Database(error.to_string()))?
+            .iter()
+            .any(|column| column == "focus")
+    };
+    if !has_focus {
+        connection
+            .execute(
+                "ALTER TABLE analyses ADD COLUMN focus TEXT NOT NULL DEFAULT 'balanced'",
                 [],
             )
             .map_err(|error| DesktopError::Database(error.to_string()))?;
@@ -859,6 +1107,10 @@ pub fn run() {
             codex_analyze,
             gemma_key_save_and_analyze,
             gemma_analyze,
+            fallback_rules_list,
+            fallback_rule_upsert,
+            fallback_rules_import,
+            fallback_rule_delete,
             save_analysis,
             list_history
         ])
