@@ -44,6 +44,26 @@ export type AiAnalysis = {
 
 export type AnalysisEngine = "codex" | "gemma" | "rules";
 
+export type AnalysisFocus = "balanced" | "claim" | "context";
+
+export type FallbackRuleSeverity = "low" | "review" | "high";
+
+export type FallbackRule = {
+  id: string;
+  expression: string;
+  category: string;
+  severity: FallbackRuleSeverity;
+  reason: string;
+  enabled: boolean;
+  source: "missed" | "csv";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FallbackRuleInput = Omit<FallbackRule, "id" | "createdAt" | "updatedAt"> & {
+  id?: string;
+};
+
 export type ValidationIssue = {
   code: "missing_evidence" | "invented_number" | "invalid_shape";
   message: string;
@@ -56,6 +76,7 @@ export type AnalysisRecord = {
   rules: RulesAnalysis | null;
   ai: AiAnalysis | null;
   mode: "hybrid" | "rules-only";
+  focus: AnalysisFocus;
   engine: AnalysisEngine;
   validationIssues: ValidationIssue[];
 };
