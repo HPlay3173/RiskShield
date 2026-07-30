@@ -1,6 +1,6 @@
 [package]
 name = "riskshield-desktop"
-version = "0.6.4"
+version = "0.7.0"
 description = "RiskShield desktop analyzer with Codex App Server integration"
 authors = ["RiskShield"]
 edition = "2021"
