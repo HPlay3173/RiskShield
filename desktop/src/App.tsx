@@ -12,6 +12,10 @@ import {
   type EngineResult,
 } from "./engine";
 import {
+  buildReviewPresentation,
+  contextJudgmentLabel,
+} from "./review-report";
+import {
   accountRead,
   codexAnalyze,
   gemmaAnalyze,
@@ -35,7 +39,7 @@ import type {
   RulesAnalysis,
   ValidationIssue,
 } from "./types";
-import { parseAiAnalysis, statusFromAi } from "./validation";
+import { parseAiAnalysis } from "./validation";
 
 const EMPTY_ACCOUNT: AccountInfo = {
   connected: false,
@@ -100,10 +104,17 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [challenge, refreshAccount]);
 
+  const review = useMemo(
+    () => buildReviewPresentation(engine, ai, rules),
+    [ai, engine, rules],
+  );
   const status = useMemo(() => {
-    if (ai) return statusFromAi(ai);
-    return rules?.status ?? null;
-  }, [ai, rules]);
+    if (!review) return null;
+    if (review.riskScore >= 80) return "high";
+    if (review.riskScore >= 70) return "attention";
+    if (review.riskScore > 0) return "review";
+    return "no_match";
+  }, [review]);
   const focusedAiFindings = useMemo(
     () => orderAiFindings(ai?.findings ?? [], focus),
     [ai, focus],
@@ -306,7 +317,7 @@ export default function App() {
           <span className="brand-mark">R</span>
           <div>
             <strong>RiskShield</strong>
-            <span>Desktop · v0.7.0 alpha</span>
+            <span>Desktop · v0.8.0 alpha</span>
           </div>
         </div>
         <nav className="topnav" aria-label="주요 화면">
@@ -417,7 +428,8 @@ export default function App() {
             </div>
             <span className={`status-chip ${status ?? "idle"}`}>
               {status === "high" ? "높은 위험" : status === "review" || status === "attention"
-                ? "추가 검토" : status === "no_match" ? "규칙 미일치" : "대기"}
+                ? status === "attention" ? "주의 필요" : "추가 검토"
+                : status === "no_match" ? "위험 미탐지" : "대기"}
             </span>
           </div>
 
@@ -428,19 +440,70 @@ export default function App() {
             </div>
           ) : (
             <div className="result-content">
-              {rules && (
+              {review && (
                 <div className="score-row">
-                  <div className="score">{rules.finalScore}</div>
+                  <div className="score">{review.riskScore}</div>
                   <div>
-                    <strong>로컬 규칙 위험 점수</strong>
-                    <p>{rules.reason ?? "검토된 위험 규칙과 일치하지 않았습니다."}</p>
+                    <strong>종합 위험 점수</strong>
+                    <p>
+                      {engine === "codex"
+                        ? "Codex가 전체 문맥을 바탕으로 산정했습니다."
+                        : engine === "gemma"
+                          ? "Gemma 4가 전체 문맥을 바탕으로 산정했습니다."
+                          : "Analyzer v4의 기존 규칙 계산식으로 산정했습니다."}
+                    </p>
                   </div>
                 </div>
               )}
 
+              {review && (
+                <section className="context-judgment result-block">
+                  <div className="report-heading">
+                    <h3>문맥 판단</h3>
+                    <span>{contextJudgmentLabel(review.contextJudgment.type)}</span>
+                  </div>
+                  <p>{review.contextJudgment.explanation}</p>
+                </section>
+              )}
+
+              {review && (
+                <section className="review-report result-block">
+                  <div className="report-heading">
+                    <h3>검토 리포트</h3>
+                    <strong>{review.reviewReport.verdict}</strong>
+                  </div>
+                  <div className="report-section">
+                    <span>핵심 문제</span>
+                    <ul>
+                      {review.reviewReport.keyIssues.map((item, index) => (
+                        <li key={`issue-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="report-section">
+                    <span>예상 위험</span>
+                    <ul>
+                      {review.reviewReport.potentialRisks.map((item, index) => (
+                        <li key={`risk-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="report-advice">
+                    <span>수정 권고</span>
+                    <p>{review.reviewReport.recommendation}</p>
+                  </div>
+                  {review.reviewReport.rewrite && (
+                    <div className="report-rewrite">
+                      <span>권장 대체 문구</span>
+                      <p>{review.reviewReport.rewrite}</p>
+                    </div>
+                  )}
+                </section>
+              )}
+
               {rules && (
                 <section className="result-block">
-                  <h3>Analyzer v4 최종 장애조치 · {FOCUS_COPY[focus].label}</h3>
+                  <h3>세부 근거 · Analyzer v4 최종 장애조치 · {FOCUS_COPY[focus].label}</h3>
                   {focusedRuleMatches.length === 0
                     ? <p className="muted">Analyzer v4 규칙 일치 없음</p>
                     : focusedRuleMatches.slice(0, 4).map((match) => (
@@ -456,7 +519,7 @@ export default function App() {
               {ai && (
                 <section className="result-block">
                   <h3>
-                    {engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}
+                    세부 근거 · {engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}
                     {" · "}{FOCUS_COPY[focus].label}
                   </h3>
                   <p>{ai.summary}</p>
