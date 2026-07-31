@@ -410,6 +410,40 @@ fn analysis_schema() -> Value {
         "type": "object",
         "properties": {
             "summary": { "type": "string" },
+            "riskScore": { "type": "number", "minimum": 0, "maximum": 100 },
+            "contextJudgment": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "direct_claim", "quotation", "criticism", "warning",
+                            "reporting", "educational", "conditional", "unclear"
+                        ]
+                    },
+                    "explanation": { "type": "string" }
+                },
+                "required": ["type", "explanation"],
+                "additionalProperties": false
+            },
+            "reviewReport": {
+                "type": "object",
+                "properties": {
+                    "verdict": { "type": "string" },
+                    "keyIssues": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "potentialRisks": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    },
+                    "recommendation": { "type": "string" },
+                    "rewrite": { "type": ["string", "null"] }
+                },
+                "required": ["verdict", "keyIssues", "potentialRisks", "recommendation", "rewrite"],
+                "additionalProperties": false
+            },
             "findings": {
                 "type": "array",
                 "items": {
@@ -428,7 +462,9 @@ fn analysis_schema() -> Value {
             },
             "model": { "type": ["string", "null"] }
         },
-        "required": ["summary", "findings", "model"],
+        "required": [
+            "summary", "riskScore", "contextJudgment", "reviewReport", "findings", "model"
+        ],
         "additionalProperties": false
     })
 }
@@ -438,6 +474,38 @@ fn gemma_analysis_schema() -> Value {
         "type": "OBJECT",
         "properties": {
             "summary": { "type": "STRING" },
+            "riskScore": { "type": "NUMBER", "minimum": 0, "maximum": 100 },
+            "contextJudgment": {
+                "type": "OBJECT",
+                "properties": {
+                    "type": {
+                        "type": "STRING",
+                        "enum": [
+                            "direct_claim", "quotation", "criticism", "warning",
+                            "reporting", "educational", "conditional", "unclear"
+                        ]
+                    },
+                    "explanation": { "type": "STRING" }
+                },
+                "required": ["type", "explanation"]
+            },
+            "reviewReport": {
+                "type": "OBJECT",
+                "properties": {
+                    "verdict": { "type": "STRING" },
+                    "keyIssues": {
+                        "type": "ARRAY",
+                        "items": { "type": "STRING" }
+                    },
+                    "potentialRisks": {
+                        "type": "ARRAY",
+                        "items": { "type": "STRING" }
+                    },
+                    "recommendation": { "type": "STRING" },
+                    "rewrite": { "type": "STRING", "nullable": true }
+                },
+                "required": ["verdict", "keyIssues", "potentialRisks", "recommendation", "rewrite"]
+            },
             "findings": {
                 "type": "ARRAY",
                 "items": {
@@ -454,7 +522,7 @@ fn gemma_analysis_schema() -> Value {
                 }
             }
         },
-        "required": ["summary", "findings"]
+        "required": ["summary", "riskScore", "contextJudgment", "reviewReport", "findings"]
     })
 }
 
@@ -544,6 +612,11 @@ fn codex_analyze(
              원문에 실제로 존재하는 연속 문자열만 evidence로 인용하세요. \
              원문에 없는 수치, 조건, 사실을 rewrite에 추가하지 마세요. \
              비판·경고·인용·보도 문맥은 위험을 직접 지지하는 표현과 구분하세요. \
+             riskScore는 원문 전체의 논란·오해 위험을 0~100 정수로 직접 산정하세요. \
+             0은 직접 위험 미탐지, 1~69는 낮음·추가 검토, 70~79는 주의, 80~100은 높은 위험입니다. \
+             contextJudgment에는 직접 주장·인용·비판·경고·보도·교육·조건부·불명확 중 주된 문맥과 이유를 쓰세요. \
+             reviewReport에는 종합 판정, 핵심 문제, 예상 위험, 수정 권고와 가능한 대체 문구를 작성하세요. \
+             findings가 비어 있어도 riskScore, contextJudgment, reviewReport는 반드시 작성하세요. \
              규칙 결과는 참고 신호이지 정답이나 등급 상한선이 아닙니다. 규칙에 없는 위험도 독립적으로 판정하세요. \
              특히 518, 5/18, 5.18, 5·18은 평범한 숫자나 날짜처럼 보이지만 5·18 민주화운동을 가리키는 \
              은닉 신호일 수 있습니다. 일정·예약·교육·보도처럼 사용 이유가 명확한지는 제외 맥락으로 보고, \
@@ -679,7 +752,7 @@ fn gemma_analyze_with_key(input: String, api_key: String) -> Result<Value, Deskt
         .json(&json!({
             "systemInstruction": {
                 "parts": [{
-                    "text": "당신은 RiskShield의 보조 판정기입니다. 반드시 submit_riskshield_analysis 함수를 정확히 한 번 호출하세요. 원문에 실제로 존재하는 연속 문자열만 evidence로 인용하고, 원문에 없는 수치·조건·사실을 rewrite에 추가하지 마세요. 비판·경고·인용·보도 문맥은 위험을 직접 지지하는 표현과 구분하세요. 518, 5/18, 5.18, 5·18은 5·18 민주화운동을 가리키는 은닉 신호일 수 있습니다. 일정·예약·교육·보도처럼 사용 이유가 명확하면 안전 맥락으로 보고, 광고·행사·할인·슬로건에 이유 없이 등장하면 숨겨진 역사 신호 가능성을 검토하세요. 5·18 날짜와 탱크데이·탱크 데이·책상에 탁 같은 표현이 판촉 문맥에서 결합되면 중대한 브랜드·역사 윤리 위험으로 평가하되, 해당 논란을 비판·보도·교육·사과하는 글 자체는 위험 홍보로 오판하지 마세요."
+                    "text": "당신은 RiskShield의 보조 판정기입니다. 반드시 submit_riskshield_analysis 함수를 정확히 한 번 호출하세요. 원문에 실제로 존재하는 연속 문자열만 evidence로 인용하고, 원문에 없는 수치·조건·사실을 rewrite에 추가하지 마세요. 비판·경고·인용·보도 문맥은 위험을 직접 지지하는 표현과 구분하세요. riskScore는 원문 전체의 논란·오해 위험을 0~100 정수로 직접 산정하세요. 0은 직접 위험 미탐지, 1~69는 낮음·추가 검토, 70~79는 주의, 80~100은 높은 위험입니다. contextJudgment에는 주된 문맥 유형과 이유를 쓰고 reviewReport에는 종합 판정, 핵심 문제, 예상 위험, 수정 권고와 가능한 대체 문구를 작성하세요. findings가 비어 있어도 이 세 필드는 반드시 작성하세요. 518, 5/18, 5.18, 5·18은 5·18 민주화운동을 가리키는 은닉 신호일 수 있습니다. 일정·예약·교육·보도처럼 사용 이유가 명확하면 안전 맥락으로 보고, 광고·행사·할인·슬로건에 이유 없이 등장하면 숨겨진 역사 신호 가능성을 검토하세요. 5·18 날짜와 탱크데이·탱크 데이·책상에 탁 같은 표현이 판촉 문맥에서 결합되면 중대한 브랜드·역사 윤리 위험으로 평가하되, 해당 논란을 비판·보도·교육·사과하는 글 자체는 위험 홍보로 오판하지 마세요."
                 }]
             },
             "contents": [{
