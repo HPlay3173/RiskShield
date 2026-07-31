@@ -1,4 +1,4 @@
-# RiskShield Desktop v0.7.0
+# RiskShield Desktop v0.8.0
 
 Windows desktop client for RiskShield. Codex CLI is the primary analysis
 engine, Gemma 4 through the user's free Google AI Studio API key is the network fallback, and
@@ -52,6 +52,12 @@ MSI and NSIS installers containing that runtime as workflow artifacts.
 - Every evidence quote must be an exact substring of the source.
 - Rewrites containing a number absent from the source are rejected.
 - A valid Codex or Gemma result is never capped or overridden by local rules.
+- Codex and Gemma independently return a 0–100 risk score, a primary context
+  judgment, and a structured review report in the same analysis call.
+- When local rules are the final fallback, the existing Analyzer v4 score,
+  speech-act classification, reasons, recommendation, and safe rewrite are
+  presented through the same result layout without pretending that an AI
+  context review occurred.
 - Analysis history is stored locally in SQLite under the operating system's
   application-data directory.
 
