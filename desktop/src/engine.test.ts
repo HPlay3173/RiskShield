@@ -5,6 +5,18 @@ import type { AiAnalysis } from "./types";
 
 const safeAi: AiAnalysis = {
   summary: "직접 위험 없음",
+  riskScore: 0,
+  contextJudgment: {
+    type: "educational",
+    explanation: "직접적인 위험 주장이 없습니다.",
+  },
+  reviewReport: {
+    verdict: "위험 미탐지",
+    keyIssues: [],
+    potentialRisks: [],
+    recommendation: "배포 맥락을 최종 확인하세요.",
+    rewrite: null,
+  },
   findings: [],
   model: "test",
 };
