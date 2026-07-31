@@ -36,8 +36,34 @@ export type AiFinding = {
   confidence: number;
 };
 
+export type ContextJudgmentType =
+  | "direct_claim"
+  | "quotation"
+  | "criticism"
+  | "warning"
+  | "reporting"
+  | "educational"
+  | "conditional"
+  | "unclear";
+
+export type ContextJudgment = {
+  type: ContextJudgmentType;
+  explanation: string;
+};
+
+export type ReviewReport = {
+  verdict: string;
+  keyIssues: string[];
+  potentialRisks: string[];
+  recommendation: string;
+  rewrite: string | null;
+};
+
 export type AiAnalysis = {
   summary: string;
+  riskScore: number;
+  contextJudgment: ContextJudgment;
+  reviewReport: ReviewReport;
   findings: AiFinding[];
   model: string | null;
 };
