@@ -7,9 +7,33 @@ import {
 } from "./validation";
 import { analyzeWithReviewedRules } from "./analyzer";
 
+function parseTestAi(value: {
+  summary: string;
+  findings: unknown[];
+  riskScore?: number;
+  model?: string | null;
+  rewrite?: string | null;
+}) {
+  return parseAiAnalysis(JSON.stringify({
+    riskScore: value.riskScore ?? 65,
+    contextJudgment: {
+      type: "direct_claim",
+      explanation: "작성자가 직접 주장하는 문맥입니다.",
+    },
+    reviewReport: {
+      verdict: "추가 검토",
+      keyIssues: ["표현을 검토해야 합니다."],
+      potentialRisks: ["오해 가능성"],
+      recommendation: "표현을 완화하세요.",
+      rewrite: value.rewrite ?? null,
+    },
+    ...value,
+  }));
+}
+
 describe("AI output validation", () => {
   it("accepts exact source evidence", () => {
-    const analysis = parseAiAnalysis(JSON.stringify({
+    const analysis = parseTestAi({
       summary: "검토",
       model: null,
       findings: [{
@@ -20,12 +44,12 @@ describe("AI output validation", () => {
         rewrite: "결과는 달라질 수 있습니다.",
         confidence: 0.8,
       }],
-    }));
+    });
     expect(validateAiAnalysis("무조건 성공", analysis)).toEqual([]);
   });
 
   it("rejects evidence absent from the source", () => {
-    const analysis = parseAiAnalysis(JSON.stringify({
+    const analysis = parseTestAi({
       summary: "검토",
       findings: [{
         category: "과장",
@@ -35,13 +59,13 @@ describe("AI output validation", () => {
         rewrite: null,
         confidence: 0.9,
       }],
-    }));
+    });
     expect(validateAiAnalysis("성공할 수 있습니다", analysis)[0]?.code)
       .toBe("missing_evidence");
   });
 
   it("rejects invented rewrite numbers", () => {
-    const analysis = parseAiAnalysis(JSON.stringify({
+    const analysis = parseTestAi({
       summary: "검토",
       findings: [{
         category: "과장",
@@ -51,13 +75,13 @@ describe("AI output validation", () => {
         rewrite: "3일 내 결과를 안내합니다.",
         confidence: 0.6,
       }],
-    }));
+    });
     expect(validateAiAnalysis("빠른 결과를 제공합니다", analysis)[0]?.code)
       .toBe("invented_number");
   });
 
   it("keeps valid findings when another finding fails validation", () => {
-    const analysis = parseAiAnalysis(JSON.stringify({
+    const analysis = parseTestAi({
       summary: "검토",
       findings: [
         {
@@ -77,7 +101,7 @@ describe("AI output validation", () => {
           confidence: 0.5,
         },
       ],
-    }));
+    });
 
     const filtered = filterValidAiFindings("5/18 탱크데이 할인", analysis);
     expect(filtered.analysis.findings).toHaveLength(1);
@@ -87,8 +111,9 @@ describe("AI output validation", () => {
 
   it("uses a valid AI-only high finding as the primary result", () => {
     const rules = analyzeWithReviewedRules("오늘 새로운 상품을 소개합니다.");
-    const ai = parseAiAnalysis(JSON.stringify({
+    const ai = parseTestAi({
       summary: "검토",
+      riskScore: 85,
       findings: [{
         category: "기타",
         severity: "high",
@@ -97,17 +122,36 @@ describe("AI output validation", () => {
         rewrite: null,
         confidence: 0.7,
       }],
-    }));
+    });
     expect(rules.status).toBe("no_match");
     expect(statusFromAi(ai)).toBe("high");
   });
 
   it("accepts an empty AI result without consulting rules", () => {
-    const ai = parseAiAnalysis(JSON.stringify({
+    const ai = parseTestAi({
       summary: "직접 위험은 확인되지 않았습니다.",
+      riskScore: 0,
       findings: [],
-    }));
+    });
     expect(statusFromAi(ai)).toBe("no_match");
   });
 
+  it("rejects an out-of-range score", () => {
+    expect(() => parseTestAi({
+      summary: "잘못된 점수",
+      riskScore: 101,
+      findings: [],
+    })).toThrow("분석 스키마");
+  });
+
+  it("removes a report rewrite containing an invented number", () => {
+    const ai = parseTestAi({
+      summary: "검토",
+      rewrite: "3일 안에 개선될 수 있습니다.",
+      findings: [],
+    });
+    const filtered = filterValidAiFindings("개선에 도움을 줄 수 있습니다.", ai);
+    expect(filtered.analysis.reviewReport.rewrite).toBeNull();
+    expect(filtered.issues[0]?.code).toBe("invented_number");
+  });
 });
