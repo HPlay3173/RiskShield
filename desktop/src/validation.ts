@@ -1,6 +1,8 @@
 import type {
   AiAnalysis,
   AiFinding,
+  ContextJudgment,
+  ReviewReport,
   RulesAnalysis,
   ValidationIssue,
 } from "./types";
@@ -30,10 +32,50 @@ function isFinding(value: unknown): value is AiFinding {
   );
 }
 
+function isContextJudgment(value: unknown): value is ContextJudgment {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<ContextJudgment>;
+  return (
+    [
+      "direct_claim",
+      "quotation",
+      "criticism",
+      "warning",
+      "reporting",
+      "educational",
+      "conditional",
+      "unclear",
+    ].includes(item.type ?? "")
+    && typeof item.explanation === "string"
+  );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isReviewReport(value: unknown): value is ReviewReport {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<ReviewReport>;
+  return (
+    typeof item.verdict === "string"
+    && isStringArray(item.keyIssues)
+    && isStringArray(item.potentialRisks)
+    && typeof item.recommendation === "string"
+    && (item.rewrite === null || typeof item.rewrite === "string")
+  );
+}
+
 export function parseAiAnalysis(raw: string): AiAnalysis {
   const value = JSON.parse(raw) as Partial<AiAnalysis>;
   if (
     typeof value.summary !== "string" ||
+    typeof value.riskScore !== "number" ||
+    !Number.isFinite(value.riskScore) ||
+    value.riskScore < 0 ||
+    value.riskScore > 100 ||
+    !isContextJudgment(value.contextJudgment) ||
+    !isReviewReport(value.reviewReport) ||
     !Array.isArray(value.findings) ||
     !value.findings.every(isFinding)
   ) {
@@ -41,6 +83,9 @@ export function parseAiAnalysis(raw: string): AiAnalysis {
   }
   return {
     summary: value.summary,
+    riskScore: Math.round(value.riskScore),
+    contextJudgment: value.contextJudgment,
+    reviewReport: value.reviewReport,
     findings: value.findings,
     model: typeof value.model === "string" ? value.model : null,
   };
@@ -53,6 +98,17 @@ export function validateAiAnalysis(
   const issues: ValidationIssue[] = [];
   const sourceNormalized = normalized(source);
   const sourceNumbers = numbers(source);
+
+  if (analysis.reviewReport.rewrite) {
+    for (const token of numbers(analysis.reviewReport.rewrite)) {
+      if (!sourceNumbers.has(token)) {
+        issues.push({
+          code: "invented_number",
+          message: `검토 리포트의 대체 문구에 원문에 없던 수치(${token})가 추가됐습니다.`,
+        });
+      }
+    }
+  }
 
   analysis.findings.forEach((finding, index) => {
     const evidence = normalized(finding.evidence);
@@ -82,11 +138,18 @@ export function filterValidAiFindings(
   analysis: AiAnalysis,
 ): { analysis: AiAnalysis; issues: ValidationIssue[] } {
   const findings: AiFinding[] = [];
-  const issues: ValidationIssue[] = [];
+  const reportIssues = validateAiAnalysis(source, {
+    ...analysis,
+    findings: [],
+  });
+  const issues: ValidationIssue[] = [...reportIssues];
 
   analysis.findings.forEach((finding, index) => {
     const findingIssues = validateAiAnalysis(source, {
       summary: analysis.summary,
+      riskScore: analysis.riskScore,
+      contextJudgment: analysis.contextJudgment,
+      reviewReport: { ...analysis.reviewReport, rewrite: null },
       findings: [finding],
       model: analysis.model,
     }).map((issue) => ({
@@ -102,13 +165,20 @@ export function filterValidAiFindings(
   });
 
   return {
-    analysis: { ...analysis, findings },
+    analysis: {
+      ...analysis,
+      findings,
+      reviewReport: reportIssues.length
+        ? { ...analysis.reviewReport, rewrite: null }
+        : analysis.reviewReport,
+    },
     issues,
   };
 }
 
 export function statusFromAi(ai: AiAnalysis): RulesAnalysis["status"] {
-  if (ai.findings.some((finding) => finding.severity === "high")) return "high";
-  if (ai.findings.some((finding) => finding.severity === "review")) return "review";
+  if (ai.riskScore >= 80) return "high";
+  if (ai.riskScore >= 70) return "attention";
+  if (ai.riskScore > 0) return "review";
   return "no_match";
 }
