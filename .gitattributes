@@ -1,0 +1,3 @@
+# These frozen evaluation artifacts are hashed byte-for-byte by regression tests.
+artifacts/v0.3-final/final-blind-cases.csv text eol=crlf
+artifacts/real-world-evaluation/collected-ad-cases.csv text eol=crlf
