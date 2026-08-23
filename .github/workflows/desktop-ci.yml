@@ -46,6 +46,9 @@ jobs:
       - name: Run desktop tests
         working-directory: desktop
         run: npm test
+      - name: Run Rust tests
+        working-directory: desktop
+        run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Bundle official Codex CLI
         shell: pwsh
         run: ./desktop/scripts/prepare-codex-runtime.ps1
@@ -56,7 +59,7 @@ jobs:
         run: npm run tauri build
       - uses: actions/upload-artifact@v4
         with:
-          name: riskshield-windows-installers
+          name: riskshield-windows-installers-v0.8.1
           if-no-files-found: error
           path: |
             desktop/src-tauri/target/release/bundle/msi/*.msi

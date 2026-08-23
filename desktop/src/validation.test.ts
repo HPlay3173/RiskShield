@@ -20,13 +20,7 @@ function parseTestAi(value: {
       type: "direct_claim",
       explanation: "작성자가 직접 주장하는 문맥입니다.",
     },
-    reviewReport: {
-      verdict: "추가 검토",
-      keyIssues: ["표현을 검토해야 합니다."],
-      potentialRisks: ["오해 가능성"],
-      recommendation: "표현을 완화하세요.",
-      rewrite: value.rewrite ?? null,
-    },
+    suggestedRewrite: value.rewrite ?? null,
     ...value,
   }));
 }
@@ -136,6 +130,31 @@ describe("AI output validation", () => {
     expect(statusFromAi(ai)).toBe("no_match");
   });
 
+  it("keeps the original finding verdict even when the display score is low", () => {
+    const ai = parseTestAi({
+      summary: "높은 위험 근거가 있습니다.",
+      riskScore: 10,
+      findings: [{
+        category: "위험",
+        severity: "high",
+        evidence: "보장",
+        explanation: "확정 표현",
+        rewrite: null,
+        confidence: 0.9,
+      }],
+    });
+    expect(statusFromAi(ai)).toBe("high");
+  });
+
+  it("does not turn a score into a verdict without a finding", () => {
+    const ai = parseTestAi({
+      summary: "직접 위험 근거가 없습니다.",
+      riskScore: 95,
+      findings: [],
+    });
+    expect(statusFromAi(ai)).toBe("no_match");
+  });
+
   it("rejects an out-of-range score", () => {
     expect(() => parseTestAi({
       summary: "잘못된 점수",
@@ -144,14 +163,14 @@ describe("AI output validation", () => {
     })).toThrow("분석 스키마");
   });
 
-  it("removes a report rewrite containing an invented number", () => {
+  it("removes a suggested rewrite containing an invented number", () => {
     const ai = parseTestAi({
       summary: "검토",
       rewrite: "3일 안에 개선될 수 있습니다.",
       findings: [],
     });
     const filtered = filterValidAiFindings("개선에 도움을 줄 수 있습니다.", ai);
-    expect(filtered.analysis.reviewReport.rewrite).toBeNull();
+    expect(filtered.analysis.suggestedRewrite).toBeNull();
     expect(filtered.issues[0]?.code).toBe("invented_number");
   });
 });

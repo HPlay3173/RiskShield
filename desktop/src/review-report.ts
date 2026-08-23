@@ -4,14 +4,13 @@ import type {
   AnalysisEngine,
   ContextJudgment,
   ContextJudgmentType,
-  ReviewReport,
   RulesAnalysis,
 } from "./types";
 
 export type ReviewPresentation = {
   riskScore: number;
   contextJudgment: ContextJudgment;
-  reviewReport: ReviewReport;
+  suggestedRewrite: string | null;
 };
 
 const CONTEXT_LABELS: Record<ContextJudgmentType, string> = {
@@ -55,29 +54,6 @@ function speechActContext(rules: RulesAnalysis): ContextJudgment {
   };
 }
 
-function rulesReport(rules: RulesAnalysis): ReviewReport {
-  const keyIssues = Array.from(new Set(
-    rules.matches.map((match) => match.skill.riskReason).filter(Boolean),
-  )).slice(0, 5);
-  const potentialRisks = Array.from(new Set(
-    rules.matches
-      .map((match) => match.skill.riskDomain || match.skill.category)
-      .filter(Boolean),
-  )).slice(0, 5);
-
-  return {
-    verdict: rules.statusLabel,
-    keyIssues: keyIssues.length
-      ? keyIssues
-      : ["현재 활성화된 로컬 규칙과 일치하는 위험 표현이 없습니다."],
-    potentialRisks: potentialRisks.length
-      ? potentialRisks
-      : ["규칙 미일치는 안전 보장이나 자동 승인을 의미하지 않습니다."],
-    recommendation: rules.recommendation,
-    rewrite: rules.suggestedRewrite,
-  };
-}
-
 function aiContext(ai: AiAnalysis): ContextJudgment {
   if (ai.contextJudgment?.type && ai.contextJudgment.explanation) {
     return ai.contextJudgment;
@@ -88,28 +64,12 @@ function aiContext(ai: AiAnalysis): ContextJudgment {
   };
 }
 
-function aiReport(ai: AiAnalysis): ReviewReport {
-  if (
-    ai.reviewReport
-    && typeof ai.reviewReport.verdict === "string"
-    && Array.isArray(ai.reviewReport.keyIssues)
-    && Array.isArray(ai.reviewReport.potentialRisks)
-  ) {
-    return ai.reviewReport;
+function aiSuggestedRewrite(ai: AiAnalysis): string | null {
+  if (Object.prototype.hasOwnProperty.call(ai, "suggestedRewrite")) {
+    return typeof ai.suggestedRewrite === "string" ? ai.suggestedRewrite : null;
   }
-  return {
-    verdict: ai.summary || "검토 결과",
-    keyIssues: ai.findings.length
-      ? ai.findings.map((finding) => finding.explanation).slice(0, 5)
-      : ["직접적인 위험 표현이 확인되지 않았습니다."],
-    potentialRisks: ai.findings.length
-      ? Array.from(new Set(ai.findings.map((finding) => finding.category))).slice(0, 5)
-      : ["자동 분석 결과이므로 중요한 배포 전 검토는 별도로 권장합니다."],
-    recommendation: ai.findings.some((finding) => finding.rewrite)
-      ? "아래 대체 문구를 참고해 문제 표현을 완화하세요."
-      : "현재 문맥과 배포 대상을 사람이 한 번 더 확인하세요.",
-    rewrite: ai.findings.find((finding) => finding.rewrite)?.rewrite ?? null,
-  };
+  if (typeof ai.reviewReport?.rewrite === "string") return ai.reviewReport.rewrite;
+  return ai.findings.find((finding) => finding.rewrite)?.rewrite ?? null;
 }
 
 export function buildReviewPresentation(
@@ -118,20 +78,20 @@ export function buildReviewPresentation(
   rules: RulesAnalysis | null,
 ): ReviewPresentation | null {
   if ((engine === "codex" || engine === "gemma") && ai) {
-    const provided = Number(ai.riskScore);
+    const provided = ai.riskScore;
     return {
-      riskScore: Number.isFinite(provided)
+      riskScore: typeof provided === "number" && Number.isFinite(provided)
         ? clampScore(provided)
         : inferredAiScore(ai.findings),
       contextJudgment: aiContext(ai),
-      reviewReport: aiReport(ai),
+      suggestedRewrite: aiSuggestedRewrite(ai),
     };
   }
   if (rules) {
     return {
       riskScore: clampScore(rules.finalScore),
       contextJudgment: speechActContext(rules),
-      reviewReport: rulesReport(rules),
+      suggestedRewrite: rules.suggestedRewrite,
     };
   }
   return null;

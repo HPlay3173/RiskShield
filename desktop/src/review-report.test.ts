@@ -10,31 +10,24 @@ const ai: AiAnalysis = {
     type: "direct_claim",
     explanation: "작성자가 효능을 직접 주장합니다.",
   },
-  reviewReport: {
-    verdict: "주의 필요",
-    keyIssues: ["효능을 확정적으로 표현합니다."],
-    potentialRisks: ["과장 광고로 오해될 수 있습니다."],
-    recommendation: "보장 표현을 완화하세요.",
-    rewrite: "개선에 도움을 줄 수 있습니다.",
-  },
+  suggestedRewrite: "개선에 도움을 줄 수 있습니다.",
   findings: [],
   model: "test",
 };
 
-describe("common review presentation", () => {
-  it("keeps an AI engine's autonomous score and report", () => {
+describe("review additions", () => {
+  it("keeps an AI engine's score, context, and rewrite", () => {
     const result = buildReviewPresentation("codex", ai, null);
     expect(result?.riskScore).toBe(78);
     expect(result?.contextJudgment.type).toBe("direct_claim");
-    expect(result?.reviewReport.verdict).toBe("주의 필요");
+    expect(result?.suggestedRewrite).toBe("개선에 도움을 줄 수 있습니다.");
   });
 
-  it("builds the same presentation shape from local rules", () => {
+  it("uses the existing local-rule additions", () => {
     const rules = analyzeWithReviewedRules("5/18 탱크데이 할인");
     const result = buildReviewPresentation("rules", null, rules);
     expect(result?.riskScore).toBe(rules.finalScore);
-    expect(result?.reviewReport.recommendation).toBe(rules.recommendation);
-    expect(result?.reviewReport.keyIssues.length).toBeGreaterThan(0);
+    expect(result?.suggestedRewrite).toBe(rules.suggestedRewrite);
   });
 
   it("recovers a score for an older saved AI result", () => {
@@ -51,5 +44,22 @@ describe("common review presentation", () => {
       model: "legacy",
     } as AiAnalysis;
     expect(buildReviewPresentation("gemma", legacy, null)?.riskScore).toBe(85);
+  });
+
+  it("recovers the rewrite from a v0.8.0 saved report", () => {
+    const legacy = {
+      ...ai,
+      suggestedRewrite: undefined,
+      reviewReport: {
+        verdict: "주의 필요",
+        keyIssues: [],
+        potentialRisks: [],
+        recommendation: "완화하세요.",
+        rewrite: "이전 기록의 대체 문구",
+      },
+    } as AiAnalysis;
+    delete legacy.suggestedRewrite;
+    expect(buildReviewPresentation("codex", legacy, null)?.suggestedRewrite)
+      .toBe("이전 기록의 대체 문구");
   });
 });

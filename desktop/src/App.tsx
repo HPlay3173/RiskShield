@@ -15,6 +15,7 @@ import {
   buildReviewPresentation,
   contextJudgmentLabel,
 } from "./review-report";
+import { effectiveHistoryEngine } from "./history";
 import {
   accountRead,
   codexAnalyze,
@@ -39,7 +40,7 @@ import type {
   RulesAnalysis,
   ValidationIssue,
 } from "./types";
-import { parseAiAnalysis } from "./validation";
+import { parseAiAnalysis, statusFromAi } from "./validation";
 
 const EMPTY_ACCOUNT: AccountInfo = {
   connected: false,
@@ -109,12 +110,10 @@ export default function App() {
     [ai, engine, rules],
   );
   const status = useMemo(() => {
-    if (!review) return null;
-    if (review.riskScore >= 80) return "high";
-    if (review.riskScore >= 70) return "attention";
-    if (review.riskScore > 0) return "review";
-    return "no_match";
-  }, [review]);
+    if (ai) return statusFromAi(ai);
+    return rules?.status ?? null;
+  }, [ai, rules]);
+  const interactionLocked = busy || gemmaKeyBusy || pendingGemmaInput !== null;
   const focusedAiFindings = useMemo(
     () => orderAiFindings(ai?.findings ?? [], focus),
     [ai, focus],
@@ -197,6 +196,7 @@ export default function App() {
       setMessage("Codex와 Gemma 4를 모두 사용할 수 없어 로컬 규칙 안전 모드로 판정했습니다.");
     }
 
+    setInput(source);
     setRules(nextRules);
     setAi(nextAi);
     setEngine(nextEngine);
@@ -230,7 +230,7 @@ export default function App() {
       const fallbackRules = await listFallbackRules().catch(() => []);
       const result = await analyzeByPriority(source, {
         codexEnabled: account.connected,
-        codex: () => codexAnalyze(source),
+        codex: async () => parseAiAnalysis(JSON.stringify(await codexAnalyze(source))),
         gemma: () => callGemma(source),
         rules: () => analyzeWithReviewedRules(source, fallbackRules),
       });
@@ -317,7 +317,7 @@ export default function App() {
           <span className="brand-mark">R</span>
           <div>
             <strong>RiskShield</strong>
-            <span>Desktop · v0.8.0 alpha</span>
+            <span>Desktop · v0.8.1 alpha</span>
           </div>
         </div>
         <nav className="topnav" aria-label="주요 화면">
@@ -389,6 +389,7 @@ export default function App() {
               <input
                 type="file"
                 accept=".txt,.md,.csv,text/plain,text/markdown,text/csv"
+                disabled={interactionLocked}
                 onChange={(event) => importTextFile(event.target.files?.[0])}
               />
             </label>
@@ -399,6 +400,7 @@ export default function App() {
                 type="button"
                 className={focus === value ? "active" : ""}
                 key={value}
+                disabled={interactionLocked}
                 onClick={() => setFocus(value)}
               >
                 <strong>{FOCUS_COPY[value].label}</strong>
@@ -411,6 +413,7 @@ export default function App() {
             onChange={(event) => setInput(event.target.value)}
             placeholder="광고, 게시물, 안내 문구를 붙여 넣으세요."
             spellCheck={false}
+            disabled={interactionLocked}
           />
           <div className="editor-footer">
             <span>{input.length.toLocaleString()}자</span>
@@ -428,8 +431,7 @@ export default function App() {
             </div>
             <span className={`status-chip ${status ?? "idle"}`}>
               {status === "high" ? "높은 위험" : status === "review" || status === "attention"
-                ? status === "attention" ? "주의 필요" : "추가 검토"
-                : status === "no_match" ? "위험 미탐지" : "대기"}
+                ? "추가 검토" : status === "no_match" ? "규칙 미일치" : "대기"}
             </span>
           </div>
 
@@ -440,70 +442,19 @@ export default function App() {
             </div>
           ) : (
             <div className="result-content">
-              {review && (
+              {rules && (
                 <div className="score-row">
-                  <div className="score">{review.riskScore}</div>
+                  <div className="score">{rules.finalScore}</div>
                   <div>
-                    <strong>종합 위험 점수</strong>
-                    <p>
-                      {engine === "codex"
-                        ? "Codex가 전체 문맥을 바탕으로 산정했습니다."
-                        : engine === "gemma"
-                          ? "Gemma 4가 전체 문맥을 바탕으로 산정했습니다."
-                          : "Analyzer v4의 기존 규칙 계산식으로 산정했습니다."}
-                    </p>
+                    <strong>로컬 규칙 위험 점수</strong>
+                    <p>{rules.reason ?? "검토된 위험 규칙과 일치하지 않았습니다."}</p>
                   </div>
                 </div>
               )}
 
-              {review && (
-                <section className="context-judgment result-block">
-                  <div className="report-heading">
-                    <h3>문맥 판단</h3>
-                    <span>{contextJudgmentLabel(review.contextJudgment.type)}</span>
-                  </div>
-                  <p>{review.contextJudgment.explanation}</p>
-                </section>
-              )}
-
-              {review && (
-                <section className="review-report result-block">
-                  <div className="report-heading">
-                    <h3>검토 리포트</h3>
-                    <strong>{review.reviewReport.verdict}</strong>
-                  </div>
-                  <div className="report-section">
-                    <span>핵심 문제</span>
-                    <ul>
-                      {review.reviewReport.keyIssues.map((item, index) => (
-                        <li key={`issue-${index}`}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="report-section">
-                    <span>예상 위험</span>
-                    <ul>
-                      {review.reviewReport.potentialRisks.map((item, index) => (
-                        <li key={`risk-${index}`}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className="report-advice">
-                    <span>수정 권고</span>
-                    <p>{review.reviewReport.recommendation}</p>
-                  </div>
-                  {review.reviewReport.rewrite && (
-                    <div className="report-rewrite">
-                      <span>권장 대체 문구</span>
-                      <p>{review.reviewReport.rewrite}</p>
-                    </div>
-                  )}
-                </section>
-              )}
-
               {rules && (
                 <section className="result-block">
-                  <h3>세부 근거 · Analyzer v4 최종 장애조치 · {FOCUS_COPY[focus].label}</h3>
+                  <h3>Analyzer v4 최종 장애조치 · {FOCUS_COPY[focus].label}</h3>
                   {focusedRuleMatches.length === 0
                     ? <p className="muted">Analyzer v4 규칙 일치 없음</p>
                     : focusedRuleMatches.slice(0, 4).map((match) => (
@@ -519,7 +470,7 @@ export default function App() {
               {ai && (
                 <section className="result-block">
                   <h3>
-                    세부 근거 · {engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}
+                    {engine === "gemma" ? "Gemma 4 판정" : "Codex 판정"}
                     {" · "}{FOCUS_COPY[focus].label}
                   </h3>
                   <p>{ai.summary}</p>
@@ -539,6 +490,36 @@ export default function App() {
                       {finding.rewrite && <p className="rewrite">대체: {finding.rewrite}</p>}
                     </article>
                   ))}
+                </section>
+              )}
+
+              {review && (
+                <section className="context-judgment result-block">
+                  <div className="report-heading">
+                    <h3>문맥 판단</h3>
+                    <span>{contextJudgmentLabel(review.contextJudgment.type)}</span>
+                  </div>
+                  <p>{review.contextJudgment.explanation}</p>
+                </section>
+              )}
+
+              {review && ai && (
+                <div className="score-row result-block">
+                  <div className="score">{review.riskScore}</div>
+                  <div>
+                    <strong>판정 위험 점수</strong>
+                    <p>
+                      {engine === "gemma" ? "Gemma 4" : "Codex"}가 전체 문맥을 바탕으로
+                      산정한 참고 점수이며, 위 판정을 변경하지 않습니다.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {review && (
+                <section className="suggested-rewrite result-block">
+                  <h3>수정 문구 제안</h3>
+                  <p>{review.suggestedRewrite ?? "현재 제안할 수정 문구가 없습니다."}</p>
                 </section>
               )}
 
@@ -583,18 +564,19 @@ export default function App() {
             {history.length === 0
               ? <p className="muted">저장된 분석이 없습니다.</p>
               : history.slice(0, 5).map((record) => (
-                <button key={record.id} onClick={() => {
+                <button key={record.id} disabled={interactionLocked} onClick={() => {
+                  const nextEngine = effectiveHistoryEngine(record);
                   setInput(record.input);
                   setRules(record.rules);
                   setAi(record.ai);
                   setFocus(record.focus ?? "balanced");
-                  setEngine(record.engine);
+                  setEngine(nextEngine);
                   setIssues(record.validationIssues);
                 }}>
                   <span>{record.input}</span>
-                  <small>{record.engine === "codex"
+                  <small>{effectiveHistoryEngine(record) === "codex"
                     ? "Codex"
-                    : record.engine === "gemma"
+                    : effectiveHistoryEngine(record) === "gemma"
                       ? "Gemma 4"
                       : "규칙 안전 모드"}</small>
                 </button>

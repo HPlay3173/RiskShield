@@ -61,9 +61,11 @@ export type ReviewReport = {
 
 export type AiAnalysis = {
   summary: string;
-  riskScore: number;
-  contextJudgment: ContextJudgment;
-  reviewReport: ReviewReport;
+  riskScore?: number;
+  contextJudgment?: ContextJudgment;
+  suggestedRewrite?: string | null;
+  /** v0.8.0 history compatibility only. New analyses do not request this report. */
+  reviewReport?: ReviewReport;
   findings: AiFinding[];
   model: string | null;
 };

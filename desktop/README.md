@@ -1,4 +1,4 @@
-# RiskShield Desktop v0.8.0
+# RiskShield Desktop v0.8.1
 
 Windows desktop client for RiskShield. Codex CLI is the primary analysis
 engine, Gemma 4 through the user's free Google AI Studio API key is the network fallback, and
@@ -21,8 +21,8 @@ read or stored by RiskShield. The app-server process owns its credential state.
 - Node.js 22.13+ and Rust stable only when building from source
 
 The Windows installers bundle the complete official Codex CLI 0.145.0 Windows
-x64 runtime. At startup RiskShield checks `RISKSHIELD_CODEX_BIN`, then an
-existing `codex.exe` on `PATH`, and finally its bundled runtime. End users do
+x64 runtime. At startup RiskShield checks `RISKSHIELD_CODEX_BIN`, then its
+verified bundled runtime, and only then an existing `codex.exe` on `PATH`. End users do
 not need Node.js, npm, a separate CLI install, or an OpenAI Platform API key.
 
 ## Local checks
@@ -52,14 +52,16 @@ MSI and NSIS installers containing that runtime as workflow artifacts.
 - Every evidence quote must be an exact substring of the source.
 - Rewrites containing a number absent from the source are rejected.
 - A valid Codex or Gemma result is never capped or overridden by local rules.
-- Codex and Gemma independently return a 0–100 risk score, a primary context
-  judgment, and a structured review report in the same analysis call.
+- The original Codex or Gemma summary, findings, and finding-based verdict stay
+  unchanged. Context judgment, a 0–100 reference score, and one suggested
+  rewrite are added underneath; the score never overrides the original verdict.
 - When local rules are the final fallback, the existing Analyzer v4 score,
-  speech-act classification, reasons, recommendation, and safe rewrite are
-  presented through the same result layout without pretending that an AI
-  context review occurred.
+  speech-act classification, reasons, recommendation, and safe rewrite remain
+  the source of the three additions without pretending that an AI context
+  review occurred.
 - Analysis history is stored locally in SQLite under the operating system's
-  application-data directory.
+  application-data directory. Legacy Codex history is migrated without being
+  mislabeled as a rules-only result.
 
 ## Analysis views and local administration
 

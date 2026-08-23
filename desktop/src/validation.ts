@@ -2,7 +2,6 @@ import type {
   AiAnalysis,
   AiFinding,
   ContextJudgment,
-  ReviewReport,
   RulesAnalysis,
   ValidationIssue,
 } from "./types";
@@ -50,22 +49,6 @@ function isContextJudgment(value: unknown): value is ContextJudgment {
   );
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isReviewReport(value: unknown): value is ReviewReport {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<ReviewReport>;
-  return (
-    typeof item.verdict === "string"
-    && isStringArray(item.keyIssues)
-    && isStringArray(item.potentialRisks)
-    && typeof item.recommendation === "string"
-    && (item.rewrite === null || typeof item.rewrite === "string")
-  );
-}
-
 export function parseAiAnalysis(raw: string): AiAnalysis {
   const value = JSON.parse(raw) as Partial<AiAnalysis>;
   if (
@@ -75,7 +58,7 @@ export function parseAiAnalysis(raw: string): AiAnalysis {
     value.riskScore < 0 ||
     value.riskScore > 100 ||
     !isContextJudgment(value.contextJudgment) ||
-    !isReviewReport(value.reviewReport) ||
+    !(value.suggestedRewrite === null || typeof value.suggestedRewrite === "string") ||
     !Array.isArray(value.findings) ||
     !value.findings.every(isFinding)
   ) {
@@ -85,7 +68,7 @@ export function parseAiAnalysis(raw: string): AiAnalysis {
     summary: value.summary,
     riskScore: Math.round(value.riskScore),
     contextJudgment: value.contextJudgment,
-    reviewReport: value.reviewReport,
+    suggestedRewrite: value.suggestedRewrite,
     findings: value.findings,
     model: typeof value.model === "string" ? value.model : null,
   };
@@ -99,12 +82,12 @@ export function validateAiAnalysis(
   const sourceNormalized = normalized(source);
   const sourceNumbers = numbers(source);
 
-  if (analysis.reviewReport.rewrite) {
-    for (const token of numbers(analysis.reviewReport.rewrite)) {
+  if (analysis.suggestedRewrite) {
+    for (const token of numbers(analysis.suggestedRewrite)) {
       if (!sourceNumbers.has(token)) {
         issues.push({
           code: "invented_number",
-          message: `검토 리포트의 대체 문구에 원문에 없던 수치(${token})가 추가됐습니다.`,
+          message: `수정 문구 제안에 원문에 없던 수치(${token})가 추가됐습니다.`,
         });
       }
     }
@@ -149,7 +132,7 @@ export function filterValidAiFindings(
       summary: analysis.summary,
       riskScore: analysis.riskScore,
       contextJudgment: analysis.contextJudgment,
-      reviewReport: { ...analysis.reviewReport, rewrite: null },
+      suggestedRewrite: null,
       findings: [finding],
       model: analysis.model,
     }).map((issue) => ({
@@ -168,17 +151,14 @@ export function filterValidAiFindings(
     analysis: {
       ...analysis,
       findings,
-      reviewReport: reportIssues.length
-        ? { ...analysis.reviewReport, rewrite: null }
-        : analysis.reviewReport,
+      suggestedRewrite: reportIssues.length ? null : analysis.suggestedRewrite,
     },
     issues,
   };
 }
 
 export function statusFromAi(ai: AiAnalysis): RulesAnalysis["status"] {
-  if (ai.riskScore >= 80) return "high";
-  if (ai.riskScore >= 70) return "attention";
-  if (ai.riskScore > 0) return "review";
+  if (ai.findings.some((finding) => finding.severity === "high")) return "high";
+  if (ai.findings.some((finding) => finding.severity === "review")) return "review";
   return "no_match";
 }
